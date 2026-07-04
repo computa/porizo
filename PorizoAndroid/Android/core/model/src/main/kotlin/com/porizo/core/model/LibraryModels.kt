@@ -66,4 +66,6 @@ data class PlayableTrack(
     val artworkUrl: String?,
     val streamUrl: String,
     val isOwnedContent: Boolean,
+    val requiresAuthorization: Boolean = isOwnedContent,
+    val requiresDeviceToken: Boolean = false,
 )

@@ -30,8 +30,13 @@ class PoemLibraryTest {
         assertEquals("p9", track.id)
         assertEquals("/poems/p9/audio", track.streamUrl)
         assertEquals("Sarah", track.recipientName)
-        assertTrue(PoemLibrary.playableTrack(poem(origin = null), "/a").isOwnedContent)
-        assertFalse(PoemLibrary.playableTrack(poem(origin = "received"), "/a").isOwnedContent)
+        val owned = PoemLibrary.playableTrack(poem(origin = null), "/a")
+        assertTrue(owned.isOwnedContent)
+        assertTrue(owned.requiresAuthorization)
+
+        val received = PoemLibrary.playableTrack(poem(origin = "received"), "/a")
+        assertFalse(received.isOwnedContent)
+        assertTrue(received.requiresAuthorization)
     }
 
     private fun poem(

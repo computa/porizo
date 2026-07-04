@@ -13,11 +13,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.net.URI
 
 class PorizoPlayer(
     private val engine: AudioPlaybackEngine,
     private val baseUrl: String,
     private val accessTokenProvider: () -> String?,
+    private val deviceTokenProvider: () -> String? = { null },
 ) : PlayerController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlayerUiState())
@@ -27,7 +29,13 @@ class PorizoPlayer(
 
     override fun play(track: PlayableTrack) {
         val absoluteUrl = StreamingPolicy.absoluteUrl(track.streamUrl, baseUrl)
-        val headers = StreamingPolicy.headersFor(track, accessTokenProvider())
+        val headers = StreamingPolicy.headersFor(
+            track = track,
+            absoluteUrl = absoluteUrl,
+            baseUrl = baseUrl,
+            accessToken = accessTokenProvider(),
+            deviceToken = deviceTokenProvider(),
+        )
         engine.prepare(
             url = absoluteUrl,
             headers = headers,
@@ -118,12 +126,23 @@ class PorizoPlayer(
 }
 
 object StreamingPolicy {
-    fun headersFor(track: PlayableTrack, accessToken: String?): Map<String, String> =
-        if (track.isOwnedContent && !accessToken.isNullOrBlank()) {
-            mapOf("Authorization" to "Bearer $accessToken")
-        } else {
-            emptyMap()
+    fun headersFor(
+        track: PlayableTrack,
+        absoluteUrl: String,
+        baseUrl: String,
+        accessToken: String?,
+        deviceToken: String? = null,
+    ): Map<String, String> {
+        if (!isSameOrigin(absoluteUrl, baseUrl)) return emptyMap()
+        return buildMap {
+            if (track.requiresAuthorization && !accessToken.isNullOrBlank()) {
+                put("Authorization", "Bearer $accessToken")
+            }
+            if (track.requiresDeviceToken && !deviceToken.isNullOrBlank()) {
+                put("x-device-token", deviceToken)
+            }
         }
+    }
 
     fun absoluteUrl(rawUrl: String, baseUrl: String): String {
         val trimmed = rawUrl.trim()
@@ -132,4 +151,26 @@ object StreamingPolicy {
         val path = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
         return base + path
     }
+
+    private fun isSameOrigin(absoluteUrl: String, baseUrl: String): Boolean {
+        val url = absoluteUrl.toUriOrNull() ?: return false
+        val base = baseUrl.toUriOrNull() ?: return false
+        return url.scheme.equals(base.scheme, ignoreCase = true) &&
+            url.host.equals(base.host, ignoreCase = true) &&
+            url.effectivePort() == base.effectivePort()
+    }
+
+    private fun String.toUriOrNull(): URI? =
+        runCatching { URI(this) }.getOrNull()
+
+    private fun URI.effectivePort(): Int =
+        if (port >= 0) {
+            port
+        } else {
+            when (scheme?.lowercase()) {
+                "http" -> 80
+                "https" -> 443
+                else -> -1
+            }
+        }
 }

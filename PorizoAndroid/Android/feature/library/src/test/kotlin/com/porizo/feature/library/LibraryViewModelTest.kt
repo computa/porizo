@@ -17,12 +17,14 @@ import com.porizo.core.model.ShareInfo
 import com.porizo.core.model.ShareStreamResult
 import com.porizo.core.model.TrackDetail
 import com.porizo.core.model.TrackSummary
+import com.porizo.core.model.TrackVersion
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -70,7 +72,48 @@ class LibraryViewModelTest {
         assertFalse(viewModel.uiState.value.tracks.any { it.id == "track-1" })
     }
 
-    private fun track(id: String, title: String): TrackSummary =
+    @Test
+    fun receivedSongPlaybackUsesShareStreamInsteadOfOwnerTrackDetail() = runTest(dispatcher) {
+        val track = track(
+            id = "track-1",
+            title = "Sarah Song",
+            origin = "received",
+            shareTokenId = "share-1",
+        )
+        val libraryRepository = FakeLibraryRepository(
+            tracks = mutableListOf(track),
+            detail = TrackDetail(
+                track = track,
+                versions = listOf(TrackVersion("v1", 1, "ready", "/preview.m4a", "/owner-full.m4a", null, null, null, null)),
+            ),
+        )
+        val shareRepository = FakeShareRepository(
+            streams = mapOf("share-1" to ShareStreamResult("/share/share-1/playlist", "hls", null, null)),
+        )
+        val player = FakePlayerController()
+        val viewModel = SongsViewModel(
+            libraryRepository = libraryRepository,
+            shareRepository = shareRepository,
+            shareDispatcher = FakeShareDispatcher(),
+            player = player,
+        )
+
+        viewModel.play(track)
+        advanceUntilIdle()
+
+        assertEquals(listOf("share-1"), shareRepository.shareStreamIds)
+        assertEquals(0, libraryRepository.trackDetailRequests)
+        assertEquals("/share/share-1/playlist", player.playedTrack?.streamUrl)
+        assertFalse(player.playedTrack?.requiresAuthorization == true)
+        assertTrue(player.playedTrack?.requiresDeviceToken == true)
+    }
+
+    private fun track(
+        id: String,
+        title: String,
+        origin: String? = null,
+        shareTokenId: String? = null,
+    ): TrackSummary =
         TrackSummary(
             id = id,
             title = title,
@@ -78,9 +121,9 @@ class LibraryViewModelTest {
             recipientName = "Sarah",
             status = "ready",
             latestVersion = 1,
-            shareTokenId = null,
+            shareTokenId = shareTokenId,
             artworkUrl = null,
-            libraryOrigin = null,
+            libraryOrigin = origin,
             canShare = true,
             canDelete = true,
         )
@@ -89,11 +132,16 @@ class LibraryViewModelTest {
 private class FakeLibraryRepository(
     private val tracks: MutableList<TrackSummary> = mutableListOf(),
     private val poems: MutableList<PoemSummary> = mutableListOf(),
+    private val detail: TrackDetail? = null,
 ) : LibraryRepository {
     val deletedTrackIds = mutableListOf<String>()
+    var trackDetailRequests = 0
 
     override suspend fun tracks(): List<TrackSummary> = tracks
-    override suspend fun track(trackId: String): TrackDetail = error("unused")
+    override suspend fun track(trackId: String): TrackDetail {
+        trackDetailRequests += 1
+        return detail ?: error("unused")
+    }
     override suspend fun deleteTrack(trackId: String) {
         deletedTrackIds += trackId
         tracks.removeAll { it.id == trackId }
@@ -103,12 +151,19 @@ private class FakeLibraryRepository(
     override suspend fun poemAudio(poemId: String): String? = null
 }
 
-private class FakeShareRepository : ShareRepository {
+private class FakeShareRepository(
+    private val streams: Map<String, ShareStreamResult> = emptyMap(),
+) : ShareRepository {
+    val shareStreamIds = mutableListOf<String>()
+
     override suspend fun createTrackShare(trackId: String, versionNum: Int, requirePin: Boolean): CreateShareResult = error("unused")
     override suspend fun createPoemShare(poemId: String): CreateShareResult = error("unused")
     override suspend fun shareInfo(shareId: String): ShareInfo = error("unused")
     override suspend fun claimShare(shareId: String, pin: String?): ShareClaimResult = error("unused")
-    override suspend fun shareStream(shareId: String): ShareStreamResult = error("unused")
+    override suspend fun shareStream(shareId: String): ShareStreamResult {
+        shareStreamIds += shareId
+        return streams[shareId] ?: error("unused")
+    }
     override suspend fun poemShareInfo(shareId: String): PoemShareInfo = error("unused")
     override suspend fun poemShareBody(shareId: String): PoemBody? = error("unused")
     override suspend fun claimPoemShare(shareId: String, pin: String?): ShareClaimResult = error("unused")
@@ -126,7 +181,10 @@ private class FakeShareDispatcher : ShareDispatcher {
 
 private class FakePlayerController : PlayerController {
     override val state = MutableStateFlow(PlayerUiState())
-    override fun play(track: PlayableTrack) = Unit
+    var playedTrack: PlayableTrack? = null
+    override fun play(track: PlayableTrack) {
+        playedTrack = track
+    }
     override fun toggle() = Unit
     override fun seekToFraction(fraction: Float) = Unit
     override fun clear() = Unit

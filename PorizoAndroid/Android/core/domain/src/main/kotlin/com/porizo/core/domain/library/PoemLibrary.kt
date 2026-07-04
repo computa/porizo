@@ -26,5 +26,6 @@ object PoemLibrary {
             artworkUrl = null,
             streamUrl = audioUrl,
             isOwnedContent = !poem.isReceived,
+            requiresAuthorization = true,
         )
 }

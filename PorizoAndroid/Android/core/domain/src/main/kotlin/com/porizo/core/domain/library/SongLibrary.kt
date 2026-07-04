@@ -42,9 +42,16 @@ object SongLibrary {
     fun playableTrack(summary: TrackSummary, versions: List<TrackVersion>): PlayableTrack? {
         val version = versions
             .sortedByDescending { it.versionNum }
-            .firstOrNull { it.playableUrl != null }
+            .firstOrNull { version ->
+                if (summary.isReceived) {
+                    version.previewUrl != null
+                } else {
+                    version.playableUrl != null
+                }
+            }
             ?: return null
-        val url = version.playableUrl ?: return null
+        val url = (if (summary.isReceived) version.previewUrl else version.playableUrl)
+            ?: return null
         return PlayableTrack(
             id = summary.id,
             title = summary.title,
@@ -52,6 +59,7 @@ object SongLibrary {
             artworkUrl = summary.artworkUrl,
             streamUrl = url,
             isOwnedContent = !summary.isReceived,
+            requiresAuthorization = !summary.isReceived,
         )
     }
 }

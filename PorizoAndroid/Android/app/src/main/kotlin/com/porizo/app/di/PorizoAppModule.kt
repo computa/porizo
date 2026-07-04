@@ -13,6 +13,7 @@ import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.BillingRepository
 import com.porizo.core.domain.repository.CreateRepository
+import com.porizo.core.domain.repository.DeviceTrustRepository
 import com.porizo.core.domain.repository.LibraryRepository
 import com.porizo.core.domain.repository.PushRepository
 import com.porizo.core.domain.repository.RenderRepository
@@ -92,6 +93,10 @@ object PorizoAppModule {
         dataGraph.pushRepository
 
     @Provides
+    fun provideDeviceTrustRepository(dataGraph: PorizoDataGraph): DeviceTrustRepository =
+        dataGraph.deviceTrustRepository
+
+    @Provides
     fun provideVoiceEnrollmentRepository(dataGraph: PorizoDataGraph): VoiceEnrollmentRepository =
         dataGraph.voiceEnrollmentRepository
 
@@ -105,6 +110,7 @@ object PorizoAppModule {
             engine = Media3AudioPlaybackEngine(context),
             baseUrl = BuildConfig.PORIZO_API_BASE_URL,
             accessTokenProvider = { dataGraph.currentAccessToken() },
+            deviceTokenProvider = { dataGraph.currentDeviceToken() },
         )
 
     @Provides

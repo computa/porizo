@@ -6,7 +6,7 @@ import com.porizo.core.model.PoemShareInfo
 object PoemClaimLogic {
     fun stateFor(info: PoemShareInfo): ClaimLogic.State =
         when (info.status) {
-            "unbound" -> ClaimLogic.State.Claimable(
+            "active", "unbound" -> ClaimLogic.State.Claimable(
                 needsPin = info.requiresPinForClaim ?: info.requiresPin ?: false,
             )
             "claimed" -> ClaimLogic.State.Claimed

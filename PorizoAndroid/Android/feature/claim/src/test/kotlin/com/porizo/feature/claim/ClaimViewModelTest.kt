@@ -26,6 +26,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,6 +77,8 @@ class ClaimViewModelTest {
         )
         assertEquals(ClaimPhase.Claimed, viewModel.uiState.value.phase)
         assertEquals("https://stream.local/claim.m3u8", player.playedTrack?.streamUrl)
+        assertFalse(player.playedTrack?.requiresAuthorization == true)
+        assertTrue(player.playedTrack?.requiresDeviceToken == true)
         assertEquals(
             ClaimCompletion(
                 kind = ClaimKind.ReceiverHandoff,

@@ -236,7 +236,9 @@ class ClaimViewModel @Inject constructor(
             recipientName = state.subtitle,
             artworkUrl = null,
             streamUrl = streamUrl,
-            isOwnedContent = true,
+            isOwnedContent = false,
+            requiresAuthorization = false,
+            requiresDeviceToken = true,
         )
     }
 

@@ -3,6 +3,7 @@ package com.porizo.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.porizo.core.domain.platform.DeviceTrustGateway
+import com.porizo.core.domain.platform.DeviceTrustSnapshot
 import com.porizo.core.domain.platform.PlatformResult
 import com.porizo.core.domain.platform.PlayBillingGateway
 import com.porizo.core.domain.platform.PushGateway
@@ -11,6 +12,7 @@ import com.porizo.core.domain.platform.PushRouteStore
 import com.porizo.core.domain.platform.VoiceRecorder
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.BillingRepository
+import com.porizo.core.domain.repository.DeviceTrustRepository
 import com.porizo.core.domain.repository.PushRepository
 import com.porizo.core.domain.repository.VoiceEnrollmentRepository
 import com.porizo.core.model.EnrollmentSession
@@ -35,6 +37,7 @@ class SettingsViewModel @Inject constructor(
     private val pushProvider: PushGateway,
     private val pushRouteStore: PushRouteStore,
     private val deviceTrustProvider: DeviceTrustGateway,
+    private val deviceTrustRepository: DeviceTrustRepository,
     private val recorderProvider: VoiceRecorder,
     private val config: SettingsPlatformConfig,
 ) : ViewModel() {
@@ -147,8 +150,12 @@ class SettingsViewModel @Inject constructor(
             } else {
                 billingRepository.submitGoogleReceipt(productId, purchaseToken)
             }
-            val acknowledgementStatus = if (result.success) {
-                billingProvider.acknowledgePurchase(productId)
+            val settlementStatus = if (result.success) {
+                if (isConsumable) {
+                    billingProvider.consumePurchase(productId)
+                } else {
+                    billingProvider.acknowledgePurchase(productId)
+                }
             } else {
                 null
             }
@@ -156,10 +163,11 @@ class SettingsViewModel @Inject constructor(
                 it.copy(
                     billingStatus = if (result.success) {
                         val label = if (isConsumable) "Gift purchase synced." else "Google receipt synced."
-                        "$label ${acknowledgementStatus.orEmpty()}".trim()
+                        "$label ${settlementStatus.orEmpty()}".trim()
                     } else {
                         "Google receipt was not accepted."
                     },
+                    purchaseToken = if (result.success && isConsumable) "" else it.purchaseToken,
                     entitlements = result.entitlements ?: it.entitlements,
                 )
             }
@@ -202,7 +210,11 @@ class SettingsViewModel @Inject constructor(
                         if (result.success) {
                             synced += 1
                             latestEntitlements = result.entitlements ?: latestEntitlements
-                            billingProvider.acknowledgePurchase(productId)
+                            if (isConsumableProduct(productId)) {
+                                billingProvider.consumePurchase(productId)
+                            } else {
+                                billingProvider.acknowledgePurchase(productId)
+                            }
                         } else {
                             failed += 1
                         }
@@ -237,12 +249,8 @@ class SettingsViewModel @Inject constructor(
             delay(1_000)
             val pushToken = pushProvider.pushToken().orEmpty()
             val pushSubscriptionId = pushProvider.subscriptionId().orEmpty()
-            val trustSnapshot = deviceTrustProvider.snapshot(
-                nonce = listOfNotNull(session?.userId, pushSubscriptionId.takeIf { it.isNotBlank() }, pushToken.takeIf { it.isNotBlank() })
-                    .joinToString(":")
-                    .takeIf { it.isNotBlank() },
-            )
             val backendPushIdentifier = pushSubscriptionId.ifBlank { pushToken }
+            val trustSnapshot = checkDeviceTrust(backendPushIdentifier.takeIf { it.isNotBlank() })
             val registrationStatus = if (backendPushIdentifier.isNotBlank()) {
                 pushRepository.registerPushToken(backendPushIdentifier)
                 "Backend push identifier registered."
@@ -261,6 +269,34 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+
+    private suspend fun checkDeviceTrust(deviceId: String?): DeviceTrustSnapshot =
+        runCatching {
+            val nonce = deviceTrustRepository.requestNonce(deviceId = deviceId, platform = ANDROID_PLATFORM)
+            val snapshot = deviceTrustProvider.snapshot(nonce.requestHash ?: nonce.nonce)
+            val integrityToken = snapshot.integrityToken?.takeIf { it.isNotBlank() }
+                ?: return@runCatching snapshot
+            val verification = deviceTrustRepository.verify(
+                nonce = nonce.nonce,
+                integrityToken = integrityToken,
+                appSetId = snapshot.appSetId,
+                packageName = null,
+            )
+            snapshot.copy(
+                appSetId = verification.appSetId ?: snapshot.appSetId,
+                status = when {
+                    verification.verified -> "Play Integrity verified."
+                    verification.status != null -> "Play Integrity not verified: ${verification.status}."
+                    else -> "Play Integrity not verified."
+                },
+            )
+        }.getOrElse { error ->
+            DeviceTrustSnapshot(
+                appSetId = null,
+                integrityToken = null,
+                status = "Device trust check failed: ${error.userMessage()}",
+            )
+        }
 
     fun disablePush() {
         runPush {
@@ -459,5 +495,6 @@ class SettingsViewModel @Inject constructor(
     private companion object {
         const val MIN_RECORDING_SECONDS = 1.0
         const val GOOGLE_IN_APP_PRODUCT_TYPE = "inapp"
+        const val ANDROID_PLATFORM = "android"
     }
 }

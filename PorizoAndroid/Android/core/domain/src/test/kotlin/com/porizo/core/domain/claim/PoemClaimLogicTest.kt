@@ -10,6 +10,8 @@ class PoemClaimLogicTest {
     fun poemShareStateMapping() {
         assertEquals(ClaimLogic.State.Claimable(false), PoemClaimLogic.stateFor(info("unbound")))
         assertEquals(ClaimLogic.State.Claimable(true), PoemClaimLogic.stateFor(info("unbound", pin = true)))
+        assertEquals(ClaimLogic.State.Claimable(false), PoemClaimLogic.stateFor(info("active")))
+        assertEquals(ClaimLogic.State.Claimable(true), PoemClaimLogic.stateFor(info("active", pin = true)))
         assertEquals(ClaimLogic.State.Claimed, PoemClaimLogic.stateFor(info("claimed")))
         assertEquals(ClaimLogic.State.Unavailable, PoemClaimLogic.stateFor(info("revoked")))
     }

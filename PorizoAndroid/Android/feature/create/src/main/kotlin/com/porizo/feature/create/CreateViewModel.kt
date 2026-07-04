@@ -466,7 +466,7 @@ class CreateViewModel @Inject constructor(
         }
 
         val lyrics = createRepository.generateStoryLyrics(storyId)
-        val track = createRepository.storyToTrack(storyId, state.voiceSource.apiValue)
+        val track = createRepository.storyToTrack(storyId, state.voiceSource.supportedBackendValue())
         val lyricsText = lyrics.lyrics.orEmpty()
         _uiState.update {
             it.copy(
@@ -731,6 +731,13 @@ class CreateViewModel @Inject constructor(
         when (this) {
             is PorizoFailure -> message ?: "Something went wrong."
             else -> message ?: "Something went wrong."
+        }
+
+    private fun VoiceSource.supportedBackendValue(): String =
+        when (this) {
+            VoiceSource.CreatorVoice -> VoiceSource.CreatorVoice.apiValue
+            VoiceSource.AiGuide,
+            VoiceSource.InstrumentalOnly -> VoiceSource.AiGuide.apiValue
         }
 
     private fun Throwable.policyTerms(): List<String> {

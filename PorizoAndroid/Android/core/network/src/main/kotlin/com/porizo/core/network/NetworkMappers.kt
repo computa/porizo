@@ -9,6 +9,8 @@ import com.porizo.core.model.CreateTrackRequest
 import com.porizo.core.model.CreateTrackResult
 import com.porizo.core.model.CreateVersionResult
 import com.porizo.core.model.DeviceRegistration
+import com.porizo.core.model.DeviceIntegrityNonce
+import com.porizo.core.model.DeviceIntegrityVerification
 import com.porizo.core.model.EnrollmentPrompt
 import com.porizo.core.model.EnrollmentQuality
 import com.porizo.core.model.EnrollmentSession
@@ -86,6 +88,15 @@ fun VerifyPhoneCodeDto.toModel() = VerifyPhoneCodeResult(
 )
 
 fun DeviceRegistrationDto.toModel() = DeviceRegistration(deviceToken, expiresAt)
+
+fun DeviceIntegrityNonceDto.toModel() = DeviceIntegrityNonce(nonce, requestHash, expiresAt)
+
+fun DeviceIntegrityVerifyDto.toModel() = DeviceIntegrityVerification(
+    verified = verified == true,
+    nonceValid = nonceValid,
+    status = status,
+    appSetId = appSetId,
+)
 
 fun SocialAuthDto.toModel() = SocialAuthResult(
     userId = userId,
@@ -166,7 +177,7 @@ fun PoemShareInfoDto.toModel() = PoemShareInfo(
 
 fun StoryGuidanceDto.toModel() = StoryGuidance(message, question)
 
-fun StoryLyricsDto.toModel() = StoryLyrics(lyrics, qualityScore)
+fun StoryLyricsDto.toModel() = StoryLyrics(lyrics?.toDisplayText(), qualityScore)
 
 fun StoryToTrackDto.toModel() = StoryToTrackResult(trackId, versionNum)
 
@@ -248,6 +259,23 @@ fun LyricsSection.toDto() = LyricsSectionDto(
     startTime = startTime,
     endTime = endTime,
 )
+
+private fun LyricsDocumentDto.toDisplayText(): String {
+    val parts = buildList {
+        title?.takeIf { it.isNotBlank() }?.let(::add)
+        sections
+            .flatMap { section ->
+                buildList {
+                    section.name.takeIf { it.isNotBlank() }?.let { add("[$it]") }
+                    addAll(section.lines.filter { it.isNotBlank() })
+                }
+            }
+            .takeIf { it.isNotEmpty() }
+            ?.let { lines -> add(lines.joinToString("\n")) }
+        anchorLine?.takeIf { it.isNotBlank() }?.let { add("Anchor: $it") }
+    }
+    return parts.joinToString("\n\n")
+}
 
 fun JobStatusDto.toModel() = JobStatus(
     id = id,

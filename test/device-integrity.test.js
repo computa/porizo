@@ -65,7 +65,8 @@ test("device integrity nonce and verify delegates token to verifier", async (t) 
   assert.equal(nonceRes.statusCode, 200, nonceRes.body);
   const nonceBody = JSON.parse(nonceRes.body);
   assert.ok(nonceBody.nonce);
-  assert.equal(nonceBody.request_hash, nonceBody.nonce);
+  assert.ok(nonceBody.request_hash);
+  assert.notEqual(nonceBody.request_hash, nonceBody.nonce);
 
   const verifyRes = await app.inject({
     method: "POST",
@@ -83,7 +84,7 @@ test("device integrity nonce and verify delegates token to verifier", async (t) 
   assert.equal(verifyBody.verified, true);
   assert.equal(verifyBody.nonce_valid, true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].requestHash, nonceBody.nonce);
+  assert.equal(calls[0].requestHash, nonceBody.request_hash);
   assert.equal(calls[0].integrityToken, "signed-google-token");
 });
 

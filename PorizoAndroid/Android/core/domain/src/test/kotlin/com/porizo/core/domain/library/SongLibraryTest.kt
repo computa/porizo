@@ -4,7 +4,9 @@ import com.porizo.core.model.TrackSummary
 import com.porizo.core.model.TrackVersion
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SongLibraryTest {
     @Test
@@ -65,11 +67,21 @@ class SongLibraryTest {
     }
 
     @Test
-    fun playableNilWhenNoUrlAndOwnedFlagFollowsOrigin() {
+    fun playableNilWhenNoUrlAndOwnedAuthFlagsFollowOrigin() {
         assertNull(SongLibrary.playableTrack(summary(), listOf(version(num = 1))))
         assertNull(SongLibrary.playableTrack(summary(), emptyList()))
-        assertEquals(true, SongLibrary.playableTrack(summary(origin = null), listOf(version(num = 1, full = "/f.m4a")))?.isOwnedContent)
-        assertEquals(false, SongLibrary.playableTrack(summary(origin = "received"), listOf(version(num = 1, full = "/f.m4a")))?.isOwnedContent)
+        val owned = SongLibrary.playableTrack(summary(origin = null), listOf(version(num = 1, full = "/f.m4a")))
+        assertTrue(owned?.isOwnedContent == true)
+        assertTrue(owned.requiresAuthorization)
+
+        val received = SongLibrary.playableTrack(
+            summary(origin = "received"),
+            listOf(version(num = 1, preview = "/preview.m4a", full = "/full.m4a")),
+        )
+        assertFalse(received?.isOwnedContent == true)
+        assertFalse(received?.requiresAuthorization == true)
+        assertEquals("/preview.m4a", received?.streamUrl)
+        assertNull(SongLibrary.playableTrack(summary(origin = "received"), listOf(version(num = 1, full = "/full.m4a"))))
     }
 
     private fun summary(

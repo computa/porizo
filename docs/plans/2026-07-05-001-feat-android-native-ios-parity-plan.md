@@ -130,9 +130,10 @@ Non-negotiable acceptance criteria for every feature module — verified against
   live. Native `core:network` re-implements the `AndroidAPIClient` surface in Kotlin.
 - **Android auth = phone-OTP + Google (Credential Manager)**, no Apple (iOS-only).
 - **Share links are lifetime** — never ship expiry-urgency copy (project memory).
-- **The one net-new backend dependency remains:** a **Google Play consumable-receipt
-  validation endpoint** for gift-token purchases (only subscription validation exists). This
-  gates the billing half of U9 (see Risks R-1).
+- **Google Play consumable-receipt validation now exists** at
+  `POST /billing/receipt/google/consumable`, and Android routes in-app gift SKUs through
+  the consumable receipt path. Remaining billing work is live Play Console provisioning,
+  purchase QA, and RTDN/webhook reconciliation (see Risks R-1/R-2).
 
 ---
 
@@ -145,8 +146,9 @@ parity, and that is only signed off at the U11 audit gate. Every UI below is a *
 native rebuild** (the Skip screens were deleted), so each carries a standing parity debt until
 the audit confirms it.
 
-Current reality (verified 2026-07-05): the native migration has committed code for **U1–U10
-and most of U11** (Skip package shell removed; `Sources/PorizoSkipSpike` is now empty). So the
+Current reality (verified 2026-07-04): the native migration has committed code for **U1–U10
+and most of U11** (Skip package shell removed; `Sources/PorizoSkipSpike` is no longer present
+in the repo). So the
 remaining work is **not "build the UIs" — it is verify/close parity** and finish release +
 external provisioning. Each unit's parity target cites the iOS reference and the gap-register
 IDs it closes.
@@ -217,15 +219,16 @@ voice chips (AI voices; My Voice "coming soon" per KTD7). **Verify:** `RenderCon
 
 `core:platform`: **Google Sign-In** (Credential Manager → `/auth/social`), **push**
 (OneSignal/FCM registration + notification-tap routing → track reveal), **billing** (Play
-Billing: subscriptions now; **consumables gated on R-1 backend endpoint**), **voice
-recorder** (enrollment capture — gated by KTD7, "My Voice" stays coming-soon until
+Billing: subscriptions plus Android gift consumables through the backend receipt endpoint),
+**voice recorder** (enrollment capture — gated by KTD7, "My Voice" stays coming-soon until
 product-ready). **Closes:** X6 (push), auth-Google, T2/T3 (billing), T8 (enrollment UI).
 **Parity:** push payload → `.trackReveal` (Songs tab); Google button self-disables until a
 Web Client ID is provisioned (external). **Verify:** `PushRouting`/billing unit tests;
 Google sign-in against live `/auth/social`; delivery/purchase are device+dashboard-validated.
 **Built (committed):** google auth wiring, native platform services, platform settings.
 **Remaining in U9:** confirm end-to-end wiring (Google → `/auth/social`, push tap → Songs,
-subscription purchase) against live/dashboard, and hold consumables until R-1.
+subscription + consumable purchase) against live/dashboard, and finish RTDN/webhook
+reconciliation before production billing sign-off.
 
 ### U10. Release identity, signing, icons, permissions, Play Store ✅ BUILT · ◑ PROVISIONING-PENDING
 
@@ -238,12 +241,12 @@ verify; internal-testing upload.
 
 ### U11. Skip removal + final parity audit ◑ IN PROGRESS
 
-Skip removal is **nearly done** — "remove skip package shell" is committed and
-`Sources/PorizoSkipSpike/` is now **empty** (delete the empty dir + any residual Gradle/plugin
-refs to finish). **The real outstanding work is the parity audit** — the sign-off this whole
-plan exists for: a **feature/color/design/flow pass vs iOS across every tab and flow**, clearing
+Skip removal is code-complete for the production Android app — "remove skip package shell" is
+committed and `Sources/PorizoSkipSpike/` is no longer present. Historical Skip references remain
+only in retired plans/inventory docs. **The real outstanding work is the parity audit** — the
+sign-off this whole plan exists for: a **feature/color/design/flow pass vs iOS across every tab and flow**, clearing
 each `◑ PARITY-PENDING` unit above and reconciling the gap register to closed. **Verify:** no
-Skip references remain (`rg -i skip` clean); full unit-test suite green; **side-by-side
+production Skip code references remain; full unit-test suite green; **side-by-side
 screenshot parity pass on every surface** in light and dark. **This is the gate that turns
 "BUILT" into "DONE."**
 
@@ -256,9 +259,9 @@ gift, settings, onboarding — feature/color/design/flow.
 
 ### Gated / blocked (carry-over from the Skip plan; still true)
 
-- **R-1 (blocks U9 billing consumables):** Android gift **consumable** purchases need a
-  **new backend Google-consumable-receipt endpoint** — only subscription validation exists.
-  Ship subscriptions-only first; defer consumables until the endpoint lands.
+- **R-1 (billing production hardening):** Android gift **consumable** purchases now have the
+  backend receipt endpoint and Android consume path. Production sign-off still needs Play
+  Console product QA and RTDN/webhook reconciliation.
 - **KTD7 (gates "My Voice"):** voice-cloning is not product-ready. The voice recorder /
   enrollment UI can be built, but "My Voice" stays disabled ("coming soon") until the product
   ships it. Never position on "your voice."
@@ -274,14 +277,15 @@ gift, settings, onboarding — feature/color/design/flow.
 
 ### Outside this plan
 
-- Backend changes beyond the one Google-consumable endpoint (R-1).
+- Backend billing reconciliation beyond the Android consumable receipt endpoint (RTDN/webhooks).
 - iOS app changes (this is the Android-native parity track; iOS is the reference).
 
 ---
 
 ## Risks & Dependencies
 
-- **R-1 (blocker, U9):** consumable-receipt backend endpoint — sequence before gift billing.
+- **R-1 (U9):** consumable-receipt endpoint is built; production gift billing still needs
+  live Play purchase QA plus RTDN/webhook reconciliation.
 - **R-2 (external, U9/U10):** push delivery (OneSignal/FCM) + Play Billing products +
   App Links `assetlinks.json` + signing require console/keystore setup.
 - **R-3 (parity fidelity):** native Compose removes the Skip render-divergence risk entirely
@@ -296,15 +300,17 @@ gift, settings, onboarding — feature/color/design/flow.
 ## Phased Delivery
 
 - **P0–P2 native code:** U1–U10 are **BUILT** (committed native Kotlin/Compose), and U11's
-  Skip removal is nearly done. So the app is code-complete on the native rebuild.
+  production Skip package removal is code-complete. So the app is code-complete on the native rebuild.
 - **The outstanding work is NOT more building — it is parity verification + provisioning:**
   - **Parity audit (the gate):** clear every `◑ PARITY-PENDING` unit (U4–U10) with a
     side-by-side feature/color/design/flow pass vs iOS, light + dark, on every tab and flow.
     Nothing is "done" until this closes the gap register.
   - **External provisioning:** Google Web Client ID, OneSignal/FCM dashboard, Play Console
     products, signing keystore, `assetlinks.json`.
-  - **Backend-gated:** gift consumables wait on the R-1 endpoint.
-  - **Cleanup:** delete the now-empty `Sources/PorizoSkipSpike/` + residual Skip build refs.
+  - **Backend/platform-gated:** gift consumables need live Play purchase QA plus RTDN/webhook
+    reconciliation.
+  - **Cleanup:** production Skip package shell is gone; keep remaining Skip references confined
+    to retired docs/inventory.
 
 ---
 

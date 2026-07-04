@@ -45,6 +45,20 @@ data class DeviceRegisterRequestDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class DeviceIntegrityNonceRequestDto(
+    @Json(name = "device_id") val deviceId: String?,
+    val platform: String?,
+)
+
+@JsonClass(generateAdapter = true)
+data class DeviceIntegrityVerifyRequestDto(
+    val nonce: String,
+    @Json(name = "integrity_token") val integrityToken: String,
+    @Json(name = "app_set_id") val appSetId: String?,
+    @Json(name = "package_name") val packageName: String?,
+)
+
+@JsonClass(generateAdapter = true)
 data class PhoneRegisterDto(
     @Json(name = "user_id") val userId: String?,
     @Json(name = "access_token") val accessToken: String?,
@@ -80,6 +94,21 @@ data class VerifyPhoneCodeDto(
 data class DeviceRegistrationDto(
     @Json(name = "device_token") val deviceToken: String,
     @Json(name = "expires_at") val expiresAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class DeviceIntegrityNonceDto(
+    val nonce: String,
+    @Json(name = "request_hash") val requestHash: String?,
+    @Json(name = "expires_at") val expiresAt: String?,
+)
+
+@JsonClass(generateAdapter = true)
+data class DeviceIntegrityVerifyDto(
+    val verified: Boolean?,
+    @Json(name = "nonce_valid") val nonceValid: Boolean?,
+    val status: String?,
+    @Json(name = "app_set_id") val appSetId: String?,
 )
 
 @JsonClass(generateAdapter = true)
@@ -237,15 +266,18 @@ data class ContinueStoryRequestDto(
 data class StartStoryDto(
     @Json(name = "story_id") val storyId: String,
     val question: String?,
+    @Json(name = "first_question") val firstQuestion: String?,
     @Json(name = "session_version") val sessionVersion: Int?,
 )
 
 @JsonClass(generateAdapter = true)
 data class ContinueStoryDto(
     val question: String?,
+    @Json(name = "next_question") val nextQuestion: String?,
     @Json(name = "session_version") val sessionVersion: Int?,
     @Json(name = "can_finish") val canFinish: Boolean?,
     @Json(name = "is_complete") val isComplete: Boolean?,
+    val complete: Boolean?,
 )
 
 @JsonClass(generateAdapter = true)
@@ -262,7 +294,7 @@ data class StoryGuidanceDto(
 
 @JsonClass(generateAdapter = true)
 data class StoryLyricsDto(
-    val lyrics: String?,
+    val lyrics: LyricsDocumentDto?,
     @Json(name = "quality_score") val qualityScore: Double?,
 )
 
@@ -377,18 +409,18 @@ data class LyricsWrapperDto(val lyrics: LyricsDocumentDto?)
 
 @JsonClass(generateAdapter = true)
 data class LyricsDocumentDto(
-    val title: String?,
-    val style: String?,
-    val sections: List<LyricsSectionDto>,
-    @Json(name = "anchor_line") val anchorLine: String?,
+    val title: String? = null,
+    val style: String? = null,
+    val sections: List<LyricsSectionDto> = emptyList(),
+    @Json(name = "anchor_line") val anchorLine: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
 data class LyricsSectionDto(
-    val name: String,
-    val lines: List<String>,
-    @Json(name = "startTime") val startTime: Double?,
-    @Json(name = "endTime") val endTime: Double?,
+    val name: String = "",
+    val lines: List<String> = emptyList(),
+    @Json(name = "startTime") val startTime: Double? = null,
+    @Json(name = "endTime") val endTime: Double? = null,
 )
 
 @JsonClass(generateAdapter = true)

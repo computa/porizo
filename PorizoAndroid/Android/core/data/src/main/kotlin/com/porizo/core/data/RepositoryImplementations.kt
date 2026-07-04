@@ -8,6 +8,7 @@ import com.porizo.core.domain.repository.BillingRepository
 import com.porizo.core.domain.repository.ConfirmStoryResult
 import com.porizo.core.domain.repository.ContinueStoryResult
 import com.porizo.core.domain.repository.CreateRepository
+import com.porizo.core.domain.repository.DeviceTrustRepository
 import com.porizo.core.domain.repository.LibraryRepository
 import com.porizo.core.domain.repository.PushRepository
 import com.porizo.core.domain.repository.RenderRepository
@@ -21,6 +22,8 @@ import com.porizo.core.model.BillingEntitlements
 import com.porizo.core.model.ChunkUploadResult
 import com.porizo.core.model.CreateDraft
 import com.porizo.core.model.CreateShareResult
+import com.porizo.core.model.DeviceIntegrityNonce
+import com.porizo.core.model.DeviceIntegrityVerification
 import com.porizo.core.model.DeviceRegistration
 import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
@@ -58,6 +61,8 @@ import com.porizo.core.network.CompleteEnrollmentRequestDto
 import com.porizo.core.network.ContinueStoryRequestDto
 import com.porizo.core.network.CreateShareRequestDto
 import com.porizo.core.network.DeviceRegisterRequestDto
+import com.porizo.core.network.DeviceIntegrityNonceRequestDto
+import com.porizo.core.network.DeviceIntegrityVerifyRequestDto
 import com.porizo.core.network.EnrollmentStartRequestDto
 import com.porizo.core.network.ErrorEnvelopeDto
 import com.porizo.core.network.GoogleConsumableReceiptRequestDto
@@ -249,7 +254,7 @@ class DefaultCreateRepository(
     ): StartStoryResult =
         protectedNetworkCall(sessionCoordinator) {
             val response = service.startStory(StartStoryRequestDto(initialPrompt, occasion, recipientName))
-            StartStoryResult(response.storyId, response.question, response.sessionVersion)
+            StartStoryResult(response.storyId, response.question ?: response.firstQuestion, response.sessionVersion)
         }
 
     override suspend fun continueStory(
@@ -260,10 +265,10 @@ class DefaultCreateRepository(
         protectedNetworkCall(sessionCoordinator) {
             val response = service.continueStory(storyId, ContinueStoryRequestDto(answer, expectedSessionVersion))
             ContinueStoryResult(
-                question = response.question,
+                question = response.question ?: response.nextQuestion,
                 sessionVersion = response.sessionVersion,
                 canFinish = response.canFinish,
-                isComplete = response.isComplete,
+                isComplete = response.isComplete ?: response.complete,
             )
         }
 
@@ -539,6 +544,33 @@ class DefaultPushRepository(
     override suspend fun clearPushToken() {
         sessionStore.clearDeviceToken()
     }
+}
+
+class DefaultDeviceTrustRepository(
+    private val service: PorizoApiService,
+    private val sessionCoordinator: AuthSessionCoordinator,
+) : DeviceTrustRepository {
+    override suspend fun requestNonce(deviceId: String?, platform: String?): DeviceIntegrityNonce =
+        protectedNetworkCall(sessionCoordinator) {
+            service.createDeviceIntegrityNonce(DeviceIntegrityNonceRequestDto(deviceId, platform)).toModel()
+        }
+
+    override suspend fun verify(
+        nonce: String,
+        integrityToken: String,
+        appSetId: String?,
+        packageName: String?,
+    ): DeviceIntegrityVerification =
+        protectedNetworkCall(sessionCoordinator) {
+            service.verifyDeviceIntegrity(
+                DeviceIntegrityVerifyRequestDto(
+                    nonce = nonce,
+                    integrityToken = integrityToken,
+                    appSetId = appSetId,
+                    packageName = packageName,
+                ),
+            ).toModel()
+        }
 }
 
 class DefaultVoiceEnrollmentRepository(

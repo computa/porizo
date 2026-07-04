@@ -13,6 +13,7 @@ import com.porizo.core.domain.repository.ShareRepository
 import com.porizo.core.domain.share.ShareDispatchResult
 import com.porizo.core.domain.share.ShareDispatcher
 import com.porizo.core.model.PorizoFailure
+import com.porizo.core.model.PlayableTrack
 import com.porizo.core.model.PoemSummary
 import com.porizo.core.model.TrackSummary
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -59,13 +60,7 @@ class SongsViewModel @Inject constructor(
 
         viewModelScope.launch {
             _uiState.update { it.copy(message = null) }
-            runCatching { libraryRepository.track(track.id) }
-                .mapCatching { detail ->
-                    SongLibrary.playableTrack(detail.track, detail.versions)
-                        ?: throw PorizoFailure.Unknown(
-                            "No playable audio is available yet. Refresh the library after rendering finishes.",
-                        )
-                }
+            runCatching { playableSong(track) }
                 .onSuccess(player::play)
                 .onFailure { error ->
                     _uiState.update { it.copy(message = error.userMessage()) }
@@ -164,6 +159,31 @@ class SongsViewModel @Inject constructor(
                 }
                 .onFailure { error -> _uiState.update { it.copy(message = error.userMessage()) } }
         }
+    }
+
+    private suspend fun playableSong(track: TrackSummary): PlayableTrack {
+        val shareTokenId = track.shareTokenId?.takeIf { it.isNotBlank() }
+        if (track.isReceived && shareTokenId != null) {
+            val stream = shareRepository.shareStream(shareTokenId)
+            val streamUrl = stream.streamUrl.takeIf { it.isNotBlank() }
+                ?: throw PorizoFailure.Unknown("This received song stream is not ready yet. Try again after refreshing.")
+            return PlayableTrack(
+                id = track.id,
+                title = track.title,
+                recipientName = track.recipientName,
+                artworkUrl = track.artworkUrl,
+                streamUrl = streamUrl,
+                isOwnedContent = false,
+                requiresAuthorization = false,
+                requiresDeviceToken = true,
+            )
+        }
+
+        val detail = libraryRepository.track(track.id)
+        return SongLibrary.playableTrack(detail.track, detail.versions)
+            ?: throw PorizoFailure.Unknown(
+                "No playable audio is available yet. Refresh the library after rendering finishes.",
+            )
     }
 }
 

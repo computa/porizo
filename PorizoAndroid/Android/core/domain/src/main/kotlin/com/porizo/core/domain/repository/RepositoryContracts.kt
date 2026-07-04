@@ -8,6 +8,8 @@ import com.porizo.core.model.ChunkUploadResult
 import com.porizo.core.model.CreateDraft
 import com.porizo.core.model.CreateShareResult
 import com.porizo.core.model.DeviceRegistration
+import com.porizo.core.model.DeviceIntegrityNonce
+import com.porizo.core.model.DeviceIntegrityVerification
 import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
 import com.porizo.core.model.JobStatus
@@ -147,6 +149,16 @@ interface BillingRepository {
 interface PushRepository {
     suspend fun registerPushToken(token: String)
     suspend fun clearPushToken()
+}
+
+interface DeviceTrustRepository {
+    suspend fun requestNonce(deviceId: String?, platform: String?): DeviceIntegrityNonce
+    suspend fun verify(
+        nonce: String,
+        integrityToken: String,
+        appSetId: String?,
+        packageName: String?,
+    ): DeviceIntegrityVerification
 }
 
 interface VoiceEnrollmentRepository {

@@ -35,6 +35,10 @@ function signNonce(payload, secret) {
   return `${encoded}.${signature}`;
 }
 
+function integrityRequestHashForNonce(nonce) {
+  return crypto.createHash("sha256").update(String(nonce || "")).digest("base64url");
+}
+
 function verifyNonce(nonce, secret) {
   const [encoded, signature] = String(nonce || "").split(".");
   if (!encoded || !signature) {
@@ -103,7 +107,7 @@ function registerDeviceTrustRoutes(
     const nonce = signNonce(payload, secret);
     reply.send({
       nonce,
-      request_hash: nonce,
+      request_hash: integrityRequestHashForNonce(nonce),
       expires_at: new Date(expiresAt).toISOString(),
     });
   });
@@ -168,7 +172,7 @@ function registerDeviceTrustRoutes(
     try {
       verification = await playIntegrityVerifier.verify({
         integrityToken,
-        requestHash: nonce,
+        requestHash: integrityRequestHashForNonce(nonce),
         nonce,
         userId,
         packageName: body.package_name || appConfig.GOOGLE_PLAY_PACKAGE_NAME,

@@ -412,22 +412,12 @@ private fun LyricsStep(
         }
         PolicyTermList(terms = state.policyTerms)
         PorizoSectionLabel("Voice")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            VoiceChoiceButton(
-                label = "AI voice",
-                selected = state.voiceSource == VoiceSource.AiGuide,
-                enabled = true,
-                onClick = { onVoiceSourceChange(VoiceSource.AiGuide) },
-                modifier = Modifier.weight(1f),
-            )
-            VoiceChoiceButton(
-                label = "Instrumental",
-                selected = state.voiceSource == VoiceSource.InstrumentalOnly,
-                enabled = true,
-                onClick = { onVoiceSourceChange(VoiceSource.InstrumentalOnly) },
-                modifier = Modifier.weight(1f),
-            )
-        }
+        VoiceChoiceButton(
+            label = "AI voice",
+            selected = state.voiceSource == VoiceSource.AiGuide || state.voiceSource == VoiceSource.InstrumentalOnly,
+            enabled = true,
+            onClick = { onVoiceSourceChange(VoiceSource.AiGuide) },
+        )
         VoiceChoiceButton(
             label = "My voice coming soon",
             selected = false,

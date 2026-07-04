@@ -6,6 +6,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
@@ -138,6 +139,28 @@ class PlayBillingProvider @Inject constructor(
         return lastStatus
     }
 
+    override fun consumePurchase(productId: String): String {
+        val token = lastPurchaseToken(productId)
+            ?: return "No purchase token is available to consume."
+        val client = ensureClient()
+        if (!client.isReady) {
+            connect(client, queryAfterConnect = true)
+            return "Play Billing is connecting before consumption."
+        }
+
+        val params = ConsumeParams.newBuilder()
+            .setPurchaseToken(token)
+            .build()
+        client.consumeAsync(params) { result, consumedToken ->
+            lastStatus = "Purchase consumption: ${result.describe()}"
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                clearPurchaseToken(productId, consumedToken)
+            }
+        }
+        lastStatus = "Consuming purchase after backend receipt acceptance."
+        return lastStatus
+    }
+
     override fun loadedProducts(): List<PlayProductSummary> =
         productDetailsById.values
             .sortedBy { it.productId }
@@ -256,6 +279,19 @@ class PlayBillingProvider @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun clearPurchaseToken(productId: String, token: String) {
+        if (purchaseTokensByProductId[productId] == token) {
+            purchaseTokensByProductId.remove(productId)
+        }
+        if (acknowledgedTokensByProductId[productId] == token) {
+            acknowledgedTokensByProductId.remove(productId)
+        }
+        preferences.edit()
+            .remove("$KEY_PURCHASE_PREFIX$productId")
+            .remove("$KEY_ACK_PREFIX$productId")
+            .apply()
     }
 
     private fun restorePersistedPurchases() {

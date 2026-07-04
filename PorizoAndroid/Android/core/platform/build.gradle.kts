@@ -37,4 +37,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.onesignal)
     implementation(libs.play.billing)
+    implementation(libs.play.integrity)
+    implementation(libs.play.services.appset)
 }

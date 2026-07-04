@@ -18,9 +18,11 @@ class PorizoDataGraph private constructor(
     val shareRepository: DefaultShareRepository,
     val billingRepository: DefaultBillingRepository,
     val pushRepository: DefaultPushRepository,
+    val deviceTrustRepository: DefaultDeviceTrustRepository,
     val voiceEnrollmentRepository: DefaultVoiceEnrollmentRepository,
 ) {
     fun currentAccessToken(): String? = sessionStore.currentAccessToken()
+    fun currentDeviceToken(): String? = sessionStore.currentDeviceToken()
 
     companion object {
         fun create(
@@ -74,6 +76,7 @@ class PorizoDataGraph private constructor(
                 shareRepository = shareRepository,
                 billingRepository = DefaultBillingRepository(apiService, sessionCoordinator),
                 pushRepository = DefaultPushRepository(apiService, sessionStore, sessionCoordinator, platform, appVersion),
+                deviceTrustRepository = DefaultDeviceTrustRepository(apiService, sessionCoordinator),
                 voiceEnrollmentRepository = DefaultVoiceEnrollmentRepository(apiService, sessionCoordinator),
             )
         }

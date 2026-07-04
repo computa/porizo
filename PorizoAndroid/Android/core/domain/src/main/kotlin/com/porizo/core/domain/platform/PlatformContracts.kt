@@ -27,6 +27,7 @@ interface PlayBillingGateway {
     fun lastPurchaseToken(productId: String): String?
     fun pendingReceiptProductIds(): List<String>
     fun acknowledgePurchase(productId: String): String
+    fun consumePurchase(productId: String): String
     fun loadedProducts(): List<PlayProductSummary>
     fun status(): String
 }
@@ -58,7 +59,7 @@ data class DeviceTrustSnapshot(
 )
 
 interface DeviceTrustGateway {
-    fun snapshot(nonce: String?): DeviceTrustSnapshot
+    suspend fun snapshot(requestHash: String?): DeviceTrustSnapshot
 }
 
 data class NativeRecording(

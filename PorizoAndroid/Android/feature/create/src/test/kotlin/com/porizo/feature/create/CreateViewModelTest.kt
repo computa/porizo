@@ -31,6 +31,7 @@ import com.porizo.core.model.StoryLyrics
 import com.porizo.core.model.StoryToPoemResult
 import com.porizo.core.model.StoryToTrackResult
 import com.porizo.core.model.TrackDetail
+import com.porizo.core.model.VoiceSource
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -90,9 +91,40 @@ class CreateViewModelTest {
         assertTrue(state.policyTerms.contains("specific artist name"))
         assertTrue(state.policyTerms.contains("Taylor Swift"))
     }
+
+    @Test
+    fun instrumentalVoiceSourceUsesSupportedBackendVoiceMode() = runTest(dispatcher) {
+        val createRepository = FakeCreateRepository()
+        val viewModel = CreateViewModel(
+            createRepository = createRepository,
+            renderRepository = RejectingRenderRepository(),
+            shareRepository = FakeShareRepository(),
+            player = FakePlayerController(),
+            shareDispatcher = FakeShareDispatcher(),
+        )
+        advanceUntilIdle()
+
+        viewModel.beginFromOnboarding(recipientName = "Sarah", message = "Make it specific.")
+        viewModel.updateVoiceSource(VoiceSource.InstrumentalOnly)
+        advanceUntilIdle()
+        viewModel.confirmName()
+        viewModel.startConversation()
+        advanceUntilIdle()
+        viewModel.updateDraftAnswer("She loves the bridge.")
+        viewModel.sendAnswer()
+        advanceUntilIdle()
+        viewModel.finishConversation()
+        advanceUntilIdle()
+        viewModel.approveLyricsAndRender()
+        advanceUntilIdle()
+
+        assertEquals(listOf("ai_voice"), createRepository.storyToTrackVoiceModes)
+    }
 }
 
 private class FakeCreateRepository : CreateRepository {
+    val storyToTrackVoiceModes = mutableListOf<String>()
+
     override suspend fun loadDraft(): CreateDraft? = null
     override suspend fun saveDraft(draft: CreateDraft) = Unit
     override suspend fun clearDraft() = Unit
@@ -106,8 +138,10 @@ private class FakeCreateRepository : CreateRepository {
     override suspend fun generateStoryLyrics(storyId: String): StoryLyrics =
         StoryLyrics("Verse one\nChorus", qualityScore = 0.9)
 
-    override suspend fun storyToTrack(storyId: String, voiceMode: String): StoryToTrackResult =
-        StoryToTrackResult("track-1", 1)
+    override suspend fun storyToTrack(storyId: String, voiceMode: String): StoryToTrackResult {
+        storyToTrackVoiceModes += voiceMode
+        return StoryToTrackResult("track-1", 1)
+    }
 
     override suspend fun storyToPoem(storyId: String): StoryToPoemResult =
         StoryToPoemResult(PoemBody("poem-1", "Poem", "Sarah", listOf("Line"), null))

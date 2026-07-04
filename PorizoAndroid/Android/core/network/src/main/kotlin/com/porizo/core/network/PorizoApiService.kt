@@ -39,6 +39,12 @@ interface PorizoApiService {
     @POST("device/register")
     suspend fun registerDevice(@Body body: DeviceRegisterRequestDto): DeviceRegistrationDto
 
+    @POST("device/integrity/nonce")
+    suspend fun createDeviceIntegrityNonce(@Body body: DeviceIntegrityNonceRequestDto): DeviceIntegrityNonceDto
+
+    @POST("device/integrity/verify")
+    suspend fun verifyDeviceIntegrity(@Body body: DeviceIntegrityVerifyRequestDto): DeviceIntegrityVerifyDto
+
     @GET("tracks")
     suspend fun getTracks(@Query("limit") limit: Int, @Query("offset") offset: Int): TracksDto
 

@@ -107,7 +107,7 @@ function createPlayIntegrityVerifier(options = {}) {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ integrity_token: integrityToken }),
+        body: JSON.stringify({ integrityToken }),
       },
     );
     if (!response.ok) {
@@ -124,12 +124,25 @@ function createPlayIntegrityVerifier(options = {}) {
     const payload = decoded.tokenPayloadExternal || decoded;
     const requestDetails = payload.requestDetails || {};
     const appIntegrity = payload.appIntegrity || {};
+    const deviceIntegrity = payload.deviceIntegrity || {};
     const expectedPackageName = packageName || config.packageName;
+    const payloadRequestHash = requestDetails.requestHash || requestDetails.nonce;
 
-    if (requestDetails.requestHash && requestDetails.requestHash !== requestHash) {
+    if (!payloadRequestHash || payloadRequestHash !== requestHash) {
       return {
         ok: false,
-        reason: "request_hash_mismatch",
+        reason: payloadRequestHash ? "request_hash_mismatch" : "request_hash_missing",
+        payload,
+      };
+    }
+    if (
+      expectedPackageName &&
+      requestDetails.requestPackageName &&
+      requestDetails.requestPackageName !== expectedPackageName
+    ) {
+      return {
+        ok: false,
+        reason: "request_package_mismatch",
         payload,
       };
     }
@@ -144,6 +157,29 @@ function createPlayIntegrityVerifier(options = {}) {
         payload,
       };
     }
+    if (appIntegrity.appRecognitionVerdict !== "PLAY_RECOGNIZED") {
+      return {
+        ok: false,
+        reason: "app_not_recognized",
+        payload,
+        appIntegrity,
+      };
+    }
+    const deviceVerdicts = Array.isArray(deviceIntegrity.deviceRecognitionVerdict)
+      ? deviceIntegrity.deviceRecognitionVerdict
+      : [];
+    if (
+      !deviceVerdicts.includes("MEETS_DEVICE_INTEGRITY") &&
+      !deviceVerdicts.includes("MEETS_STRONG_INTEGRITY")
+    ) {
+      return {
+        ok: false,
+        reason: "device_integrity_failed",
+        payload,
+        appIntegrity,
+        deviceIntegrity,
+      };
+    }
 
     return {
       ok: true,
@@ -151,7 +187,7 @@ function createPlayIntegrityVerifier(options = {}) {
       payload,
       requestDetails,
       appIntegrity,
-      deviceIntegrity: payload.deviceIntegrity || null,
+      deviceIntegrity,
       accountDetails: payload.accountDetails || null,
     };
   }
