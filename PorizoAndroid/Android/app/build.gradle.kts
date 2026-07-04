@@ -80,8 +80,10 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:domain"))
     implementation(project(":core:data"))
+    implementation(project(":core:media"))
     implementation(project(":core:ui"))
     implementation(project(":feature:auth"))
+    implementation(project(":feature:library"))
     implementation(project(":feature:onboarding"))
 
     implementation(platform(libs.androidx.compose.bom))

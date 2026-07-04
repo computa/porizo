@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.porizo.core.domain.deeplink.DeepLinkRoute
+import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.ui.FrauncesTitle
 import com.porizo.core.ui.PorizoBottomNavigationBar
 import com.porizo.core.ui.PorizoBottomNavigationItem
@@ -35,6 +36,12 @@ import com.porizo.core.ui.PorizoSecondaryButton
 import com.porizo.core.ui.PorizoSectionLabel
 import com.porizo.feature.auth.AuthPhase
 import com.porizo.feature.auth.AuthUiState
+import com.porizo.feature.library.MiniPlayerBar
+import com.porizo.feature.library.NowPlayingSheet
+import com.porizo.feature.library.PoemsScreen
+import com.porizo.feature.library.PoemsViewModel
+import com.porizo.feature.library.SongsScreen
+import com.porizo.feature.library.SongsViewModel
 
 @Composable
 fun AppNavigationShell(
@@ -43,10 +50,14 @@ fun AppNavigationShell(
     authState: AuthUiState,
     onSignInRequested: () -> Unit,
     onLogoutRequested: () -> Unit,
+    songsViewModel: SongsViewModel,
+    poemsViewModel: PoemsViewModel,
+    player: PorizoPlayer,
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var routeNotice by rememberSaveable { mutableStateOf<String?>(null) }
+    var showNowPlaying by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(pendingDeepLink) {
         val route = pendingDeepLink ?: return@LaunchedEffect
@@ -79,21 +90,39 @@ fun AppNavigationShell(
         modifier = modifier.fillMaxSize(),
         containerColor = PorizoColors.Background,
         bottomBar = {
-            PorizoBottomNavigationBar {
-                AppTab.entries.forEach { tab ->
-                    PorizoBottomNavigationItem(
-                        item = tab.toTabItem(),
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                    )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                MiniPlayerBar(
+                    player = player,
+                    onOpenNowPlaying = { showNowPlaying = true },
+                )
+                PorizoBottomNavigationBar {
+                    AppTab.entries.forEach { tab ->
+                        PorizoBottomNavigationItem(
+                            item = tab.toTabItem(),
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                        )
+                    }
                 }
             }
         },
     ) { innerPadding ->
         when (selectedTab) {
             AppTab.Home -> HomeScreen(routeNotice, innerPadding)
-            AppTab.Songs -> SongsScreen(routeNotice, innerPadding)
-            AppTab.Poems -> PoemsScreen(routeNotice, innerPadding)
+            AppTab.Songs -> SongsScreen(
+                viewModel = songsViewModel,
+                isAuthenticated = authState.isAuthenticated,
+                onSignInRequested = onSignInRequested,
+                routeNotice = routeNotice,
+                innerPadding = innerPadding,
+            )
+            AppTab.Poems -> PoemsScreen(
+                viewModel = poemsViewModel,
+                isAuthenticated = authState.isAuthenticated,
+                onSignInRequested = onSignInRequested,
+                routeNotice = routeNotice,
+                innerPadding = innerPadding,
+            )
             AppTab.Settings -> SettingsScreen(
                 authState = authState,
                 onSignInRequested = onSignInRequested,
@@ -101,6 +130,13 @@ fun AppNavigationShell(
                 innerPadding = innerPadding,
             )
         }
+    }
+
+    if (showNowPlaying) {
+        NowPlayingSheet(
+            player = player,
+            onDismiss = { showNowPlaying = false },
+        )
     }
 }
 
@@ -136,63 +172,6 @@ private fun HomeScreen(routeNotice: String?, innerPadding: PaddingValues) {
                 text = "Claim a gift",
                 onClick = {},
                 icon = Icons.Filled.Sms,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SongsScreen(routeNotice: String?, innerPadding: PaddingValues) {
-    PorizoScreen(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding),
-        title = "Songs",
-        subtitle = "Songs you make or receive stay here.",
-    ) {
-        RouteNotice(routeNotice)
-        PorizoCard {
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = null,
-                tint = PorizoColors.Accent,
-            )
-            Text(
-                text = "No songs yet",
-                color = PorizoColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "Finished songs and claimed gifts will appear in this library.",
-                color = PorizoColors.TextSecondary,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PoemsScreen(routeNotice: String?, innerPadding: PaddingValues) {
-    PorizoScreen(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding),
-        title = "Poems",
-        subtitle = "Keep written gifts and spoken versions together.",
-    ) {
-        RouteNotice(routeNotice)
-        PorizoCard {
-            Text(
-                text = "No poems yet",
-                color = PorizoColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "Poems you create or receive will appear here.",
-                color = PorizoColors.TextSecondary,
-                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }

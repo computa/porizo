@@ -81,6 +81,21 @@ U4 parity gate passed with `:core:ui:assembleDebug` and `:app:assembleDebug` on 
 
 U5 parity gate passed with `:feature:auth:assembleDebug`, `:feature:onboarding:assembleDebug`, and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, cleared app data, launched `com.porizo.app/.MainActivity`, confirmed the native onboarding screen was focused without a fatal logcat event, captured `/private/tmp/porizo-u5-onboarding-smoke.png`, and validated the Android accessibility hierarchy exposed large clickable onboarding choices.
 
+## U6 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/settings.gradle.kts` | native-owned | Added `:core:media` and `:feature:library`. |
+| `PorizoAndroid/Android/gradle/libs.versions.toml` | native-owned | Added Media3 and coroutines dependencies for native playback and state streaming. |
+| `PorizoAndroid/Android/core/media/**` | native-owned | Native Media3 playback engine, streaming URL/header policy, app-scoped player state, seek/toggle/clear controls, and progress polling. |
+| `PorizoAndroid/Android/feature/library/**` | native-owned | Native Songs and Poems feature module with repository-backed ViewModels, filters, signed-out states, poem detail, mini-player, and now-playing sheet. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/di/**` | native-owned | App graph now provides `LibraryRepository` and singleton native player without exposing datastore internals. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/PlayerViewModel.kt` | native-owned | Activity-scoped Hilt ViewModel carries the shared player without Activity field injection. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/navigation/**` | native-owned | Songs/Poems tabs now render native library screens and show the persistent mini-player above bottom navigation. |
+| `PorizoAndroid/Android/core/data/src/main/kotlin/com/porizo/core/data/PorizoDataGraph.kt` | native-owned | Added a narrow access-token accessor for streaming headers, preserving the `:core:data` to `:core:datastore` boundary. |
+
+U6 parity gate passed with `:core:media:assembleDebug`, `:feature:library:assembleDebug`, and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, cleared app data, launched `com.porizo.app/.MainActivity`, skipped onboarding via discovered accessibility bounds, opened the Songs tab via discovered tab bounds, confirmed the app process remained focused, captured `/private/tmp/porizo-u6-songs-smoke.png`, and verified the signed-out library CTA rendered natively.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |
@@ -93,8 +108,8 @@ U5 parity gate passed with `:feature:auth:assembleDebug`, `:feature:onboarding:a
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAppConfig.swift` | retain-reference | Native data graph owns base URL wiring; keep for U5-U10 config/signing audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAuthModel.swift` | retain-reference | Native auth shell exists; keep until U9 Google/platform auth parity and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidOnboardingModel.swift` | retain-reference | Native onboarding graph/UI exists; keep until U8 create-flow seed audit and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPlayerModel.swift` | migrate-or-delete | U6 player parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAudioPlayer.swift` | migrate-or-delete | U6 Media3 parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPlayerModel.swift` | retain-reference | Native player exists; keep until U8 reveal playback and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAudioPlayer.swift` | retain-reference | Native Media3 playback exists; keep until U8 reveal playback and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidClaimModel.swift` | migrate-or-delete | U7 claim parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidDeepLink.swift` | migrate-or-delete | U7 deep-link parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidShare.swift` | migrate-or-delete | U7 share intent parity. |
@@ -110,8 +125,8 @@ U5 parity gate passed with `:feature:auth:assembleDebug`, `:feature:onboarding:a
 | `PorizoAndroid/Sources/PorizoSkipSpike/ClaimLogic.swift` | migrate-or-delete | U2/U7 claim logic tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PoemClaimLogic.swift` | migrate-or-delete | U2/U7 poem claim tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ShareLogic.swift` | migrate-or-delete | U2/U7 share logic tests ported. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/SongLibrary.swift` | migrate-or-delete | U2/U6 library tests ported. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/PoemLibrary.swift` | migrate-or-delete | U2/U6 poem library tests ported. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/SongLibrary.swift` | retain-reference | Native pure logic and UI wiring exist; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/PoemLibrary.swift` | retain-reference | Native pure logic and UI wiring exist; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/StoryEngine.swift` | migrate-or-delete | U2/U8 story tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ViewModel.swift` | candidate-delete | U5-U8 ViewModel ports complete. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ContentView.swift` | candidate-delete | U4-U10 native screens complete. |
@@ -121,6 +136,8 @@ U5 parity gate passed with `:feature:auth:assembleDebug`, `:feature:onboarding:a
 | `PorizoAndroid/Sources/PorizoSkipSpike/PorizoSkipSpikeApp.swift` | candidate-delete | U11 after native app owns launch/deep links. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Views/AuthView.swift` | retain-reference | Native auth UI exists; keep until U9 Google/platform auth and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Views/Onboarding/OnboardingView.swift` | retain-reference | Native onboarding UI exists; keep until U8 create-flow seed audit and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/MiniPlayerBar.swift` | retain-reference | Native mini-player exists; keep until U8 reveal playback and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/NowPlayingView.swift` | retain-reference | Native now-playing sheet exists; keep until U8 reveal playback and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Views/**` | candidate-delete | U4-U8 screen parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Resources/**` | migrate-or-delete | U4 migrates useful assets/localization. |
 
@@ -128,7 +145,7 @@ U5 parity gate passed with `:feature:auth:assembleDebug`, `:feature:onboarding:a
 
 | Path | Status | Delete Gate |
 |---|---|---|
-| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeAudioBridge.kt` | migrate-or-delete | U6 native media parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeAudioBridge.kt` | retain-reference | Native Media3 engine exists; keep until U8 reveal playback and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeBillingBridge.kt` | migrate-or-delete | U9 billing parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeGoogleSignInBridge.kt` | migrate-or-delete | U5 Google sign-in parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativePushBridge.kt` | migrate-or-delete | U9 push parity. |

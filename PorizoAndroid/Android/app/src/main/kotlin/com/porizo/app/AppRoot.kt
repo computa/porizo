@@ -14,16 +14,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.porizo.app.navigation.AppNavigationShell
 import com.porizo.core.domain.deeplink.DeepLinkRoute
+import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoTheme
 import com.porizo.feature.auth.AuthScreen
 import com.porizo.feature.auth.AuthViewModel
+import com.porizo.feature.library.PoemsViewModel
+import com.porizo.feature.library.SongsViewModel
 import com.porizo.feature.onboarding.OnboardingScreen
 import com.porizo.feature.onboarding.OnboardingViewModel
 
 @Composable
 fun AppRoot(
     authViewModel: AuthViewModel,
+    songsViewModel: SongsViewModel,
+    poemsViewModel: PoemsViewModel,
+    player: PorizoPlayer,
     pendingDeepLink: DeepLinkRoute? = null,
     onDeepLinkConsumed: () -> Unit = {},
 ) {
@@ -69,6 +75,9 @@ fun AppRoot(
                         authState = authState,
                         onSignInRequested = { authRequested = true },
                         onLogoutRequested = authViewModel::logout,
+                        songsViewModel = songsViewModel,
+                        poemsViewModel = poemsViewModel,
+                        player = player,
                     )
                 }
             }

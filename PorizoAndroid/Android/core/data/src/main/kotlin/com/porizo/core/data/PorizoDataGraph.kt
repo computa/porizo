@@ -19,6 +19,8 @@ class PorizoDataGraph private constructor(
     val pushRepository: DefaultPushRepository,
     val voiceEnrollmentRepository: DefaultVoiceEnrollmentRepository,
 ) {
+    fun currentAccessToken(): String? = sessionStore.currentAccessToken()
+
     companion object {
         fun create(
             context: Context,
