@@ -26,7 +26,6 @@ enum class Occasion(val apiValue: String, val displayName: String) {
 enum class VoiceSource(val apiValue: String, val label: String) {
     CreatorVoice("user_voice", "Creator voice"),
     AiGuide("ai_voice", "AI guide vocal"),
-    InstrumentalOnly("instrumental", "Instrumental only"),
 }
 
 data class StoryMessage(

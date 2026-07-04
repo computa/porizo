@@ -15,4 +15,5 @@ interface AudioPlaybackEngine {
     fun currentPositionMs(): Long
     fun durationMs(): Long
     fun isPlaying(): Boolean
+    fun lastError(): String?
 }

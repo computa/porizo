@@ -93,7 +93,7 @@ class CreateViewModelTest {
     }
 
     @Test
-    fun instrumentalVoiceSourceUsesSupportedBackendVoiceMode() = runTest(dispatcher) {
+    fun aiGuideVoiceSourceUsesSupportedBackendVoiceMode() = runTest(dispatcher) {
         val createRepository = FakeCreateRepository()
         val viewModel = CreateViewModel(
             createRepository = createRepository,
@@ -105,7 +105,7 @@ class CreateViewModelTest {
         advanceUntilIdle()
 
         viewModel.beginFromOnboarding(recipientName = "Sarah", message = "Make it specific.")
-        viewModel.updateVoiceSource(VoiceSource.InstrumentalOnly)
+        viewModel.updateVoiceSource(VoiceSource.AiGuide)
         advanceUntilIdle()
         viewModel.confirmName()
         viewModel.startConversation()

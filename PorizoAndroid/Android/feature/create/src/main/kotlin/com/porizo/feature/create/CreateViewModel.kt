@@ -736,8 +736,7 @@ class CreateViewModel @Inject constructor(
     private fun VoiceSource.supportedBackendValue(): String =
         when (this) {
             VoiceSource.CreatorVoice -> VoiceSource.CreatorVoice.apiValue
-            VoiceSource.AiGuide,
-            VoiceSource.InstrumentalOnly -> VoiceSource.AiGuide.apiValue
+            VoiceSource.AiGuide -> VoiceSource.AiGuide.apiValue
         }
 
     private fun Throwable.policyTerms(): List<String> {

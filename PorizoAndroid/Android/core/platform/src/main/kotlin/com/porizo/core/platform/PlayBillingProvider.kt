@@ -31,6 +31,7 @@ class PlayBillingProvider @Inject constructor(
     private val purchaseTokensByProductId = ConcurrentHashMap<String, String>()
     private val acknowledgedTokensByProductId = ConcurrentHashMap<String, String>()
     private var lastStatus: String = "Play Billing has not started."
+    @Volatile private var connecting = false
     private var pendingSubscriptionIds: List<String> = emptyList()
     private var pendingOneTimeIds: List<String> = emptyList()
 
@@ -199,9 +200,12 @@ class PlayBillingProvider @Inject constructor(
             }
             return
         }
+        if (connecting) return
+        connecting = true
         lastStatus = "Connecting to Play Billing."
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(billingResult: BillingResult) {
+                connecting = false
                 lastStatus = "Billing setup: ${billingResult.describe()}"
                 if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && queryAfterConnect) {
                     queryProductsNow(client, pendingSubscriptionIds, pendingOneTimeIds)
@@ -210,6 +214,7 @@ class PlayBillingProvider @Inject constructor(
             }
 
             override fun onBillingServiceDisconnected() {
+                connecting = false
                 lastStatus = "Play Billing service disconnected."
             }
         })

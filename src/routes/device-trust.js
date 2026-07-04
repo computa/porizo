@@ -36,7 +36,10 @@ function signNonce(payload, secret) {
 }
 
 function integrityRequestHashForNonce(nonce) {
-  return crypto.createHash("sha256").update(String(nonce || "")).digest("base64url");
+  return crypto
+    .createHash("sha256")
+    .update(String(nonce || ""))
+    .digest("base64url");
 }
 
 function verifyNonce(nonce, secret) {
@@ -52,6 +55,31 @@ function verifyNonce(nonce, secret) {
     throw new Error("invalid_nonce_signature");
   }
   return decodeBase64UrlJson(encoded);
+}
+
+/**
+ * In-process single-use guard for integrity nonces. Nonces already carry a jti
+ * and an exp, so we record consumed jtis until their exp passes. This makes a
+ * verified nonce non-replayable without a persistent store; a durable table is
+ * the follow-up if verify needs to survive process restarts / horizontal scale.
+ */
+function createUsedNonceStore(now) {
+  const consumed = new Map(); // jti -> exp (ms)
+  function evictExpired() {
+    const current = now();
+    for (const [jti, exp] of consumed) {
+      if (exp <= current) consumed.delete(jti);
+    }
+  }
+  return {
+    // Returns true if newly consumed, false if the jti was already consumed.
+    consume(jti, exp) {
+      evictExpired();
+      if (consumed.has(jti)) return false;
+      consumed.set(jti, exp);
+      return true;
+    },
+  };
 }
 
 function isEnforced(appConfig) {
@@ -83,6 +111,7 @@ function registerDeviceTrustRoutes(
     throw new Error("PLAY_INTEGRITY_NONCE_SECRET or JWT_SECRET is required");
   }
   const ttlMs = Number(appConfig.PLAY_INTEGRITY_NONCE_TTL_MS || 10 * 60 * 1000);
+  const usedNonceStore = createUsedNonceStore(now);
 
   app.post("/device/integrity/nonce", async (request, reply) => {
     const userId = await requireUserId(request, reply);
@@ -118,7 +147,9 @@ function registerDeviceTrustRoutes(
     const body = request.body || {};
     const nonce = typeof body.nonce === "string" ? body.nonce.trim() : "";
     const integrityToken =
-      typeof body.integrity_token === "string" ? body.integrity_token.trim() : "";
+      typeof body.integrity_token === "string"
+        ? body.integrity_token.trim()
+        : "";
     if (!nonce || !integrityToken) {
       sendError(
         reply,
@@ -133,15 +164,54 @@ function registerDeviceTrustRoutes(
     try {
       noncePayload = verifyNonce(nonce, secret);
     } catch (_err) {
-      sendError(reply, 400, "INVALID_INTEGRITY_NONCE", "Integrity nonce is invalid.");
+      sendError(
+        reply,
+        400,
+        "INVALID_INTEGRITY_NONCE",
+        "Integrity nonce is invalid.",
+      );
       return;
     }
     if (noncePayload.exp < now()) {
-      sendError(reply, 400, "INTEGRITY_NONCE_EXPIRED", "Integrity nonce expired.");
+      sendError(
+        reply,
+        400,
+        "INTEGRITY_NONCE_EXPIRED",
+        "Integrity nonce expired.",
+      );
       return;
     }
     if (noncePayload.user_id !== userId) {
-      sendError(reply, 403, "INTEGRITY_NONCE_USER_MISMATCH", "Integrity nonce belongs to a different user.");
+      sendError(
+        reply,
+        403,
+        "INTEGRITY_NONCE_USER_MISMATCH",
+        "Integrity nonce belongs to a different user.",
+      );
+      return;
+    }
+
+    // Single-use: reject a nonce whose jti was already consumed (replay). A store
+    // failure is treated conservatively — do not mark the nonce consumed and fail
+    // the verify rather than silently allowing a potential replay through.
+    try {
+      if (!usedNonceStore.consume(noncePayload.jti, noncePayload.exp)) {
+        sendError(
+          reply,
+          409,
+          "INTEGRITY_NONCE_REPLAYED",
+          "Integrity nonce has already been used.",
+        );
+        return;
+      }
+    } catch (err) {
+      request.log.warn({ err }, "Integrity nonce replay guard failed");
+      sendError(
+        reply,
+        409,
+        "INTEGRITY_NONCE_REPLAYED",
+        "Integrity nonce could not be validated for reuse.",
+      );
       return;
     }
 
@@ -179,7 +249,12 @@ function registerDeviceTrustRoutes(
       });
     } catch (err) {
       request.log.warn({ err }, "Play Integrity verification failed");
-      sendError(reply, 502, "PLAY_INTEGRITY_UPSTREAM_FAILED", "Play Integrity verification failed.");
+      sendError(
+        reply,
+        502,
+        "PLAY_INTEGRITY_UPSTREAM_FAILED",
+        "Play Integrity verification failed.",
+      );
       return;
     }
     if (!verification?.ok) {

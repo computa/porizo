@@ -694,12 +694,8 @@ function registerBillingRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const {
-      purchase_token,
-      purchaseToken,
-      product_id,
-      productId,
-    } = request.body || {};
+    const { purchase_token, purchaseToken, product_id, productId } =
+      request.body || {};
     const resolvedPurchaseToken = purchase_token || purchaseToken;
     const resolvedProductId = product_id || productId;
 
@@ -757,7 +753,8 @@ function registerBillingRoutes(
       }
 
       const normalizedTransactionId =
-        validation.orderId || `google:${resolvedProductId}:${resolvedPurchaseToken}`;
+        validation.orderId ||
+        `google:${resolvedProductId}:${resolvedPurchaseToken}`;
       const existingReceipt =
         await subscriptionEntitlementsRepo.findPurchaseReceiptByTransactionId(
           normalizedTransactionId,
@@ -809,61 +806,116 @@ function registerBillingRoutes(
         return;
       }
 
-      const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
-      await db.transaction(async (query) => {
-        await query(
-          `INSERT INTO purchase_receipts (
+      let receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
+      let alreadyProcessed = false;
+
+      // C2: Read-dedup + INSERT + wallet credit in a single transaction so a
+      // concurrent same-transaction submit yields the idempotent already-processed
+      // response instead of a unique-constraint 500 or a double-credit.
+      await db
+        .transaction(async (query) => {
+          try {
+            await query(
+              `INSERT INTO purchase_receipts (
             id, user_id, subscription_id, transaction_id, original_transaction_id,
             product_id, platform, receipt_data, verification_status, verification_response,
             purchase_date, expires_date, is_trial, is_upgrade, created_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            receiptId,
+              [
+                receiptId,
+                userId,
+                null,
+                normalizedTransactionId,
+                resolvedPurchaseToken,
+                resolvedProductId,
+                "google",
+                null,
+                "verified",
+                toJson({
+                  type: "one_time_purchase",
+                  platform: "google",
+                  purchase_state: validation.purchaseState,
+                  consumption_state: validation.consumptionState,
+                  acknowledged: validation.acknowledged,
+                }),
+                validation.purchaseTimeMillis
+                  ? new Date(
+                      Number(validation.purchaseTimeMillis),
+                    ).toISOString()
+                  : nowIso(),
+                null,
+                0,
+                0,
+                nowIso(),
+              ],
+            );
+          } catch (insertErr) {
+            if (!isUniqueConstraintError(insertErr)) {
+              throw insertErr;
+            }
+            const dedupResult = await query(
+              "SELECT id, user_id, product_id FROM purchase_receipts WHERE transaction_id = ?",
+              [normalizedTransactionId],
+            );
+            const dedupReceipt = dedupResult?.rows?.[0];
+            if (!dedupReceipt) {
+              throw insertErr;
+            }
+            if (dedupReceipt.user_id !== userId) {
+              const err = new Error("PURCHASE_CONFLICT");
+              err.statusCode = 409;
+              throw err;
+            }
+            receiptId = dedupReceipt.id;
+            alreadyProcessed = true;
+            if (
+              dedupReceipt.product_id &&
+              dedupReceipt.product_id !== resolvedProductId
+            ) {
+              const dedupBundle = await resolveGiftBundle(
+                dedupReceipt.product_id,
+              );
+              tokenCount = dedupBundle.tokenCount;
+              bundleDisplayName = dedupBundle.bundleDisplayName;
+            }
+          }
+
+          await applyGiftWalletTransaction({
             userId,
-            null,
-            normalizedTransactionId,
-            resolvedPurchaseToken,
-            resolvedProductId,
-            "google",
-            null,
-            "verified",
-            toJson({
-              type: "one_time_purchase",
-              platform: "google",
-              purchase_state: validation.purchaseState,
-              consumption_state: validation.consumptionState,
-              acknowledged: validation.acknowledged,
-            }),
-            validation.purchaseTimeMillis
-              ? new Date(Number(validation.purchaseTimeMillis)).toISOString()
-              : nowIso(),
-            null,
-            0,
-            0,
-            nowIso(),
-          ],
-        );
-
-        await applyGiftWalletTransaction({
-          userId,
-          type: "gift_purchase",
-          amount: tokenCount,
-          source: "google_consumable",
-          referenceType: "receipt",
-          referenceId: receiptId,
-          description: `${bundleDisplayName} — Google Play consumable gift purchase`,
-          metadata: {
-            transaction_id: normalizedTransactionId,
-            product_id: resolvedProductId,
-            bundle_token_count: tokenCount,
-            bundle_display_name: bundleDisplayName,
-          },
-          idempotencyKey: `gift_receipt_${normalizedTransactionId}`,
-          externalQuery: query,
+            type: "gift_purchase",
+            amount: tokenCount,
+            source: "google_consumable",
+            referenceType: "receipt",
+            referenceId: receiptId,
+            description: `${bundleDisplayName} — Google Play consumable gift purchase`,
+            metadata: {
+              transaction_id: normalizedTransactionId,
+              product_id: resolvedProductId,
+              bundle_token_count: tokenCount,
+              bundle_display_name: bundleDisplayName,
+            },
+            idempotencyKey: `gift_receipt_${normalizedTransactionId}`,
+            externalQuery: query,
+          });
+        })
+        .catch((txErr) => {
+          if (txErr.statusCode === 409) {
+            sendError(
+              reply,
+              409,
+              "PURCHASE_CONFLICT",
+              "This purchase is already linked to a different account.",
+            );
+            return null;
+          }
+          throw txErr;
         });
-      });
+      if (reply.sent) return;
 
-      if (!validation.acknowledged && typeof googleValidator.acknowledgePurchase === "function") {
+      if (
+        !validation.acknowledged &&
+        typeof googleValidator.acknowledgePurchase === "function"
+      ) {
         try {
           await googleValidator.acknowledgePurchase(
             resolvedPurchaseToken,
@@ -883,20 +935,28 @@ function registerBillingRoutes(
         action: "gift_token_purchased",
         resourceType: "purchase_receipt",
         resourceId: receiptId,
-        metadata: { product_id: resolvedProductId, token_count: tokenCount, platform: "google" },
+        metadata: {
+          product_id: resolvedProductId,
+          token_count: tokenCount,
+          platform: "google",
+        },
       });
       eventsService.emit("gift_token_purchased", {
         userId,
         resourceType: "purchase_receipt",
         resourceId: receiptId,
-        metadata: { product_id: resolvedProductId, token_count: tokenCount, platform: "google" },
+        metadata: {
+          product_id: resolvedProductId,
+          token_count: tokenCount,
+          platform: "google",
+        },
       });
 
       const summary = await getGiftWalletSummary(userId, 20);
       const entitlements = await subscriptionManager.getEntitlements(userId);
       reply.send({
         success: true,
-        already_processed: false,
+        already_processed: alreadyProcessed,
         balance: summary.balance,
         transactions: summary.transactions,
         entitlements: entitlements
@@ -1689,7 +1749,10 @@ function registerBillingRoutes(
             status: "failed",
           });
         } catch (recordErr) {
-          console.error("[Google Webhook] Failed to record webhook failure:", recordErr);
+          console.error(
+            "[Google Webhook] Failed to record webhook failure:",
+            recordErr,
+          );
         }
       }
       console.error("[Google Webhook] Error:", err);
@@ -1721,11 +1784,10 @@ function registerBillingRoutes(
         await subscriptionManager.getActiveSubscription(targetUserId);
       const latestSubscription =
         await adminBillingRepo.getLatestSubscriptionForUser(targetUserId);
-      const recentReceipts =
-        await adminBillingRepo.listRecentReceiptsForUser({
-          userId: targetUserId,
-          limit: 20,
-        });
+      const recentReceipts = await adminBillingRepo.listRecentReceiptsForUser({
+        userId: targetUserId,
+        limit: 20,
+      });
 
       reply.send({
         userId: targetUserId,

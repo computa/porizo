@@ -94,13 +94,15 @@ class PorizoPlayer(
     override fun syncFromEngine() {
         val current = _state.value.currentTrack
         val durationMs = engine.durationMs()
-        val isPlaying = engine.isPlaying()
+        val engineError = engine.lastError()
+        val isPlaying = engineError == null && engine.isPlaying()
         _state.update {
             it.copy(
                 currentTrack = current,
                 isPlaying = isPlaying,
                 positionSeconds = engine.currentPositionMs() / 1000.0,
                 durationSeconds = if (durationMs > 0L) durationMs / 1000.0 else it.durationSeconds,
+                lastError = engineError ?: it.lastError,
             )
         }
         if (!isPlaying) {

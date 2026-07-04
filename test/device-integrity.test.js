@@ -50,7 +50,9 @@ test("device integrity nonce and verify delegates token to verifier", async (t) 
         ok: true,
         requestDetails: { requestHash: args.requestHash },
         appIntegrity: { packageName: "com.porizo.app" },
-        deviceIntegrity: { deviceRecognitionVerdict: ["MEETS_DEVICE_INTEGRITY"] },
+        deviceIntegrity: {
+          deviceRecognitionVerdict: ["MEETS_DEVICE_INTEGRITY"],
+        },
       };
     },
   };
@@ -86,6 +88,45 @@ test("device integrity nonce and verify delegates token to verifier", async (t) 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].requestHash, nonceBody.request_hash);
   assert.equal(calls[0].integrityToken, "signed-google-token");
+});
+
+test("device integrity verify rejects a replayed nonce", async (t) => {
+  const verifier = {
+    isConfigured: () => true,
+    verify: async () => ({
+      ok: true,
+      deviceIntegrity: { deviceRecognitionVerdict: ["MEETS_DEVICE_INTEGRITY"] },
+    }),
+  };
+  const app = await makeApp(t, { playIntegrityVerifier: verifier });
+
+  const nonceRes = await app.inject({
+    method: "POST",
+    url: "/device/integrity/nonce",
+    headers: { "x-user-id": "integrity_user" },
+  });
+  const nonceBody = JSON.parse(nonceRes.body);
+
+  const payload = {
+    nonce: nonceBody.nonce,
+    integrity_token: "signed-google-token",
+  };
+  const firstRes = await app.inject({
+    method: "POST",
+    url: "/device/integrity/verify",
+    headers: { "x-user-id": "integrity_user" },
+    payload,
+  });
+  assert.equal(firstRes.statusCode, 200, firstRes.body);
+
+  const secondRes = await app.inject({
+    method: "POST",
+    url: "/device/integrity/verify",
+    headers: { "x-user-id": "integrity_user" },
+    payload,
+  });
+  assert.equal(secondRes.statusCode, 409, secondRes.body);
+  assert.equal(JSON.parse(secondRes.body).error, "INTEGRITY_NONCE_REPLAYED");
 });
 
 test("device integrity verify rejects tampered nonce", async (t) => {
@@ -131,5 +172,8 @@ test("device integrity verify fails closed when enforcement is enabled without v
     },
   });
   assert.equal(verifyRes.statusCode, 503, verifyRes.body);
-  assert.equal(JSON.parse(verifyRes.body).error, "PLAY_INTEGRITY_NOT_CONFIGURED");
+  assert.equal(
+    JSON.parse(verifyRes.body).error,
+    "PLAY_INTEGRITY_NOT_CONFIGURED",
+  );
 });

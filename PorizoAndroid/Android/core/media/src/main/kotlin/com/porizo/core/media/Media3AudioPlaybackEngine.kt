@@ -3,6 +3,8 @@ package com.porizo.core.media
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -19,9 +21,19 @@ class Media3AudioPlaybackEngine internal constructor(
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
 
+    @Volatile
+    private var lastError: String? = null
+
+    private val playerListener = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) {
+            lastError = error.message ?: error.errorCodeName
+        }
+    }
+
     override fun prepare(url: String, headers: Map<String, String>, metadata: PlaybackMetadata): Result<Unit> =
         runCatching {
             release()
+            lastError = null
             val dataSourceFactory = DefaultHttpDataSource.Factory()
                 .setDefaultRequestProperties(headers)
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
@@ -39,6 +51,7 @@ class Media3AudioPlaybackEngine internal constructor(
                 .setMediaMetadata(mediaMetadata)
                 .build()
 
+            exoPlayer.addListener(playerListener)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             player = exoPlayer
@@ -49,6 +62,7 @@ class Media3AudioPlaybackEngine internal constructor(
         }
 
     override fun play() {
+        lastError = null
         player?.play()
     }
 
@@ -64,6 +78,7 @@ class Media3AudioPlaybackEngine internal constructor(
         mediaSession?.let(sessionPublisher::retract)
         mediaSession?.release()
         mediaSession = null
+        player?.removeListener(playerListener)
         player?.release()
         player = null
     }
@@ -76,4 +91,6 @@ class Media3AudioPlaybackEngine internal constructor(
 
     override fun isPlaying(): Boolean =
         player?.isPlaying == true
+
+    override fun lastError(): String? = lastError
 }

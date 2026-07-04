@@ -17,15 +17,28 @@ class DeepLinkParser(
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return DeepLinkRoute.Unknown(rawUrl)
 
         if (uri.scheme == "porizo") {
-            val id = firstPathPart(uri.path)
-            if (id.isEmpty()) return DeepLinkRoute.Unknown(rawUrl)
-            return when (uri.host) {
-                "receiver-handoff" -> DeepLinkRoute.ReceiverHandoff(id)
-                "poem-share" -> DeepLinkRoute.PoemShare(id)
-                "s", "play", "share" -> DeepLinkRoute.Share(id)
-                "poem" -> DeepLinkRoute.Poem(id)
-                else -> DeepLinkRoute.Unknown(rawUrl)
+            val query = parseQuery(uri.rawQuery)
+            val pathParts = pathParts(uri.path)
+            // Host-based (porizo://receiver-handoff/<id>): host = route, id = first path part.
+            // Triple-slash (porizo:///receiver-handoff/<id>): route = first path part, id = second.
+            val segment = if (uri.host.isNullOrBlank()) pathParts.getOrNull(0) else uri.host
+            val id = if (uri.host.isNullOrBlank()) {
+                pathParts.getOrElse(1) { "" }
+            } else {
+                pathParts.getOrElse(0) { "" }
             }
+            when (segment) {
+                "receiver-handoff" -> if (id.isNotEmpty()) return DeepLinkRoute.ReceiverHandoff(id)
+                "poem-share" -> if (id.isNotEmpty()) return DeepLinkRoute.PoemShare(id)
+                "s", "play", "share" -> if (id.isNotEmpty()) return DeepLinkRoute.Share(id)
+                "poem" -> if (id.isNotEmpty()) return DeepLinkRoute.Poem(id)
+            }
+            // Query-param form: porizo://open?deep_link_value=<id>&deep_link_sub2=<kind>
+            val bareId = query["deep_link_value"]?.let { decodeQueryValue(it) }
+            val contentKind = query["deep_link_sub2"]?.let { decodeQueryValue(it) }
+                ?: query["content_kind"]?.let { decodeQueryValue(it) }
+            routeForBareId(bareId, contentKind)?.let { return it }
+            return DeepLinkRoute.Unknown(rawUrl)
         }
 
         if (uri.scheme != "https") {
@@ -63,18 +76,34 @@ class DeepLinkParser(
             query["deep_link_sub1"],
             query["deep_link_sub2"],
         )
+        val contentKind = query["deep_link_sub2"]?.let { decodeQueryValue(it) }
+            ?: query["content_kind"]?.let { decodeQueryValue(it) }
         return candidates
             .asSequence()
             .mapNotNull { candidate ->
-                val decoded = java.net.URLDecoder.decode(candidate, Charsets.UTF_8.name())
+                val decoded = decodeQueryValue(candidate)
                 if (decoded.startsWith("porizo://") || decoded.startsWith("https://")) {
                     parse(decoded).takeUnless { it is DeepLinkRoute.Unknown }
                 } else {
-                    null
+                    routeForBareId(decoded, contentKind)
                 }
             }
             .firstOrNull()
     }
+
+    private fun routeForBareId(id: String?, contentKind: String?): DeepLinkRoute? {
+        val trimmed = id?.trim().orEmpty()
+        if (trimmed.isEmpty()) return null
+        return when {
+            trimmed.startsWith("rh_") -> DeepLinkRoute.ReceiverHandoff(trimmed)
+            trimmed.startsWith("ps_") -> DeepLinkRoute.PoemShare(trimmed)
+            contentKind?.equals("poem", ignoreCase = true) == true -> DeepLinkRoute.PoemShare(trimmed)
+            else -> null
+        }
+    }
+
+    private fun decodeQueryValue(value: String): String =
+        runCatching { java.net.URLDecoder.decode(value, Charsets.UTF_8.name()) }.getOrDefault(value)
 
     private fun parseQuery(rawQuery: String?): Map<String, String> =
         rawQuery.orEmpty()
@@ -87,6 +116,6 @@ class DeepLinkParser(
             }
             .toMap()
 
-    private fun firstPathPart(path: String?): String =
-        path.orEmpty().split("/").firstOrNull { it.isNotEmpty() }.orEmpty()
+    private fun pathParts(path: String?): List<String> =
+        path.orEmpty().split("/").filter { it.isNotEmpty() }
 }

@@ -46,4 +46,28 @@ class DeepLinkParserTest {
             parser.parse("https://porizo.onelink.me/app?deep_link_sub1=porizo%3A%2F%2Fpoem-share%2Fps1"),
         )
     }
+
+    @Test
+    fun tripleSlashPathRoutesMatchHostRoutes() {
+        assertEquals(DeepLinkRoute.ReceiverHandoff("rh_x"), parser.parse("porizo:///receiver-handoff/rh_x"))
+        assertEquals(DeepLinkRoute.PoemShare("ps_x"), parser.parse("porizo:///poem-share/ps_x"))
+        assertEquals(DeepLinkRoute.Share("s_x"), parser.parse("porizo:///s/s_x"))
+        assertEquals(DeepLinkRoute.Poem("p_x"), parser.parse("porizo:///poem/p_x"))
+    }
+
+    @Test
+    fun customSchemeQueryParamDeepLinkValueRoutesReceiverHandoff() {
+        assertEquals(
+            DeepLinkRoute.ReceiverHandoff("rh_789"),
+            parser.parse("porizo://open?deep_link_value=rh_789&deep_link_sub1=rs_456&deep_link_sub2=song"),
+        )
+    }
+
+    @Test
+    fun oneLinkBareDeepLinkValueRoutesReceiverHandoff() {
+        assertEquals(
+            DeepLinkRoute.ReceiverHandoff("rh_x"),
+            parser.parse("https://porizo.onelink.me/app?deep_link_value=rh_x"),
+        )
+    }
 }

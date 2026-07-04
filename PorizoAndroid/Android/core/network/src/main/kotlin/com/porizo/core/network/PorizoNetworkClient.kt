@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.util.concurrent.TimeUnit
 
 fun interface AccessTokenProvider {
     fun currentAccessToken(): String?
@@ -50,6 +51,10 @@ object PorizoNetworkClient {
                 authenticatedHost = baseUrl.toHttpUrl().host,
             ),
         )
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
         .build()
 
     fun apiService(

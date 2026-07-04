@@ -414,7 +414,7 @@ private fun LyricsStep(
         PorizoSectionLabel("Voice")
         VoiceChoiceButton(
             label = "AI voice",
-            selected = state.voiceSource == VoiceSource.AiGuide || state.voiceSource == VoiceSource.InstrumentalOnly,
+            selected = state.voiceSource == VoiceSource.AiGuide,
             enabled = true,
             onClick = { onVoiceSourceChange(VoiceSource.AiGuide) },
         )
