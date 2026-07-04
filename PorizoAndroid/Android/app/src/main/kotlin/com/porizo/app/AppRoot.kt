@@ -19,6 +19,7 @@ import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoTheme
 import com.porizo.feature.auth.AuthScreen
 import com.porizo.feature.auth.AuthViewModel
+import com.porizo.feature.claim.ClaimViewModel
 import com.porizo.feature.library.PoemsViewModel
 import com.porizo.feature.library.SongsViewModel
 import com.porizo.feature.onboarding.OnboardingScreen
@@ -27,6 +28,7 @@ import com.porizo.feature.onboarding.OnboardingViewModel
 @Composable
 fun AppRoot(
     authViewModel: AuthViewModel,
+    claimViewModel: ClaimViewModel,
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
     player: PorizoPlayer,
@@ -75,6 +77,7 @@ fun AppRoot(
                         authState = authState,
                         onSignInRequested = { authRequested = true },
                         onLogoutRequested = authViewModel::logout,
+                        claimViewModel = claimViewModel,
                         songsViewModel = songsViewModel,
                         poemsViewModel = poemsViewModel,
                         player = player,

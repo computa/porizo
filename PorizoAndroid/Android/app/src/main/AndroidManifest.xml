@@ -39,8 +39,12 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="porizo" android:host="s" />
+                <data android:scheme="porizo" android:host="share" />
+                <data android:scheme="porizo" android:host="play" />
                 <data android:scheme="porizo" android:host="receiver-handoff" />
                 <data android:scheme="porizo" android:host="poem-share" />
+                <data android:scheme="porizo" android:host="poem" />
             </intent-filter>
         </activity>
     </application>

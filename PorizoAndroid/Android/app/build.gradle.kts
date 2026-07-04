@@ -83,6 +83,7 @@ dependencies {
     implementation(project(":core:media"))
     implementation(project(":core:ui"))
     implementation(project(":feature:auth"))
+    implementation(project(":feature:claim"))
     implementation(project(":feature:library"))
     implementation(project(":feature:onboarding"))
 

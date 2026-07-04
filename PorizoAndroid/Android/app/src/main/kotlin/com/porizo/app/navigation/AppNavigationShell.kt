@@ -36,6 +36,8 @@ import com.porizo.core.ui.PorizoSecondaryButton
 import com.porizo.core.ui.PorizoSectionLabel
 import com.porizo.feature.auth.AuthPhase
 import com.porizo.feature.auth.AuthUiState
+import com.porizo.feature.claim.ClaimSheet
+import com.porizo.feature.claim.ClaimViewModel
 import com.porizo.feature.library.MiniPlayerBar
 import com.porizo.feature.library.NowPlayingSheet
 import com.porizo.feature.library.PoemsScreen
@@ -50,6 +52,7 @@ fun AppNavigationShell(
     authState: AuthUiState,
     onSignInRequested: () -> Unit,
     onLogoutRequested: () -> Unit,
+    claimViewModel: ClaimViewModel,
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
     player: PorizoPlayer,
@@ -67,16 +70,19 @@ fun AppNavigationShell(
                 routeNotice = "Opening poem ${route.id}."
             }
             is DeepLinkRoute.PoemShare -> {
-                selectedTab = AppTab.Poems
-                routeNotice = "Poem share ${route.id} is ready for the claim flow."
+                selectedTab = AppTab.Home
+                routeNotice = null
+                claimViewModel.open(route)
             }
             is DeepLinkRoute.ReceiverHandoff -> {
                 selectedTab = AppTab.Home
-                routeNotice = "Receiver handoff ${route.id} is ready for the claim flow."
+                routeNotice = null
+                claimViewModel.open(route)
             }
             is DeepLinkRoute.Share -> {
                 selectedTab = AppTab.Home
-                routeNotice = "Share ${route.id} is ready for the claim flow."
+                routeNotice = null
+                claimViewModel.open(route)
             }
             is DeepLinkRoute.Unknown -> {
                 selectedTab = AppTab.Home
@@ -138,6 +144,10 @@ fun AppNavigationShell(
             onDismiss = { showNowPlaying = false },
         )
     }
+    ClaimSheet(
+        viewModel = claimViewModel,
+        onDismiss = claimViewModel::dismiss,
+    )
 }
 
 @Composable

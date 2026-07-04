@@ -5,6 +5,7 @@ import com.porizo.app.BuildConfig
 import com.porizo.core.data.PorizoDataGraph
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.LibraryRepository
+import com.porizo.core.domain.repository.ShareRepository
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
 import dagger.Module
@@ -33,6 +34,10 @@ object PorizoAppModule {
     @Provides
     fun provideLibraryRepository(dataGraph: PorizoDataGraph): LibraryRepository =
         dataGraph.libraryRepository
+
+    @Provides
+    fun provideShareRepository(dataGraph: PorizoDataGraph): ShareRepository =
+        dataGraph.shareRepository
 
     @Provides
     @Singleton
