@@ -37,6 +37,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:ui"))
 
+    implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material.icons.extended)

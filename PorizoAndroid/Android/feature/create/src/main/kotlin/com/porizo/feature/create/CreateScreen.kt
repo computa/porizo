@@ -1,7 +1,12 @@
 package com.porizo.feature.create
 
+import android.content.Intent
+import android.provider.ContactsContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,12 +15,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -34,8 +42,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -81,6 +93,7 @@ fun CreateScreen(
             CreatePhase.Name -> NameStep(
                 state = state,
                 onNameChange = viewModel::updateRecipientName,
+                onContactPicked = viewModel::adoptContact,
                 onContinue = viewModel::confirmName,
             )
             CreatePhase.Details -> DetailsStep(
@@ -137,28 +150,96 @@ fun CreateScreen(
 private fun NameStep(
     state: CreateUiState,
     onNameChange: (String) -> Unit,
+    onContactPicked: (String, String?) -> Unit,
     onContinue: () -> Unit,
 ) {
-    PorizoSectionLabel("Recipient")
-    PorizoCard {
-        Icon(Icons.Filled.Person, contentDescription = null, tint = PorizoColors.Accent)
-        FrauncesTitle(text = "Who is this for?", sizeSp = 24)
-        Text(
-            text = "Start with their name so the story, chorus, and share message stay personal.",
-            color = PorizoColors.TextSecondary,
-            style = MaterialTheme.typography.bodyLarge,
+    // iOS leads Contacts-first ("we'll text them the song the moment it's ready")
+    // with a type-a-name fallback. Reveal the text field only after the user opts
+    // to type, or once a contact is picked.
+    var typing by rememberSaveable { mutableStateOf(false) }
+    val contactPicker = rememberContactPicker { name, phone ->
+        onContactPicked(name, phone)
+        typing = true
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(
+            Icons.Filled.AutoAwesome,
+            contentDescription = null,
+            tint = PorizoColors.Accent,
+            modifier = Modifier.size(34.dp),
         )
-        PorizoTextField(
-            value = state.recipientName,
-            onValueChange = onNameChange,
-            label = "Recipient name",
+        FrauncesTitle(text = "Who's this song for?", sizeSp = 28)
+
+        if (!typing && state.recipientName.isBlank()) {
+            PorizoPrimaryButton(
+                text = "Choose from Contacts",
+                onClick = { contactPicker() },
+                icon = Icons.Filled.Contacts,
+            )
+            Text(
+                text = "We'll text them the song in one tap the moment it's ready.",
+                color = PorizoColors.TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = "Just type a name instead",
+                color = PorizoColors.AccentDark,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .heightIn(min = 44.dp)
+                    .clickable { typing = true },
+            )
+        } else {
+            PorizoTextField(
+                value = state.recipientName,
+                onValueChange = onNameChange,
+                label = "Their name",
+            )
+            PorizoPrimaryButton(
+                text = "Continue",
+                onClick = onContinue,
+                enabled = state.canContinueName,
+                icon = Icons.AutoMirrored.Filled.ArrowForward,
+            )
+        }
+    }
+}
+
+/// System contact picker → (displayName, phoneNumber?). Uses ACTION_PICK on the
+/// Contacts provider, which returns a single contact without a persistent
+/// READ_CONTACTS permission grant. Falls back silently if unavailable.
+@Composable
+private fun rememberContactPicker(
+    onPicked: (String, String?) -> Unit,
+): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER,
         )
-        PorizoPrimaryButton(
-            text = "Continue",
-            onClick = onContinue,
-            enabled = state.canContinueName,
-            icon = Icons.AutoMirrored.Filled.ArrowForward,
-        )
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val name = cursor.getString(0) ?: ""
+                val phone = cursor.getString(1)
+                if (name.isNotBlank()) onPicked(name, phone)
+            }
+        }
+    }
+    return {
+        val intent = Intent(Intent.ACTION_PICK).apply {
+            type = ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE
+        }
+        runCatching { launcher.launch(intent) }
     }
 }
 

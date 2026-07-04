@@ -72,6 +72,12 @@ class CreateViewModel @Inject constructor(
 
     fun updateRecipientPhone(value: String) = updateDraftedState { it.copy(recipientPhone = value) }
 
+    /// Adopt a contact picked from the system picker: name + phone (enables the
+    /// one-tap "Send to {name}" SMS later). Mirrors iOS contact-first entry.
+    fun adoptContact(name: String, phone: String?) = updateDraftedState {
+        it.copy(recipientName = name, recipientPhone = phone.orEmpty())
+    }
+
     fun updateOccasion(value: Occasion) = updateDraftedState { it.copy(occasion = value) }
 
     fun updateContentType(value: CreateContentType) = updateDraftedState { it.copy(contentType = value) }

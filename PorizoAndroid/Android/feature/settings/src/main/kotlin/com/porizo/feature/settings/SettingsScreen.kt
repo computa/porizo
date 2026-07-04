@@ -1,25 +1,47 @@
 package com.porizo.feature.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAddAlt
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.porizo.core.domain.platform.PlayProductSummary
@@ -29,6 +51,7 @@ import com.porizo.core.ui.PorizoCard
 import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoPrimaryButton
 import com.porizo.core.ui.PorizoScreen
+import com.porizo.core.ui.PorizoSectionLabel
 import com.porizo.core.ui.PorizoSecondaryButton
 
 @Composable
@@ -94,36 +117,154 @@ private fun SettingsScreen(
             .fillMaxSize()
             .padding(innerPadding),
         title = "Settings",
-        subtitle = "Account, subscription, voice, and notifications.",
     ) {
+        // Consumer-facing settings, matching the iOS SettingsTabView structure.
+        YourVoiceBanner()
         AccountSection(
             isAuthenticated = isAuthenticated,
             authenticatedUserId = authenticatedUserId,
+            state = state,
             onSignInRequested = onSignInRequested,
+        )
+        PreferencesSection()
+        SupportSection()
+        LegalSection()
+        DangerSection(
+            isAuthenticated = isAuthenticated,
             onLogoutRequested = onLogoutRequested,
         )
-        BillingSection(
-            state = state,
-            onLoadBilling = onLoadBilling,
-            onSelectProduct = onSelectProduct,
-            onLaunchPurchase = onLaunchPurchase,
-            onRefreshPurchases = onRefreshPurchases,
-            onSyncReceipt = onSyncReceipt,
+
+        // Developer controls (billing/push/voice mechanics) are debug-only —
+        // never shown in a release build, matching iOS `#if DEBUG`.
+        if (BuildConfig.DEBUG) {
+            PorizoSectionLabel("Developer")
+            BillingSection(
+                state = state,
+                onLoadBilling = onLoadBilling,
+                onSelectProduct = onSelectProduct,
+                onLaunchPurchase = onLaunchPurchase,
+                onRefreshPurchases = onRefreshPurchases,
+                onSyncReceipt = onSyncReceipt,
+            )
+            PushSection(
+                state = state,
+                onEnablePush = onEnablePush,
+                onDisablePush = onDisablePush,
+            )
+            VoiceSection(
+                state = state,
+                onLoadVoiceStatus = onLoadVoiceStatus,
+                onRequestMic = onRequestMic,
+                onStartEnrollment = onStartEnrollment,
+                onStartRecording = onStartRecording,
+                onStopAndUpload = onStopAndUpload,
+                onCreateVoiceProfile = onCreateVoiceProfile,
+            )
+        }
+    }
+}
+
+/// Coral "Your Voice" banner — the iOS Settings hero row.
+@Composable
+private fun YourVoiceBanner() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(PorizoColors.Accent)
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Mic, contentDescription = null, tint = Color.White)
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Your Voice", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = "Set up your voice",
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        // Voice cloning not product-ready (KTD7) — parity with iOS "Set Up" chip
+        // but honestly labelled until it ships.
+        Text("Coming soon", color = Color.White, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/// A tappable settings row: leading icon, title (+ optional detail), chevron.
+@Composable
+private fun SettingsRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    detail: String? = null,
+    onClick: () -> Unit = {},
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = PorizoColors.Accent)
+        Text(
+            text = title,
+            color = PorizoColors.TextPrimary,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
         )
-        PushSection(
-            state = state,
-            onEnablePush = onEnablePush,
-            onDisablePush = onDisablePush,
+        if (detail != null) {
+            Text(detail, color = PorizoColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = PorizoColors.TextTertiary,
         )
-        VoiceSection(
-            state = state,
-            onLoadVoiceStatus = onLoadVoiceStatus,
-            onRequestMic = onRequestMic,
-            onStartEnrollment = onStartEnrollment,
-            onStartRecording = onStartRecording,
-            onStopAndUpload = onStopAndUpload,
-            onCreateVoiceProfile = onCreateVoiceProfile,
-        )
+    }
+}
+
+@Composable
+private fun PreferencesSection() {
+    PorizoSectionLabel("Preferences")
+    PorizoCard {
+        SettingsRow(Icons.Filled.Palette, "Appearance", detail = "System")
+        SettingsRow(Icons.Filled.MusicNote, "Lyrics Style", detail = "Karaoke Sweep")
+        SettingsRow(Icons.Filled.Language, "Language", detail = "English")
+        SettingsRow(Icons.Filled.AutoAwesome, "Launch Flash", detail = "All Songs")
+    }
+}
+
+@Composable
+private fun SupportSection() {
+    PorizoSectionLabel("Support")
+    PorizoCard {
+        SettingsRow(Icons.AutoMirrored.Filled.HelpOutline, "Help Center")
+        SettingsRow(Icons.Filled.ChatBubbleOutline, "Get Support")
+        SettingsRow(Icons.Filled.PersonAddAlt, "Invite a Friend")
+    }
+}
+
+@Composable
+private fun LegalSection() {
+    PorizoSectionLabel("Legal")
+    PorizoCard {
+        SettingsRow(Icons.Filled.Description, "Terms of Service")
+        SettingsRow(Icons.Filled.Shield, "Privacy Policy")
+        SettingsRow(Icons.Filled.Restore, "Restore Purchases")
+    }
+}
+
+@Composable
+private fun DangerSection(
+    isAuthenticated: Boolean,
+    onLogoutRequested: () -> Unit,
+) {
+    if (!isAuthenticated) return
+    PorizoSectionLabel("Account actions")
+    PorizoCard {
+        PorizoSecondaryButton(text = "Log out", onClick = onLogoutRequested)
     }
 }
 
@@ -131,34 +272,32 @@ private fun SettingsScreen(
 private fun AccountSection(
     isAuthenticated: Boolean,
     authenticatedUserId: String?,
+    state: SettingsUiState,
     onSignInRequested: () -> Unit,
-    onLogoutRequested: () -> Unit,
 ) {
+    PorizoSectionLabel("Account and billing")
     PorizoCard {
-        SectionTitle("Account")
-        Text(
-            text = if (isAuthenticated && !authenticatedUserId.isNullOrBlank()) {
-                "Signed in as $authenticatedUserId"
-            } else if (isAuthenticated) {
-                "Signed in"
-            } else {
-                "Signed out"
-            },
-            color = PorizoColors.TextSecondary,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        if (!isAuthenticated) {
+        if (isAuthenticated) {
+            SettingsRow(
+                icon = Icons.Filled.Person,
+                title = "Account",
+                detail = authenticatedUserId?.takeIf { it.isNotBlank() }?.let { "Signed in" } ?: "Signed in",
+            )
+        } else {
+            Text(
+                text = "Sign in to sync your songs across devices.",
+                color = PorizoColors.TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
             PorizoPrimaryButton(
                 text = "Sign in",
                 onClick = onSignInRequested,
                 icon = Icons.Filled.Person,
             )
-        } else {
-            PorizoSecondaryButton(
-                text = "Sign out",
-                onClick = onLogoutRequested,
-            )
         }
+        val tier = state.entitlements?.tier ?: "Free"
+        SettingsRow(Icons.Filled.WorkspacePremium, "My Subscription", detail = tier)
+        SettingsRow(Icons.Filled.CardGiftcard, "Gift Bag", detail = "Buy tokens")
     }
 }
 

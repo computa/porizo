@@ -1,10 +1,22 @@
 package com.porizo.app.navigation
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -162,24 +174,14 @@ fun AppNavigationShell(
     ) { innerPadding ->
         when (selectedTab) {
             AppTab.Home -> {
-                if (isCreateFlowVisible) {
-                    CreateScreen(
-                        viewModel = createViewModel,
-                        isAuthenticated = authState.isAuthenticated,
-                        onSignInRequested = onSignInRequested,
-                        routeNotice = routeNotice,
-                        innerPadding = innerPadding,
-                        onFlowDone = { isCreateFlowVisible = false },
-                    )
-                } else {
-                    ExploreScreen(
-                        routeNotice = routeNotice,
-                        onCreate = { launchCreate() },
-                        onOccasionSelected = { occasion -> launchCreate(occasion) },
-                        onSeeAllSongs = { selectedTab = AppTab.Songs },
-                        innerPadding = innerPadding,
-                    )
-                }
+                ExploreScreen(
+                    routeNotice = routeNotice,
+                    onCreate = { launchCreate() },
+                    onScheduleSend = { launchCreate() },
+                    onOccasionSelected = { occasion -> launchCreate(occasion) },
+                    onSeeAllSongs = { selectedTab = AppTab.Songs },
+                    innerPadding = innerPadding,
+                )
             }
             AppTab.Songs -> SongsScreen(
                 viewModel = songsViewModel,
@@ -206,6 +208,23 @@ fun AppNavigationShell(
         }
     }
 
+    // The create wizard presents as a full-screen modal over the tabs (mirrors
+    // the iOS create sheet — tab bar hidden, close affordance in the header).
+    if (isCreateFlowVisible) {
+        CreateModal(
+            onClose = { isCreateFlowVisible = false },
+        ) { innerPadding ->
+            CreateScreen(
+                viewModel = createViewModel,
+                isAuthenticated = authState.isAuthenticated,
+                onSignInRequested = onSignInRequested,
+                routeNotice = routeNotice,
+                innerPadding = innerPadding,
+                onFlowDone = { isCreateFlowVisible = false },
+            )
+        }
+    }
+
     if (showNowPlaying) {
         NowPlayingSheet(
             player = player,
@@ -216,4 +235,35 @@ fun AppNavigationShell(
         viewModel = claimViewModel,
         onDismiss = claimViewModel::dismiss,
     )
+}
+
+/// Full-screen modal host for the create wizard: an opaque background covering
+/// the tabs, with a top-right close (×). Mirrors the iOS create sheet.
+@Composable
+private fun CreateModal(
+    onClose: () -> Unit,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = PorizoColors.Background,
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = PorizoColors.TextSecondary,
+                    )
+                }
+            }
+            content(PaddingValues(0.dp))
+        }
+    }
 }

@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,6 +44,7 @@ import com.porizo.core.ui.PorizoSecondaryButton
 fun ExploreScreen(
     routeNotice: String?,
     onCreate: () -> Unit,
+    onScheduleSend: () -> Unit,
     onOccasionSelected: (Occasion) -> Unit,
     onSeeAllSongs: () -> Unit,
     innerPadding: PaddingValues,
@@ -51,10 +56,21 @@ fun ExploreScreen(
     ) {
         InlineNotice(routeNotice)
         FeaturedCreateCard()
-        PorizoPrimaryButton(
-            text = "Create for someone special",
+        // Primary create CTA with the iOS two-line label.
+        CtaButton(
+            title = "Create for someone special",
+            subtitle = "Ready in about 90 seconds",
+            icon = Icons.Filled.AutoAwesome,
+            containerColor = PorizoColors.Accent,
             onClick = onCreate,
-            icon = Icons.Filled.MusicNote,
+        )
+        // Gift entry — mirrors the iOS "Schedule and send, for them" CTA.
+        CtaButton(
+            title = "Schedule and send, for them",
+            subtitle = null,
+            icon = Icons.Filled.CardGiftcard,
+            containerColor = PorizoColors.RoseGold,
+            onClick = onScheduleSend,
         )
         OccasionRail(onOccasionSelected = onOccasionSelected)
         PorizoCard {
@@ -81,6 +97,46 @@ fun ExploreScreen(
                 text = "See all songs",
                 onClick = onSeeAllSongs,
             )
+        }
+    }
+}
+
+/// A full-width coral CTA with an icon and an optional second line, matching the
+/// iOS Explore create/gift buttons.
+@Composable
+private fun CtaButton(
+    title: String,
+    subtitle: String?,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    containerColor: Color,
+    onClick: () -> Unit,
+) {
+    Button(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = if (subtitle == null) 56.dp else 68.dp),
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = containerColor,
+            contentColor = Color.White,
+        ),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(imageVector = icon, contentDescription = null)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(text = title, fontWeight = FontWeight.SemiBold)
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        color = Color.White.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
         }
     }
 }
@@ -131,8 +187,10 @@ private fun OccasionRail(onOccasionSelected: (Occasion) -> Unit) {
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // Order + emoji mirror the iOS occasion rail.
             listOf(
                 Occasion.Birthday,
+                Occasion.MothersDay,
                 Occasion.Anniversary,
                 Occasion.ThankYou,
                 Occasion.Wedding,
@@ -146,7 +204,7 @@ private fun OccasionRail(onOccasionSelected: (Occasion) -> Unit) {
                     shape = RoundedCornerShape(22.dp),
                 ) {
                     Text(
-                        text = occasion.displayName,
+                        text = "${occasionEmoji(occasion)}  ${occasion.displayName}",
                         color = PorizoColors.TextPrimary,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
@@ -167,4 +225,16 @@ private fun InlineNotice(text: String?) {
             style = MaterialTheme.typography.bodyMedium,
         )
     }
+}
+
+/// Emoji for the occasion chips, matching the iOS occasion rail.
+private fun occasionEmoji(occasion: Occasion): String = when (occasion) {
+    Occasion.Birthday -> "🎂"
+    Occasion.MothersDay -> "💐"
+    Occasion.Anniversary -> "💑"
+    Occasion.ThankYou -> "🙏"
+    Occasion.Wedding -> "💍"
+    Occasion.Graduation -> "🎓"
+    Occasion.ILoveYou -> "❤️"
+    else -> "✨"
 }
