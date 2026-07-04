@@ -1,6 +1,7 @@
 package com.porizo.core.data
 
 import com.porizo.core.datastore.AndroidSessionStore
+import com.porizo.core.datastore.CreateDraftStore
 import com.porizo.core.datastore.RenderPollStore
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.BillingRepository
@@ -18,6 +19,7 @@ import com.porizo.core.model.AuthSession
 import com.porizo.core.model.AuthUser
 import com.porizo.core.model.BillingEntitlements
 import com.porizo.core.model.ChunkUploadResult
+import com.porizo.core.model.CreateDraft
 import com.porizo.core.model.CreateShareResult
 import com.porizo.core.model.DeviceRegistration
 import com.porizo.core.model.EnrollmentSession
@@ -212,11 +214,22 @@ class DefaultAuthRepository(
 
 class DefaultCreateRepository(
     private val service: PorizoApiService,
+    private val draftStore: CreateDraftStore,
     private val moshi: Moshi = PorizoNetworkClient.moshi(),
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(moshi),
 ) : CreateRepository {
     private val guidanceAdapter = moshi.adapter(StoryGuidanceDto::class.java)
     private val errorAdapter = moshi.adapter(ErrorEnvelopeDto::class.java)
+
+    override suspend fun loadDraft(): CreateDraft? = draftStore.load()
+
+    override suspend fun saveDraft(draft: CreateDraft) {
+        draftStore.save(draft)
+    }
+
+    override suspend fun clearDraft() {
+        draftStore.clear()
+    }
 
     override suspend fun startStory(
         initialPrompt: String,

@@ -4,13 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CardGiftcard
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -25,7 +20,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.porizo.core.domain.deeplink.DeepLinkRoute
 import com.porizo.core.media.PorizoPlayer
-import com.porizo.core.ui.FrauncesTitle
 import com.porizo.core.ui.PorizoBottomNavigationBar
 import com.porizo.core.ui.PorizoBottomNavigationItem
 import com.porizo.core.ui.PorizoCard
@@ -33,11 +27,12 @@ import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoPrimaryButton
 import com.porizo.core.ui.PorizoScreen
 import com.porizo.core.ui.PorizoSecondaryButton
-import com.porizo.core.ui.PorizoSectionLabel
 import com.porizo.feature.auth.AuthPhase
 import com.porizo.feature.auth.AuthUiState
 import com.porizo.feature.claim.ClaimSheet
 import com.porizo.feature.claim.ClaimViewModel
+import com.porizo.feature.create.CreateScreen
+import com.porizo.feature.create.CreateViewModel
 import com.porizo.feature.library.MiniPlayerBar
 import com.porizo.feature.library.NowPlayingSheet
 import com.porizo.feature.library.PoemsScreen
@@ -53,6 +48,7 @@ fun AppNavigationShell(
     onSignInRequested: () -> Unit,
     onLogoutRequested: () -> Unit,
     claimViewModel: ClaimViewModel,
+    createViewModel: CreateViewModel,
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
     player: PorizoPlayer,
@@ -114,7 +110,13 @@ fun AppNavigationShell(
         },
     ) { innerPadding ->
         when (selectedTab) {
-            AppTab.Home -> HomeScreen(routeNotice, innerPadding)
+            AppTab.Home -> CreateScreen(
+                viewModel = createViewModel,
+                isAuthenticated = authState.isAuthenticated,
+                onSignInRequested = onSignInRequested,
+                routeNotice = routeNotice,
+                innerPadding = innerPadding,
+            )
             AppTab.Songs -> SongsScreen(
                 viewModel = songsViewModel,
                 isAuthenticated = authState.isAuthenticated,
@@ -148,43 +150,6 @@ fun AppNavigationShell(
         viewModel = claimViewModel,
         onDismiss = claimViewModel::dismiss,
     )
-}
-
-@Composable
-private fun HomeScreen(routeNotice: String?, innerPadding: PaddingValues) {
-    PorizoScreen(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding),
-        title = "Home",
-        subtitle = "Create something personal, then send it as a private gift.",
-    ) {
-        RouteNotice(routeNotice)
-        PorizoSectionLabel("Start")
-        PorizoCard {
-            Icon(
-                imageVector = Icons.Filled.CardGiftcard,
-                contentDescription = null,
-                tint = PorizoColors.Accent,
-            )
-            FrauncesTitle(text = "Make a gift", sizeSp = 24)
-            Text(
-                text = "Turn a memory, inside joke, or message into a song or poem.",
-                color = PorizoColors.TextSecondary,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            PorizoPrimaryButton(
-                text = "Create",
-                onClick = {},
-                icon = Icons.Filled.MusicNote,
-            )
-            PorizoSecondaryButton(
-                text = "Claim a gift",
-                onClick = {},
-                icon = Icons.Filled.Sms,
-            )
-        }
-    }
 }
 
 @Composable
@@ -246,18 +211,6 @@ private fun PorizoSettingRow(title: String, subtitle: String) {
         Text(
             text = subtitle,
             color = PorizoColors.TextSecondary,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
-}
-
-@Composable
-private fun RouteNotice(routeNotice: String?) {
-    if (routeNotice == null) return
-    PorizoCard {
-        Text(
-            text = routeNotice,
-            color = PorizoColors.TextPrimary,
             style = MaterialTheme.typography.bodyMedium,
         )
     }

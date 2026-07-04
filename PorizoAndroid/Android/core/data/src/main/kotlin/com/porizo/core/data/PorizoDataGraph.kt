@@ -2,6 +2,7 @@ package com.porizo.core.data
 
 import android.content.Context
 import com.porizo.core.datastore.AndroidSessionStore
+import com.porizo.core.datastore.CreateDraftStore
 import com.porizo.core.datastore.RenderPollStore
 import com.porizo.core.network.AccessTokenProvider
 import com.porizo.core.network.PorizoApiService
@@ -56,7 +57,10 @@ class PorizoDataGraph private constructor(
                 sessionStore = sessionStore,
                 apiService = apiService,
                 authRepository = authRepository,
-                createRepository = DefaultCreateRepository(apiService),
+                createRepository = DefaultCreateRepository(
+                    service = apiService,
+                    draftStore = CreateDraftStore(context),
+                ),
                 renderRepository = renderRepository,
                 libraryRepository = DefaultLibraryRepository(apiService),
                 shareRepository = shareRepository,

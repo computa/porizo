@@ -4,7 +4,9 @@ import android.content.Context
 import com.porizo.app.BuildConfig
 import com.porizo.core.data.PorizoDataGraph
 import com.porizo.core.domain.repository.AuthRepository
+import com.porizo.core.domain.repository.CreateRepository
 import com.porizo.core.domain.repository.LibraryRepository
+import com.porizo.core.domain.repository.RenderRepository
 import com.porizo.core.domain.repository.ShareRepository
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
@@ -31,6 +33,14 @@ object PorizoAppModule {
     @Provides
     fun provideAuthRepository(dataGraph: PorizoDataGraph): AuthRepository =
         dataGraph.authRepository
+
+    @Provides
+    fun provideCreateRepository(dataGraph: PorizoDataGraph): CreateRepository =
+        dataGraph.createRepository
+
+    @Provides
+    fun provideRenderRepository(dataGraph: PorizoDataGraph): RenderRepository =
+        dataGraph.renderRepository
 
     @Provides
     fun provideLibraryRepository(dataGraph: PorizoDataGraph): LibraryRepository =

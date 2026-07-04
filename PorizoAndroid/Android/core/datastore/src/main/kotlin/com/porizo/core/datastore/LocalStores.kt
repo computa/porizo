@@ -11,7 +11,10 @@ class CreateDraftStore(context: Context) {
         val recipientName = preferences.getString(KEY_RECIPIENT_NAME, null) ?: return null
         return CreateDraft(
             recipientName = recipientName,
+            recipientPhone = preferences.getString(KEY_RECIPIENT_PHONE, null),
             occasionRawValue = preferences.getString(KEY_OCCASION, "") ?: "",
+            contentTypeRawValue = preferences.getString(KEY_CONTENT_TYPE, CREATE_CONTENT_TYPE_FALLBACK)
+                ?: CREATE_CONTENT_TYPE_FALLBACK,
             voiceSourceRawValue = preferences.getString(KEY_VOICE_SOURCE, "") ?: "",
             tone = preferences.getString(KEY_TONE, "") ?: "",
             message = preferences.getString(KEY_MESSAGE, "") ?: "",
@@ -25,7 +28,9 @@ class CreateDraftStore(context: Context) {
     fun save(draft: CreateDraft) {
         preferences.edit()
             .putString(KEY_RECIPIENT_NAME, draft.recipientName)
+            .putString(KEY_RECIPIENT_PHONE, draft.recipientPhone)
             .putString(KEY_OCCASION, draft.occasionRawValue)
+            .putString(KEY_CONTENT_TYPE, draft.contentTypeRawValue)
             .putString(KEY_VOICE_SOURCE, draft.voiceSourceRawValue)
             .putString(KEY_TONE, draft.tone)
             .putString(KEY_MESSAGE, draft.message)
@@ -43,7 +48,9 @@ class CreateDraftStore(context: Context) {
     private companion object {
         const val PREFS_NAME = "porizo_create_draft"
         const val KEY_RECIPIENT_NAME = "recipient_name"
+        const val KEY_RECIPIENT_PHONE = "recipient_phone"
         const val KEY_OCCASION = "occasion"
+        const val KEY_CONTENT_TYPE = "content_type"
         const val KEY_VOICE_SOURCE = "voice_source"
         const val KEY_TONE = "tone"
         const val KEY_MESSAGE = "message"
@@ -51,6 +58,7 @@ class CreateDraftStore(context: Context) {
         const val KEY_INCLUDE_NAME_HOOK = "include_name_hook"
         const val KEY_APP_ONLY_SAVE = "app_only_save"
         const val KEY_UPDATED_AT = "updated_at"
+        const val CREATE_CONTENT_TYPE_FALLBACK = "song"
     }
 }
 

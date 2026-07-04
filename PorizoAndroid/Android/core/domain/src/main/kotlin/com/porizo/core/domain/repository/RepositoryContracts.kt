@@ -5,6 +5,7 @@ import com.porizo.core.model.AuthSession
 import com.porizo.core.model.AuthUser
 import com.porizo.core.model.BillingEntitlements
 import com.porizo.core.model.ChunkUploadResult
+import com.porizo.core.model.CreateDraft
 import com.porizo.core.model.CreateShareResult
 import com.porizo.core.model.DeviceRegistration
 import com.porizo.core.model.EnrollmentSession
@@ -62,6 +63,10 @@ sealed interface ConfirmStoryResult {
 }
 
 interface CreateRepository {
+    suspend fun loadDraft(): CreateDraft?
+    suspend fun saveDraft(draft: CreateDraft)
+    suspend fun clearDraft()
+
     suspend fun startStory(
         initialPrompt: String,
         occasion: String,

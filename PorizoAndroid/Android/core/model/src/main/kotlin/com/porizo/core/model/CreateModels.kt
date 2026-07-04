@@ -49,7 +49,9 @@ data class ContinueStorySignal(
 
 data class CreateDraft(
     val recipientName: String,
+    val recipientPhone: String?,
     val occasionRawValue: String,
+    val contentTypeRawValue: String,
     val voiceSourceRawValue: String,
     val tone: String,
     val message: String,

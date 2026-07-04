@@ -110,6 +110,24 @@ U6 parity gate passed with `:core:media:assembleDebug`, `:feature:library:assemb
 
 U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, launched `porizo://share/u7-smoke-fixed` through Android's VIEW intent, confirmed the native claim sheet opened and handled the fake share id with `Share token not found.`, verified the app process remained focused, and captured `/private/tmp/porizo-u7-claim-smoke.png`. U7 share-dispatch gate passed with `:core:share:assembleDebug` and `:app:assembleDebug`; the dispatcher is ready for U8 create/reveal share generation.
 
+## U8 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/settings.gradle.kts` | native-owned | Added `:feature:create`. |
+| `PorizoAndroid/Android/app/build.gradle.kts` | native-owned | App now depends on native create UI and state. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/MainActivity.kt` | native-owned | Activity owns the native `CreateViewModel` beside auth, claim, library, and player state owners. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/AppRoot.kt` | native-owned | Root passes create state into the main navigation shell. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/di/**` | native-owned | App graph now provides create/render repositories and the native Android share dispatcher to create flow state. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/navigation/**` | native-owned | Home tab now renders the native create flow instead of placeholder cards. |
+| `PorizoAndroid/Android/core/model/src/main/kotlin/com/porizo/core/model/CreateModels.kt` | native-owned | Create drafts now preserve recipient phone and song/poem content type. |
+| `PorizoAndroid/Android/core/datastore/src/main/kotlin/com/porizo/core/datastore/LocalStores.kt` | native-owned | Native create draft storage persists phone and content type behind the data layer. |
+| `PorizoAndroid/Android/core/domain/src/main/kotlin/com/porizo/core/domain/repository/RepositoryContracts.kt` | native-owned | `CreateRepository` owns draft load/save/clear so feature code does not reach into Android storage directly. |
+| `PorizoAndroid/Android/core/data/src/main/kotlin/com/porizo/core/data/**` | native-owned | Native create repository now composes backend story endpoints with draft persistence; data graph wires create/render repositories. |
+| `PorizoAndroid/Android/feature/create/**` | native-owned | Native create state machine and Compose UI for name, details, story conversation, lyrics review, preview render, reveal playback, send, and protected share-link generation. |
+
+U8 parity gate passed with `:feature:create:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, cleared app data, launched `com.porizo.app/.MainActivity`, skipped onboarding through discovered accessibility bounds, entered `Sarah`, advanced to the signed-out details step, confirmed compact type/occasion controls plus the visible `Sign in to create` CTA, verified the app process remained focused without `AndroidRuntime` fatal logs, and saved the final hierarchy at `/private/tmp/porizo-u8-final-details.xml`.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |
@@ -117,31 +135,31 @@ U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:ass
 | `PorizoAndroid/Package.swift` | retain-reference | U11 after U2-U10 parity gates pass. |
 | `PorizoAndroid/Package.resolved` | retain-reference | U11 after U2-U10 parity gates pass. |
 | `PorizoAndroid/Skip.env` | retain-reference | U10 migrates app id/version/signing knowledge, then U11 deletes. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIClient.swift` | retain-reference | Native network/data parity exists; keep for U5-U8 flow wiring audits, then delete in U11. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIModels.swift` | retain-reference | Native model/DTO parity exists; keep for U5-U8 flow wiring audits, then delete in U11. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIClient.swift` | retain-reference | Native network/data and feature wiring parity exists; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIModels.swift` | retain-reference | Native model/DTO and feature wiring parity exists; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAppConfig.swift` | retain-reference | Native data graph owns base URL wiring; keep for U5-U10 config/signing audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAuthModel.swift` | retain-reference | Native auth shell exists; keep until U9 Google/platform auth parity and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidOnboardingModel.swift` | retain-reference | Native onboarding graph/UI exists; keep until U8 create-flow seed audit and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPlayerModel.swift` | retain-reference | Native player exists; keep until U8 reveal playback and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAudioPlayer.swift` | retain-reference | Native Media3 playback exists; keep until U8 reveal playback and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidOnboardingModel.swift` | retain-reference | Native onboarding graph/UI exists and create-flow seed audit passed; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPlayerModel.swift` | retain-reference | Native player and reveal playback exist; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAudioPlayer.swift` | retain-reference | Native Media3 playback and reveal playback exist; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidClaimModel.swift` | retain-reference | Native claim/deep-link sheet exists; keep until U7 share dispatch and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidDeepLink.swift` | retain-reference | Native parser and route wiring exist; keep until U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidShare.swift` | retain-reference | Native share/SMS/clipboard dispatcher exists; keep until U8 create/reveal integration and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidCreateFlowModel.swift` | migrate-or-delete | U8 create flow parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderModel.swift` | migrate-or-delete | U8 render lifecycle parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderController.swift` | migrate-or-delete | U2/U8 render logic parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidShare.swift` | retain-reference | Native share/SMS/clipboard dispatcher is integrated into create/reveal; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidCreateFlowModel.swift` | retain-reference | Native create flow parity exists; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderModel.swift` | retain-reference | Native render lifecycle parity exists; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderController.swift` | retain-reference | Native render decision parity exists; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidNativeAdapters.swift` | migrate-or-delete | U9 platform service parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidGoogleSignIn.swift` | migrate-or-delete | U9 Google sign-in platform parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPushRouting.swift` | migrate-or-delete | U9 push routing parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidSecureStore.swift` | retain-reference | Native Keystore-backed secure storage exists; keep until feature runtime coverage, then delete in U11. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidLocalStores.swift` | retain-reference | Native draft/render/local stores exist; keep until feature runtime coverage, then delete in U11. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidLocalStores.swift` | retain-reference | Native draft/render/local stores exist and create/runtime coverage has started; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AuthLogic.swift` | migrate-or-delete | U2 auth logic tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ClaimLogic.swift` | migrate-or-delete | U2/U7 claim logic tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PoemClaimLogic.swift` | migrate-or-delete | U2/U7 poem claim tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ShareLogic.swift` | migrate-or-delete | U2/U7 share logic tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/SongLibrary.swift` | retain-reference | Native pure logic and UI wiring exist; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PoemLibrary.swift` | retain-reference | Native pure logic and UI wiring exist; keep until U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/StoryEngine.swift` | migrate-or-delete | U2/U8 story tests ported. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/StoryEngine.swift` | retain-reference | Native story engine parity exists and create flow uses it; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ViewModel.swift` | candidate-delete | U5-U8 ViewModel ports complete. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ContentView.swift` | candidate-delete | U4-U10 native screens complete. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/DesignTokens.swift` | retain-reference | Native UI token parity exists; keep for feature screen parity audits, then delete in U11. |
@@ -149,23 +167,24 @@ U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:ass
 | `PorizoAndroid/Sources/PorizoSkipSpike/HostTestShims.swift` | candidate-delete | U11 after Swift tests are gone. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PorizoSkipSpikeApp.swift` | candidate-delete | U11 after native app owns launch/deep links. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Views/AuthView.swift` | retain-reference | Native auth UI exists; keep until U9 Google/platform auth and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/Views/Onboarding/OnboardingView.swift` | retain-reference | Native onboarding UI exists; keep until U8 create-flow seed audit and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/Views/MiniPlayerBar.swift` | retain-reference | Native mini-player exists; keep until U8 reveal playback and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/Views/NowPlayingView.swift` | retain-reference | Native now-playing sheet exists; keep until U8 reveal playback and U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/Views/**` | candidate-delete | U4-U8 screen parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/Onboarding/OnboardingView.swift` | retain-reference | Native onboarding UI exists and create-flow seed audit passed; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/MiniPlayerBar.swift` | retain-reference | Native mini-player and reveal playback exist; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/NowPlayingView.swift` | retain-reference | Native now-playing sheet and reveal playback exist; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/CreateFlowView.swift` | retain-reference | Native create flow parity exists; keep until U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/**` | candidate-delete | U11 after native screen parity and platform-service parity audits pass. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Resources/**` | migrate-or-delete | U4 migrates useful assets/localization. |
 
 ## Retained Reference: Skip Kotlin Bridges
 
 | Path | Status | Delete Gate |
 |---|---|---|
-| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeAudioBridge.kt` | retain-reference | Native Media3 engine exists; keep until U8 reveal playback and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeAudioBridge.kt` | retain-reference | Native Media3 engine and reveal playback exist; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeBillingBridge.kt` | migrate-or-delete | U9 billing parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeGoogleSignInBridge.kt` | migrate-or-delete | U5 Google sign-in parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativePushBridge.kt` | migrate-or-delete | U9 push parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeRecorderBridge.kt` | migrate-or-delete | U9 recorder parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeSecureStore.kt` | migrate-or-delete | U3 secure storage parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeShareBridge.kt` | retain-reference | Native share/SMS/clipboard dispatcher exists; keep until U8 create/reveal integration and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeShareBridge.kt` | retain-reference | Native share/SMS/clipboard dispatcher is integrated into create/reveal; keep until U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/skip.yml` | candidate-delete | U11 after all bridge code is migrated or deleted. |
 
 ## Retained Reference: Swift Tests
