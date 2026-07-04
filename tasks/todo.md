@@ -1,68 +1,24 @@
-# ACTIVE: Android (Skip spike) → iOS parity audit + phased plan (2026-07-03)
+# Android → iOS parity (pure-native Kotlin) — superseded the Skip spike
 
-**Goal:** Replicate the exact iOS app on Android. Audit every tab/section/function/flow, curate a gap list, turn it into a phased plan via /ce-plan.
+**Status:** the Android app is now **pure-native Kotlin + Jetpack Compose** (no Skip).
+The earlier Skip-Fuse spike (`Sources/PorizoSkipSpike/`, `swift test`, the U1–U18 "Skip
+gotcha" log) was retired; those artifacts were removed from disk on 2026-07-04. The full
+historical Skip progress log lives in git history (commit `1efa6747`) if ever needed.
 
-**Ground truth (verified):**
+**Where the current work lives:**
 
-- iOS: `PorizoApp/` — 287 Swift files, ~80 screen/view files (full app)
-- Android: `.worktrees/refactor-android/PorizoAndroid/Sources/PorizoSkipSpike/` — 12 files, ~5 tab stubs in one `ContentView.swift`
-- Shared: 5 tabs (Explore, Songs, Poems, Claim, Settings), design tokens, backend
-- Scope: FULL parity, phased (P0 core → P1 → P2). Method: screenshots + source.
+- App source: `.worktrees/refactor-android/PorizoAndroid/Android/` (native modules `core:*` + `feature:*`).
+- Native parity plan: `docs/plans/2026-07-05-001-feat-android-native-ios-parity-plan.md`.
+- Live U11 audit + external-QA ledger: `docs/parity-2026-07/native-parity-audit-2026-07-05.md`.
+- Gap register: `docs/parity-2026-07/android-ios-parity-gaps.md`; app-links deploy artifact: `docs/parity-2026-07/android-assetlinks.md`.
+- Build (gradle is hook-redirected → run via context-mode ctx_execute):
+  `cd Android && ANDROID_HOME=~/Library/Android/sdk JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" GRADLE_USER_HOME=/private/tmp/porizo-gradle-cache gradle :app:assembleDebug`
 
-## Plan
-
-- [x] Boot Android emulator + capture each tab (adb; 5 tabs)
-- [x] Boot iOS simulator (--bypass-auth) + capture each tab + create flow
-- [x] Map iOS screen inventory from source (2 scout agents, all tabs + cross-cutting)
-- [x] Map Android spike surface from ContentView.swift (12 files, ~25 stub structs)
-- [x] Gap analysis per tab + cross-cutting
-- [x] Curate consolidated gap list → docs/parity-2026-07/android-ios-parity-gaps.md
-- [x] /ce-plan → phased implementation plan → docs/plans/2026-07-03-001-feat-android-ios-parity-plan.md (18 units, P0/P1/P2)
-
-**Key finding:** Android is a Skip _spike_ (~5-10% of iOS), not a port. iOS = 4 tabs; Android has an extra mock "Claim" tab (remove, X1). ~12 P0 items dominated by create wizard + playback + real library + auth.
-
-## Implementation progress (/ce-work on `refactor` branch in worktree; plan doc = docs/plans/2026-07-03-001-...)
-
-**Location:** all Android source at `.worktrees/refactor-android/PorizoAndroid/Sources/PorizoSkipSpike/`. Commit on `refactor` branch.
-**Build:** `cd Android && ANDROID_HOME=~/Library/Android/sdk JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" GRADLE_USER_HOME=/private/tmp/porizo-gradle-cache gradle :app:assembleDebug` (run via context-mode ctx_execute — Bash build is hook-redirected). APK at `.build/Android/app/outputs/apk/debug/app-debug.apk`.
-**Tests:** `swift test --filter "AuthLogicTests|TabModelTests|AudioHeaderTests|PlayerModelTests|SongLibraryTests|PoemLibraryTests|CreateFlowTests"` — runs on macOS host (NOT full `swift test` — its XCSkipTests Gradle leg fails on SkipUIBridging). 59/59 pass.
-**Emulator:** AVD `Porizo_GateA_API36`, `com.porizo.app`. adb at `~/Library/Android/sdk/platform-tools/adb`.
-
-**Skip gotchas (hit repeatedly):**
-
-1. `private` on `@State`/`@Environment`/`@Observable` in a bridged View → "cannot be bridged". Drop `private`.
-2. `@Observable` models need `import Observation` + `import SkipFuse` + `@MainActor`.
-3. Host `swift test` needs `HostTestShims.swift` (#if os(macOS) no-op shims for navigationBarTitleDisplayMode/textInputAutocapitalization/keyboardType) — already in place.
-4. SF Symbols like arrow.right/sparkles fall back to a warning-triangle glyph on Skip (P2 icon-mapping).
-
-**DONE (P0 — ALL 10/10):** U1 tabs (9d50274) · U2 ExoPlayer (efb85c8) · U3 player+mini (2ed0253) · test-infra (57cf0fd) · U5 Songs (0882e16) · U4a-d auth (85f751c/e046b6d/a435b55/c5c3ada) · U6 Poems (8378a37) · U7 create-entry (de28944) · U8 story-conversation (ad3aeb8) · U9 lyrics+render+poll (1c10eb2d) · U10 reveal+share (5ea1136e). Tests: 93/93. Create flow: launch→name→details→conversation verified (fires /story/start; "Sign in required" signed out). Reveal/share code-complete; a signed-in end-to-end reveal smoke awaits the Google OAuth client ID.
-
-**U4 note:** Google sign-in compiles but needs `AndroidAppConfig.googleWebClientId` (empty placeholder). Phone auth works. Google button self-disables as "coming soon".
-**U9 note:** old CreateSongView removed in U7; `VoiceSource`, `AndroidRenderPollStore`, `PorizoPendingRender`, `AndroidCreateDraftStore` now temporarily unreferenced — U9 will consume them (render polling + voice selection).
-
-**TODO (P0 remaining):**
-
-- [x] U8 — AI story conversation (DONE, ad3aeb8). confirmStory ConfirmStoryOutcome handles 422=needsInput. StoryEngine tested.
-- [x] U9 — lyrics review + render + poll (DONE, 1c10eb2d). Pure AndroidRenderController (backoff elapsed-bucketed 1/2/5/10/30s, terminal set {failed,dead_letter,blocked}, resume-before-start decision, error taxonomy + Edit-Lyrics/paywall CTA gating) — RenderControllerTests 16/16. AndroidRenderModel @Observable poll loop: approve→render_preview→poll /jobs/:id→re-fetch GET /tracks/:id (C7)→reveal; 3-miss fallback; PorizoPendingRender persist (C12). API added: retryPreview, approveLyrics. LyricsReviewView/RenderWaitView/VoiceChips wired into .lyrics/.wait. My Voice disabled per KTD7.
-- [x] U10 — reveal + share (DONE, 5ea1136e). RevealView (Play→U3 player, Send-to-{name} one-tap, Share-link). SharePostcardView (POST /tracks/:id/share on appear → link+PIN, Copy/Share, no expiry urgency). PorizoNativeShareBridge.kt (ACTION_SEND chooser + smsto: + clipboard, KTD3, wired in Main.kt). Pure ShareLogic + ShareFlowTests 9/9. Per-app custom grid deferred (system chooser covers it).
-
-## P0 COMPLETE (10/10). P1 in progress.
-
-**P1 DONE:**
-
-- U11 onboarding (8baa1cc8) — question-graph, pure OnboardingGraphEngine + 8 tests, @AppStorage gate, template resolution. **Skip gotcha #5 (lessons):** @Observable recomposes only on reads of the model's own STORED props.
-- U12 deep-link claim (aa35ac1a) — claim SHEET (not tab; completes X1/X4/R1/R2). Pure ClaimLogic (share-state map + device-token single-retry-on-401) + 12 tests. AndroidClaimModel resolves track-share + opaque receiver-handoff (persisted across install→login). Verified live: porizo://receiver-handoff/<id> → sheet → resolves api.porizo.co → honest error on bad id. Tests: 113/113.
-- U13 poem create branch + poem-share claim (649270ea) — finish() branches to /story/:id/to-poem (synchronous → verses reveal); poem-share deep link → PoemClaimView. Pure PoemClaimLogic + 7 tests. **Deep-link Skip gotchas #6/#7 (lessons):** parser must route by host + manifest must declare host (poem-share was silently .unknown); warm-while-active delivery needs a direct callback, not @Observable signal. Verified: cold porizo://poem-share/<id> → sheet → live resolve. Tests: 125/125.
-
-- U14 push parsing + tap routing (a0a92c1a) — pure AndroidPushRouting (render_complete→trackReveal, recipient_played→informational) + 7 tests. OneSignal click listener → bridged onNotificationTap → Songs tab. Delivery external (R-2). **Skip gotcha #8 (lessons):** #if SKIP Kotlin funcs can only reference Kotlin-visible symbols → forward to a bridged Swift method. Tests: 132/132.
-
-- **Icon/splash fix** (5dcc9381, user-reported) — Android launcher + Android-12 splash used the OLD maroon "P" brand; replaced with the iOS AppIcon coral gift-box (all-density PNGs from the 1024px source, bg #D8643F, Theme.Porizo splash). Verified on emulator.
-
-**P1/P2 remaining:** U15 gift+Play Billing (**BLOCKED R-1: needs new backend consumable-receipt endpoint**) · U16 Settings real · U17 voice enrollment (**gated KTD7: voice cloning not product-ready**) · U18 polish (dark mode, SF-symbol mapping, copy).
-
-**Session end 2026-07-04:** refactor branch at 5dcc9381. P0 complete (10/10) + P1 U11/U12/U13/U14 done + icon fix. 132/132 host tests. 8 Skip gotchas captured in lessons.md. Remaining: U15 (backend-blocked), U16, U17 (KTD7-gated), U18. Next agent: resume at U16 (Settings — fully unblocked) or U18 (polish); U15 needs the backend consumable endpoint first.
-
-**iOS contracts reference:** exact endpoints/models/state-machines are in the agent reports; the plan doc U8/U9/U10 sections have per-unit file lists + test scenarios.
+**Recent (2026-07-04):** P1 parity gaps closed (Settings/create-entry/gift CTA); lock-screen
+media controls added (`MediaSessionService`, arxitect-reviewed, commit `20c2c241`); deep-link
+routing + authed screenshots verified on-device. Remaining is external provisioning, not code —
+see the audit doc's external-QA ledger (assetlinks hosting, OneSignal/FCM, Play products, real
+backend session for loaded-data, physical device).
 
 ---
 
