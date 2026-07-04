@@ -64,6 +64,23 @@ U3 parity gate passed with `:core:domain:testDebugUnitTest`, `:core:data:assembl
 
 U4 parity gate passed with `:core:ui:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Runtime smoke installed `app-debug.apk` on `emulator-5554`, launched `com.porizo.app/.MainActivity`, confirmed the app window was focused, and captured `/private/tmp/porizo-u4-smoke.png`.
 
+## U5 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/settings.gradle.kts` | native-owned | Added `:feature:auth` and `:feature:onboarding`. |
+| `PorizoAndroid/Android/gradle/libs.versions.toml` | native-owned | Added lifecycle ViewModel support for feature state owners. |
+| `PorizoAndroid/Android/app/build.gradle.kts` | native-owned | App now wires native feature modules and exposes the backend base URL through typed `BuildConfig`. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/di/**` | native-owned | Native Hilt graph provides the data graph and auth repository to feature ViewModels. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/MainActivity.kt` | native-owned | Activity owns the native `AuthViewModel` and passes it into Compose. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/AppRoot.kt` | native-owned | Root now gates first launch through native onboarding and shows native auth when account actions require it. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/navigation/**` | native-owned | Settings exposes sign-in/sign-out account actions against native auth state. |
+| `PorizoAndroid/Android/core/ui/src/main/kotlin/com/porizo/core/ui/PorizoComponents.kt` | native-owned | Shared UI components now include enabled-state buttons and a reusable native text field. |
+| `PorizoAndroid/Android/feature/auth/**` | native-owned | Native phone-auth state machine, Hilt ViewModel, and Compose sign-in/profile completion screens. |
+| `PorizoAndroid/Android/feature/onboarding/**` | native-owned | Native onboarding graph ViewModel and Compose screen built from the domain onboarding engine. |
+
+U5 parity gate passed with `:feature:auth:assembleDebug`, `:feature:onboarding:assembleDebug`, and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, cleared app data, launched `com.porizo.app/.MainActivity`, confirmed the native onboarding screen was focused without a fatal logcat event, captured `/private/tmp/porizo-u5-onboarding-smoke.png`, and validated the Android accessibility hierarchy exposed large clickable onboarding choices.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |
@@ -74,8 +91,8 @@ U4 parity gate passed with `:core:ui:assembleDebug` and `:app:assembleDebug` on 
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIClient.swift` | retain-reference | Native network/data parity exists; keep for U5-U8 flow wiring audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIModels.swift` | retain-reference | Native model/DTO parity exists; keep for U5-U8 flow wiring audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAppConfig.swift` | retain-reference | Native data graph owns base URL wiring; keep for U5-U10 config/signing audits, then delete in U11. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAuthModel.swift` | migrate-or-delete | U5 auth parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidOnboardingModel.swift` | migrate-or-delete | U5 onboarding parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAuthModel.swift` | retain-reference | Native auth shell exists; keep until U9 Google/platform auth parity and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidOnboardingModel.swift` | retain-reference | Native onboarding graph/UI exists; keep until U8 create-flow seed audit and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPlayerModel.swift` | migrate-or-delete | U6 player parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAudioPlayer.swift` | migrate-or-delete | U6 Media3 parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidClaimModel.swift` | migrate-or-delete | U7 claim parity. |
@@ -85,7 +102,7 @@ U4 parity gate passed with `:core:ui:assembleDebug` and `:app:assembleDebug` on 
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderModel.swift` | migrate-or-delete | U8 render lifecycle parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderController.swift` | migrate-or-delete | U2/U8 render logic parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidNativeAdapters.swift` | migrate-or-delete | U9 platform service parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidGoogleSignIn.swift` | migrate-or-delete | U5 Google sign-in parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidGoogleSignIn.swift` | migrate-or-delete | U9 Google sign-in platform parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPushRouting.swift` | migrate-or-delete | U9 push routing parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidSecureStore.swift` | retain-reference | Native Keystore-backed secure storage exists; keep until feature runtime coverage, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidLocalStores.swift` | retain-reference | Native draft/render/local stores exist; keep until feature runtime coverage, then delete in U11. |
@@ -102,6 +119,8 @@ U4 parity gate passed with `:core:ui:assembleDebug` and `:app:assembleDebug` on 
 | `PorizoAndroid/Sources/PorizoSkipSpike/FrauncesTitle.swift` | retain-reference | Native Fraunces typography exists in `:core:ui`; keep for feature screen parity audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/HostTestShims.swift` | candidate-delete | U11 after Swift tests are gone. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PorizoSkipSpikeApp.swift` | candidate-delete | U11 after native app owns launch/deep links. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/AuthView.swift` | retain-reference | Native auth UI exists; keep until U9 Google/platform auth and U11 deletion audit. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Views/Onboarding/OnboardingView.swift` | retain-reference | Native onboarding UI exists; keep until U8 create-flow seed audit and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Views/**` | candidate-delete | U4-U8 screen parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Resources/**` | migrate-or-delete | U4 migrates useful assets/localization. |
 

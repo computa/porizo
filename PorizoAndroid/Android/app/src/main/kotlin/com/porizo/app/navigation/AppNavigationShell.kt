@@ -33,11 +33,16 @@ import com.porizo.core.ui.PorizoPrimaryButton
 import com.porizo.core.ui.PorizoScreen
 import com.porizo.core.ui.PorizoSecondaryButton
 import com.porizo.core.ui.PorizoSectionLabel
+import com.porizo.feature.auth.AuthPhase
+import com.porizo.feature.auth.AuthUiState
 
 @Composable
 fun AppNavigationShell(
     pendingDeepLink: DeepLinkRoute?,
     onDeepLinkConsumed: () -> Unit,
+    authState: AuthUiState,
+    onSignInRequested: () -> Unit,
+    onLogoutRequested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
@@ -89,7 +94,12 @@ fun AppNavigationShell(
             AppTab.Home -> HomeScreen(routeNotice, innerPadding)
             AppTab.Songs -> SongsScreen(routeNotice, innerPadding)
             AppTab.Poems -> PoemsScreen(routeNotice, innerPadding)
-            AppTab.Settings -> SettingsScreen(innerPadding)
+            AppTab.Settings -> SettingsScreen(
+                authState = authState,
+                onSignInRequested = onSignInRequested,
+                onLogoutRequested = onLogoutRequested,
+                innerPadding = innerPadding,
+            )
         }
     }
 }
@@ -189,7 +199,12 @@ private fun PoemsScreen(routeNotice: String?, innerPadding: PaddingValues) {
 }
 
 @Composable
-private fun SettingsScreen(innerPadding: PaddingValues) {
+private fun SettingsScreen(
+    authState: AuthUiState,
+    onSignInRequested: () -> Unit,
+    onLogoutRequested: () -> Unit,
+    innerPadding: PaddingValues,
+) {
     PorizoScreen(
         modifier = Modifier
             .fillMaxSize()
@@ -197,8 +212,32 @@ private fun SettingsScreen(innerPadding: PaddingValues) {
         title = "Settings",
         subtitle = "Manage account, subscription, voice, and notifications.",
     ) {
+        val authenticated = authState.phase as? AuthPhase.Authenticated
+        PorizoCard {
+            Text(
+                text = "Account",
+                color = PorizoColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = authenticated?.let { "Signed in as ${it.userId}" } ?: "Sign in and restore your library",
+                color = PorizoColors.TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (authenticated == null) {
+                PorizoPrimaryButton(
+                    text = "Sign in",
+                    onClick = onSignInRequested,
+                )
+            } else {
+                PorizoSecondaryButton(
+                    text = "Sign out",
+                    onClick = onLogoutRequested,
+                )
+            }
+        }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            PorizoSettingRow("Account", "Sign in and restore your library")
             PorizoSettingRow("Subscription", "Manage song and poem credits")
             PorizoSettingRow("Voice", "Prepare your voice for personalized songs")
             PorizoSettingRow("Notifications", "Control gift and render updates")

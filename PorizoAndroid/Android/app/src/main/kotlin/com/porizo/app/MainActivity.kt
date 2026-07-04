@@ -6,15 +6,18 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.runtime.mutableStateOf
 import com.porizo.core.domain.deeplink.DeepLinkParser
 import com.porizo.core.domain.deeplink.DeepLinkRoute
+import com.porizo.feature.auth.AuthViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val deepLinkParser = DeepLinkParser()
     private val pendingDeepLink = mutableStateOf<DeepLinkRoute?>(null)
+    private val authViewModel: AuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,6 +27,7 @@ class MainActivity : ComponentActivity() {
             AppRoot(
                 pendingDeepLink = pendingDeepLink.value,
                 onDeepLinkConsumed = { pendingDeepLink.value = null },
+                authViewModel = authViewModel,
             )
         }
     }

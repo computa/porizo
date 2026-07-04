@@ -22,7 +22,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -130,12 +132,14 @@ fun PorizoPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
 ) {
     Button(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 52.dp),
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = PorizoColors.Accent,
             contentColor = androidx.compose.ui.graphics.Color.White,
@@ -159,12 +163,14 @@ fun PorizoSecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
 ) {
     OutlinedButton(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 52.dp),
         onClick = onClick,
+        enabled = enabled,
         border = BorderStroke(1.dp, PorizoColors.ControlBorder),
         shape = RoundedCornerShape(PorizoRadius.Cta.dp),
     ) {
@@ -178,6 +184,33 @@ fun PorizoSecondaryButton(
             modifier = if (icon == null) Modifier else Modifier.padding(start = 8.dp),
         )
     }
+}
+
+@Composable
+fun PorizoTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = true,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else 4,
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = PorizoColors.Surface,
+            unfocusedContainerColor = PorizoColors.Surface,
+            focusedIndicatorColor = PorizoColors.Accent,
+            unfocusedIndicatorColor = PorizoColors.ControlBorder,
+            focusedLabelColor = PorizoColors.AccentDark,
+            cursorColor = PorizoColors.Accent,
+        ),
+        shape = RoundedCornerShape(PorizoRadius.Medium.dp),
+    )
 }
 
 @Composable

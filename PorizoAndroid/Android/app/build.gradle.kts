@@ -25,6 +25,7 @@ android {
         targetSdk = libs.versions.android.sdk.compile.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "PORIZO_API_BASE_URL", "\"https://api.porizo.co/\"")
     }
 
     compileOptions {
@@ -80,6 +81,8 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:data"))
     implementation(project(":core:ui"))
+    implementation(project(":feature:auth"))
+    implementation(project(":feature:onboarding"))
 
     implementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(platform(libs.androidx.compose.bom))
