@@ -47,6 +47,42 @@ data class ContinueStorySignal(
     val isComplete: Boolean?,
 )
 
+data class CreateDraft(
+    val recipientName: String,
+    val occasionRawValue: String,
+    val voiceSourceRawValue: String,
+    val tone: String,
+    val message: String,
+    val targetDuration: Double,
+    val includeNameHook: Boolean,
+    val appOnlySave: Boolean,
+    val updatedAt: String,
+)
+
+data class CreateTrackRequest(
+    val title: String,
+    val occasion: String,
+    val recipientName: String,
+    val style: String,
+    val durationTarget: Int,
+    val voiceMode: String,
+    val message: String,
+    val specificMemory: String?,
+    val specialPhrases: String?,
+    val whatMakesThemSpecial: String?,
+)
+
+data class CreateTrackResult(
+    val trackId: String,
+    val status: String,
+)
+
+data class CreateVersionResult(
+    val trackVersionId: String,
+    val versionNum: Int,
+    val status: String,
+)
+
 data class StoryGuidance(
     val message: String?,
     val question: String?,

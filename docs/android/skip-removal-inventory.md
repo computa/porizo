@@ -35,6 +35,21 @@ This inventory tracks every Skip-owned Android artifact while the native Kotlin 
 
 U2 parity gate passed with `:core:domain:testDebugUnitTest` and `:app:assembleDebug` on 2026-07-04. The equivalent Swift/Skip files remain as references until downstream data/UI/platform slices are complete, because the Skip package still compiles against them.
 
+## U3 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/settings.gradle.kts` | native-owned | Added `:core:network`, `:core:datastore`, and `:core:data` native modules. |
+| `PorizoAndroid/Android/gradle/libs.versions.toml` | native-owned | Added Retrofit, OkHttp, and Moshi dependencies for native backend contracts. |
+| `PorizoAndroid/Android/app/build.gradle.kts` | native-owned | App now depends on the native data graph. |
+| `PorizoAndroid/Android/core/model/**` | native-owned | Added create-flow request/result models used by native repositories. |
+| `PorizoAndroid/Android/core/domain/**` | native-owned | Repository contracts now include native create, render, library, share, billing, push, and voice-enrollment data seams. |
+| `PorizoAndroid/Android/core/network/**` | native-owned | Native Retrofit service, DTOs, mappers, authenticated header interceptor, and error-envelope mapper. |
+| `PorizoAndroid/Android/core/datastore/**` | native-owned | Native Android Keystore-backed secure string store plus session, device-token, draft, and render-poll stores. |
+| `PorizoAndroid/Android/core/data/**` | native-owned | Native repository implementations and app data graph behind the domain contracts. |
+
+U3 parity gate passed with `:core:domain:testDebugUnitTest`, `:core:data:assembleDebug`, and `:app:assembleDebug` on 2026-07-04. `AndroidAPIClient.swift`, `AndroidAPIModels.swift`, `AndroidSecureStore.swift`, and `AndroidLocalStores.swift` now have native counterparts, but they remain retained references until the UI/feature slices wire these repositories through runtime flows and U11 performs final Skip deletion.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |
@@ -42,9 +57,9 @@ U2 parity gate passed with `:core:domain:testDebugUnitTest` and `:app:assembleDe
 | `PorizoAndroid/Package.swift` | retain-reference | U11 after U2-U10 parity gates pass. |
 | `PorizoAndroid/Package.resolved` | retain-reference | U11 after U2-U10 parity gates pass. |
 | `PorizoAndroid/Skip.env` | retain-reference | U10 migrates app id/version/signing knowledge, then U11 deletes. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIClient.swift` | migrate-or-delete | U3 network/data parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIModels.swift` | migrate-or-delete | U2 model and U3 DTO parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAppConfig.swift` | migrate-or-delete | U3 config parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIClient.swift` | retain-reference | Native network/data parity exists; keep for U5-U8 flow wiring audits, then delete in U11. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAPIModels.swift` | retain-reference | Native model/DTO parity exists; keep for U5-U8 flow wiring audits, then delete in U11. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAppConfig.swift` | retain-reference | Native data graph owns base URL wiring; keep for U5-U10 config/signing audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAuthModel.swift` | migrate-or-delete | U5 auth parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidOnboardingModel.swift` | migrate-or-delete | U5 onboarding parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPlayerModel.swift` | migrate-or-delete | U6 player parity. |
@@ -58,8 +73,8 @@ U2 parity gate passed with `:core:domain:testDebugUnitTest` and `:app:assembleDe
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidNativeAdapters.swift` | migrate-or-delete | U9 platform service parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidGoogleSignIn.swift` | migrate-or-delete | U5 Google sign-in parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidPushRouting.swift` | migrate-or-delete | U9 push routing parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidSecureStore.swift` | migrate-or-delete | U3 secure storage parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidLocalStores.swift` | migrate-or-delete | U3 local persistence parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidSecureStore.swift` | retain-reference | Native Keystore-backed secure storage exists; keep until feature runtime coverage, then delete in U11. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidLocalStores.swift` | retain-reference | Native draft/render/local stores exist; keep until feature runtime coverage, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AuthLogic.swift` | migrate-or-delete | U2 auth logic tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ClaimLogic.swift` | migrate-or-delete | U2/U7 claim logic tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PoemClaimLogic.swift` | migrate-or-delete | U2/U7 poem claim tests ported. |

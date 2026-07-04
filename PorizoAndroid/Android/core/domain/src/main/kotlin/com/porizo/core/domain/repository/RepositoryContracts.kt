@@ -15,10 +15,10 @@ import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.PoemBody
 import com.porizo.core.model.PoemShareInfo
 import com.porizo.core.model.PoemSummary
-import com.porizo.core.model.RecordingSettings
 import com.porizo.core.model.RefreshTokenResult
 import com.porizo.core.model.RenderFullResult
 import com.porizo.core.model.RenderPreviewResult
+import com.porizo.core.model.ReceiverHandoffResult
 import com.porizo.core.model.SendPhoneCodeResult
 import com.porizo.core.model.ShareClaimResult
 import com.porizo.core.model.ShareInfo
@@ -122,6 +122,9 @@ interface ShareRepository {
     suspend fun shareStream(shareId: String): ShareStreamResult
     suspend fun poemShareInfo(shareId: String): PoemShareInfo
     suspend fun poemShareBody(shareId: String): PoemBody?
+    suspend fun claimPoemShare(shareId: String, pin: String?): ShareClaimResult
+    suspend fun resolveReceiverHandoff(handoffId: String): ReceiverHandoffResult
+    suspend fun claimReceiverToken(claimToken: String, pin: String?): ShareClaimResult
 }
 
 interface BillingRepository {
@@ -138,7 +141,14 @@ interface PushRepository {
 
 interface VoiceEnrollmentRepository {
     suspend fun startEnrollment(): EnrollmentSession
-    suspend fun uploadChunk(uploadUrl: UploadUrl, bytes: ByteArray, settings: RecordingSettings): ChunkUploadResult
+    suspend fun uploadChunk(
+        sessionId: String,
+        uploadUrl: UploadUrl,
+        bytes: ByteArray,
+        contentType: String,
+        durationSec: Double,
+        checksum: String?,
+    ): ChunkUploadResult
     suspend fun createVoiceProfile(sessionId: String): VoiceProfile
     suspend fun voiceProfileStatus(): VoiceProfileStatus
 }
