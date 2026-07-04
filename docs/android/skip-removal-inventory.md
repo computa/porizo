@@ -22,6 +22,19 @@ This inventory tracks every Skip-owned Android artifact while the native Kotlin 
 | `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/**` | native-owned | New native application/activity/root shell. |
 | `PorizoAndroid/Android/app/src/main/AndroidManifest.xml` | native-owned | Preserved app id behavior, permissions, and deep-link filters while pointing to native classes. |
 
+## U2 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/settings.gradle.kts` | native-owned | Added `:core:model` and `:core:domain` modules. |
+| `PorizoAndroid/Android/build.gradle.kts` | native-owned | Added Android library plugin availability for native core modules. |
+| `PorizoAndroid/Android/gradle/libs.versions.toml` | native-owned | Added Android library plugin and Kotlin test dependencies. |
+| `PorizoAndroid/Android/app/build.gradle.kts` | native-owned | App now depends on native core model/domain modules. |
+| `PorizoAndroid/Android/core/model/**` | native-owned | Native value types for auth, create/story, onboarding, library, share/claim, render, billing, and voice enrollment. |
+| `PorizoAndroid/Android/core/domain/**` | native-owned | Native repository contracts plus pure auth, share/claim, story, onboarding, library, deep-link, and render decisions. |
+
+U2 parity gate passed with `:core:domain:testDebugUnitTest` and `:app:assembleDebug` on 2026-07-04. The equivalent Swift/Skip files remain as references until downstream data/UI/platform slices are complete, because the Skip package still compiles against them.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |
@@ -86,4 +99,3 @@ All files under `PorizoAndroid/Tests/PorizoSkipSpikeTests/**` remain `retain-ref
 |---|---|---|
 | `PorizoAndroid/Darwin/**` | candidate-delete | U11 after Android no longer uses the Skip package. |
 | `PorizoAndroid/Project.xcworkspace/**` | candidate-delete | U11 after Android no longer uses the Skip package. |
-

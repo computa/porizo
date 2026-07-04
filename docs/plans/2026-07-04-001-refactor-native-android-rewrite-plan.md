@@ -20,6 +20,13 @@ execution: code
 | Stop conditions | Stop if a required backend contract is missing, if native Android cannot build without Skip after U1, or if porting reveals product behavior that contradicts iOS/source-of-truth flows. |
 | Cleanup rule | Maintain a Skip removal inventory from the first unit. Move files from "retained reference" to "deleted" only after the corresponding native unit is verified. |
 
+### Execution Status
+
+| Unit | Status | Verification |
+|---|---|---|
+| U1 native Gradle shell and Skip inventory | Complete, committed as `be8c4fb7` | `:app:assembleDebug`; APK install/launch smoke on `emulator-5554`; no Skip Gradle/runtime references in active Android source. |
+| U2 core model and domain contracts | Complete locally | `:core:domain:testDebugUnitTest`; `:app:assembleDebug`. |
+
 ---
 
 ## Product Contract
@@ -368,4 +375,3 @@ docs/android/
 - Skip removal inventory is complete and reconciled with the final deletion diff.
 - Release checklist and native Android runbook describe Android Studio, CLI, physical-device, and Play Store paths.
 - No abandoned prototype code, duplicate build systems, or dead Skip runtime hooks remain in the active Android app.
-

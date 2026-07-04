@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "PorizoAndroid"
 include(":app")
+include(":core:model")
+include(":core:domain")
