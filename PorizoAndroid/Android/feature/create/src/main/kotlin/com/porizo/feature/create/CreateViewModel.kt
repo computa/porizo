@@ -3,12 +3,14 @@ package com.porizo.feature.create
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.porizo.core.domain.create.StoryEngine
+import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.domain.render.RenderController
 import com.porizo.core.domain.repository.ConfirmStoryResult
 import com.porizo.core.domain.repository.CreateRepository
 import com.porizo.core.domain.repository.RenderRepository
 import com.porizo.core.domain.repository.ShareRepository
-import com.porizo.core.media.PorizoPlayer
+import com.porizo.core.domain.share.ShareDispatchResult
+import com.porizo.core.domain.share.ShareDispatcher
 import com.porizo.core.model.ContinueStorySignal
 import com.porizo.core.model.CreateContentType
 import com.porizo.core.model.CreateDraft
@@ -20,8 +22,6 @@ import com.porizo.core.model.PorizoFailure
 import com.porizo.core.model.RenderResult
 import com.porizo.core.model.TrackDetail
 import com.porizo.core.model.VoiceSource
-import com.porizo.core.share.AndroidShareDispatcher
-import com.porizo.core.share.ShareDispatchResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import javax.inject.Inject
@@ -38,8 +38,8 @@ class CreateViewModel @Inject constructor(
     private val createRepository: CreateRepository,
     private val renderRepository: RenderRepository,
     private val shareRepository: ShareRepository,
-    private val player: PorizoPlayer,
-    private val shareDispatcher: AndroidShareDispatcher,
+    private val player: PlayerController,
+    private val shareDispatcher: ShareDispatcher,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(CreateUiState())
     val uiState: StateFlow<CreateUiState> = _uiState.asStateFlow()

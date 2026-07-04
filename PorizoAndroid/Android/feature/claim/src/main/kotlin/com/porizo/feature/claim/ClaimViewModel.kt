@@ -5,9 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.porizo.core.domain.claim.ClaimLogic
 import com.porizo.core.domain.claim.PoemClaimLogic
 import com.porizo.core.domain.deeplink.DeepLinkRoute
+import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.ShareRepository
-import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.model.PlayableTrack
 import com.porizo.core.model.PorizoFailure
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 class ClaimViewModel @Inject constructor(
     private val shareRepository: ShareRepository,
     private val authRepository: AuthRepository,
-    private val player: PorizoPlayer,
+    private val player: PlayerController,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ClaimUiState())
     val uiState: StateFlow<ClaimUiState> = _uiState.asStateFlow()

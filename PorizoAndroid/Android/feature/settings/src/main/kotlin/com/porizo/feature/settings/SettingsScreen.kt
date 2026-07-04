@@ -26,21 +26,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.porizo.core.domain.platform.PlayProductSummary
 import com.porizo.core.model.SubscriptionPlan
-import com.porizo.core.platform.PlayProductSummary
 import com.porizo.core.ui.FrauncesTitle
 import com.porizo.core.ui.PorizoCard
 import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoPrimaryButton
 import com.porizo.core.ui.PorizoScreen
 import com.porizo.core.ui.PorizoSecondaryButton
-import com.porizo.feature.auth.AuthPhase
-import com.porizo.feature.auth.AuthUiState
 
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    authState: AuthUiState,
+    isAuthenticated: Boolean,
+    authenticatedUserId: String?,
     onSignInRequested: () -> Unit,
     onLogoutRequested: () -> Unit,
     innerPadding: PaddingValues,
@@ -49,7 +48,8 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     SettingsScreen(
         state = state,
-        authState = authState,
+        isAuthenticated = isAuthenticated,
+        authenticatedUserId = authenticatedUserId,
         onSignInRequested = onSignInRequested,
         onLogoutRequested = onLogoutRequested,
         onLoadBilling = viewModel::loadBilling,
@@ -73,7 +73,8 @@ fun SettingsScreen(
 @Composable
 private fun SettingsScreen(
     state: SettingsUiState,
-    authState: AuthUiState,
+    isAuthenticated: Boolean,
+    authenticatedUserId: String?,
     onSignInRequested: () -> Unit,
     onLogoutRequested: () -> Unit,
     onLoadBilling: () -> Unit,
@@ -100,7 +101,8 @@ private fun SettingsScreen(
         subtitle = "Account, subscription, voice, and notifications.",
     ) {
         AccountSection(
-            authState = authState,
+            isAuthenticated = isAuthenticated,
+            authenticatedUserId = authenticatedUserId,
             onSignInRequested = onSignInRequested,
             onLogoutRequested = onLogoutRequested,
         )
@@ -131,19 +133,25 @@ private fun SettingsScreen(
 
 @Composable
 private fun AccountSection(
-    authState: AuthUiState,
+    isAuthenticated: Boolean,
+    authenticatedUserId: String?,
     onSignInRequested: () -> Unit,
     onLogoutRequested: () -> Unit,
 ) {
-    val authenticated = authState.phase as? AuthPhase.Authenticated
     PorizoCard {
         SectionTitle("Account")
         Text(
-            text = authenticated?.let { "Signed in as ${it.userId}" } ?: "Signed out",
+            text = if (isAuthenticated && !authenticatedUserId.isNullOrBlank()) {
+                "Signed in as $authenticatedUserId"
+            } else if (isAuthenticated) {
+                "Signed in"
+            } else {
+                "Signed out"
+            },
             color = PorizoColors.TextSecondary,
             style = MaterialTheme.typography.bodyMedium,
         )
-        if (authenticated == null) {
+        if (!isAuthenticated) {
             PorizoPrimaryButton(
                 text = "Sign in",
                 onClick = onSignInRequested,

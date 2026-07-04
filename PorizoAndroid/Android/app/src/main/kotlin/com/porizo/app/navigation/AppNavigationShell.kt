@@ -12,8 +12,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.porizo.core.domain.deeplink.DeepLinkRoute
-import com.porizo.core.media.PorizoPlayer
-import com.porizo.core.platform.PushRoute
+import com.porizo.core.domain.platform.PushRoute
+import com.porizo.core.domain.player.PlayerController
+import com.porizo.feature.auth.AuthPhase
 import com.porizo.core.ui.PorizoBottomNavigationBar
 import com.porizo.core.ui.PorizoBottomNavigationItem
 import com.porizo.core.ui.PorizoColors
@@ -43,7 +44,7 @@ fun AppNavigationShell(
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
     settingsViewModel: SettingsViewModel,
-    player: PorizoPlayer,
+    player: PlayerController,
     resumeSignal: Int,
     modifier: Modifier = Modifier,
 ) {
@@ -140,7 +141,8 @@ fun AppNavigationShell(
             )
             AppTab.Settings -> SettingsScreen(
                 viewModel = settingsViewModel,
-                authState = authState,
+                isAuthenticated = authState.isAuthenticated,
+                authenticatedUserId = (authState.phase as? AuthPhase.Authenticated)?.userId,
                 onSignInRequested = onSignInRequested,
                 onLogoutRequested = onLogoutRequested,
                 innerPadding = innerPadding,

@@ -1,10 +1,10 @@
 package com.porizo.feature.settings
 
+import com.porizo.core.domain.platform.PlayProductSummary
 import com.porizo.core.model.BillingEntitlements
 import com.porizo.core.model.SubscriptionPlan
 import com.porizo.core.model.SubscriptionStatus
 import com.porizo.core.model.VoiceProfileStatus
-import com.porizo.core.platform.PlayProductSummary
 
 data class SettingsUiState(
     val isBillingWorking: Boolean = false,

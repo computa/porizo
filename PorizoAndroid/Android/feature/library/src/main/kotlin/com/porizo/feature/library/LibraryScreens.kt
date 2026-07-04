@@ -41,8 +41,8 @@ import com.porizo.core.domain.library.PoemLibrary
 import com.porizo.core.domain.library.PoemLibraryFilter
 import com.porizo.core.domain.library.SongLibrary
 import com.porizo.core.domain.library.SongLibraryFilter
-import com.porizo.core.media.PlayerUiState
-import com.porizo.core.media.PorizoPlayer
+import com.porizo.core.domain.player.PlayerController
+import com.porizo.core.domain.player.PlayerUiState
 import com.porizo.core.model.PoemSummary
 import com.porizo.core.model.TrackSummary
 import com.porizo.core.ui.FrauncesTitle
@@ -171,7 +171,7 @@ fun PoemsScreen(
 
 @Composable
 fun MiniPlayerBar(
-    player: PorizoPlayer,
+    player: PlayerController,
     onOpenNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -233,7 +233,7 @@ fun MiniPlayerBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingSheet(
-    player: PorizoPlayer,
+    player: PlayerController,
     onDismiss: () -> Unit,
 ) {
     val state by player.state.collectAsState()
@@ -245,7 +245,7 @@ fun NowPlayingSheet(
 @Composable
 private fun NowPlayingContent(
     state: PlayerUiState,
-    player: PorizoPlayer,
+    player: PlayerController,
     onDismiss: () -> Unit,
 ) {
     val track = state.currentTrack

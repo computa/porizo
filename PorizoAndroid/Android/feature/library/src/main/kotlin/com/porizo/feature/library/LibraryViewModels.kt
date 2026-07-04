@@ -7,8 +7,8 @@ import com.porizo.core.domain.library.PoemLibraryFilter
 import com.porizo.core.domain.library.SongDisplayStatus
 import com.porizo.core.domain.library.SongLibrary
 import com.porizo.core.domain.library.SongLibraryFilter
+import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.domain.repository.LibraryRepository
-import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.model.PorizoFailure
 import com.porizo.core.model.PoemSummary
 import com.porizo.core.model.TrackSummary
@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SongsViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
-    private val player: PorizoPlayer,
+    private val player: PlayerController,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SongsUiState())
     val uiState: StateFlow<SongsUiState> = _uiState.asStateFlow()
@@ -69,7 +69,7 @@ class SongsViewModel @Inject constructor(
 @HiltViewModel
 class PoemsViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
-    private val player: PorizoPlayer,
+    private val player: PlayerController,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PoemsUiState())
     val uiState: StateFlow<PoemsUiState> = _uiState.asStateFlow()

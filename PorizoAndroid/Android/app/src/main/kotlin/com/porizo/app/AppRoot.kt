@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.porizo.app.navigation.AppNavigationShell
 import com.porizo.core.domain.deeplink.DeepLinkRoute
-import com.porizo.core.media.PorizoPlayer
+import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoTheme
 import com.porizo.feature.auth.AuthScreen
@@ -35,7 +35,7 @@ fun AppRoot(
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
     settingsViewModel: SettingsViewModel,
-    player: PorizoPlayer,
+    player: PlayerController,
     pendingDeepLink: DeepLinkRoute? = null,
     onDeepLinkConsumed: () -> Unit = {},
     resumeSignal: Int = 0,

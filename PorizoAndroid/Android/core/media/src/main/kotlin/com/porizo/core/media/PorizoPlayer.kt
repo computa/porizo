@@ -1,5 +1,7 @@
 package com.porizo.core.media
 
+import com.porizo.core.domain.player.PlayerController
+import com.porizo.core.domain.player.PlayerUiState
 import com.porizo.core.model.PlayableTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,33 +14,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class PlayerUiState(
-    val currentTrack: PlayableTrack? = null,
-    val isPlaying: Boolean = false,
-    val positionSeconds: Double = 0.0,
-    val durationSeconds: Double = 0.0,
-    val lastError: String? = null,
-) {
-    val progressFraction: Double
-        get() = if (durationSeconds > 0.0) {
-            (positionSeconds / durationSeconds).coerceIn(0.0, 1.0)
-        } else {
-            0.0
-        }
-}
-
 class PorizoPlayer(
     private val engine: AudioPlaybackEngine,
     private val baseUrl: String,
     private val accessTokenProvider: () -> String?,
-) {
+) : PlayerController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlayerUiState())
     private var pollJob: Job? = null
 
-    val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+    override val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
-    fun play(track: PlayableTrack) {
+    override fun play(track: PlayableTrack) {
         val absoluteUrl = StreamingPolicy.absoluteUrl(track.streamUrl, baseUrl)
         val headers = StreamingPolicy.headersFor(track, accessTokenProvider())
         engine.prepare(absoluteUrl, headers)
@@ -61,7 +48,7 @@ class PorizoPlayer(
             }
     }
 
-    fun toggle() {
+    override fun toggle() {
         val current = _state.value.currentTrack ?: return
         if (_state.value.isPlaying) {
             engine.pause()
@@ -73,7 +60,7 @@ class PorizoPlayer(
         }
     }
 
-    fun seekToFraction(fraction: Float) {
+    override fun seekToFraction(fraction: Float) {
         val durationMs = engine.durationMs()
         if (durationMs <= 0L) return
         val target = (durationMs * fraction.coerceIn(0f, 1f)).toLong()
@@ -81,14 +68,14 @@ class PorizoPlayer(
         syncFromEngine()
     }
 
-    fun clear() {
+    override fun clear() {
         pollJob?.cancel()
         pollJob = null
         engine.release()
         _state.value = PlayerUiState()
     }
 
-    fun syncFromEngine() {
+    override fun syncFromEngine() {
         val current = _state.value.currentTrack
         val durationMs = engine.durationMs()
         val isPlaying = engine.isPlaying()

@@ -3,10 +3,10 @@ package com.porizo.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.porizo.core.domain.auth.AuthLogic
+import com.porizo.core.domain.platform.GoogleSignInGateway
+import com.porizo.core.domain.platform.PlatformResult
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.model.PorizoFailure
-import com.porizo.core.platform.GoogleSignInProvider
-import com.porizo.core.platform.PlatformResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val googleAuthConfig: GoogleAuthConfig,
-    private val googleSignInProvider: GoogleSignInProvider,
+    private val googleSignInGateway: GoogleSignInGateway,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -108,7 +108,7 @@ class AuthViewModel @Inject constructor(
 
     fun signInWithGoogle() {
         runAuthAction {
-            when (val token = googleSignInProvider.signIn(googleAuthConfig.webClientId)) {
+            when (val token = googleSignInGateway.signIn(googleAuthConfig.webClientId)) {
                 is PlatformResult.Failure -> throw PorizoFailure.Unknown(token.message)
                 is PlatformResult.Success -> submitGoogleToken(token.value.idToken, confirmLink = false)
             }

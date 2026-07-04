@@ -6,15 +6,17 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.porizo.core.domain.share.ShareDispatchResult
+import com.porizo.core.domain.share.ShareDispatcher
 import com.porizo.core.domain.share.ShareLogic
 import com.porizo.core.model.CreateContentType
 
 class AndroidShareDispatcher(
     context: Context,
-) {
+) : ShareDispatcher {
     private val appContext = context.applicationContext
 
-    fun sendGift(
+    override fun sendGift(
         recipientName: String,
         phone: String?,
         link: String,
@@ -58,7 +60,7 @@ class AndroidShareDispatcher(
                 .putExtra("sms_body", body),
         )
 
-    fun copyToClipboard(text: String): Boolean {
+    override fun copyToClipboard(text: String): Boolean {
         val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
         clipboard.setPrimaryClip(ClipData.newPlainText("Porizo gift link", text))
         return true
@@ -73,10 +75,4 @@ class AndroidShareDispatcher(
         } catch (_: SecurityException) {
             false
         }
-}
-
-enum class ShareDispatchResult {
-    OpenedShareSheet,
-    SentSms,
-    Failed,
 }

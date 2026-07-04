@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.porizo.core.domain.platform.PushGateway
 import com.onesignal.OneSignal
 import com.onesignal.debug.LogLevel
 import com.onesignal.notifications.INotificationClickEvent
@@ -19,10 +20,10 @@ class PushProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val activityHolder: ActivityHolder,
     private val tapStore: PushTapStore,
-) {
+) : PushGateway {
     private var initializedAppId: String? = null
 
-    fun initialize(appId: String, verbose: Boolean): String {
+    override fun initialize(appId: String, verbose: Boolean): String {
         if (appId.isBlank()) {
             return "OneSignal app id is not configured."
         }
@@ -43,7 +44,7 @@ class PushProvider @Inject constructor(
         return "OneSignal initialized."
     }
 
-    fun login(userId: String): String {
+    override fun login(userId: String): String {
         if (userId.isBlank()) {
             return "No user id supplied for OneSignal login."
         }
@@ -51,12 +52,12 @@ class PushProvider @Inject constructor(
         return "OneSignal external id set."
     }
 
-    fun logout(): String {
+    override fun logout(): String {
         OneSignal.logout()
         return "OneSignal user logged out."
     }
 
-    fun optIn(): String =
+    override fun optIn(): String =
         try {
             OneSignal.User.pushSubscription.optIn()
             "OneSignal push subscription opted in."
@@ -64,7 +65,7 @@ class PushProvider @Inject constructor(
             "OneSignal opt-in failed: ${error.message ?: error.javaClass.simpleName}"
         }
 
-    fun requestNotificationPermission(): String {
+    override fun requestNotificationPermission(): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return "Notification runtime permission is not required on this Android version."
         }
@@ -78,10 +79,10 @@ class PushProvider @Inject constructor(
         return "Notification permission requested."
     }
 
-    fun pushToken(): String? =
+    override fun pushToken(): String? =
         runCatching { OneSignal.User.pushSubscription.token }.getOrNull()
 
-    fun subscriptionId(): String? =
+    override fun subscriptionId(): String? =
         runCatching { OneSignal.User.pushSubscription.id }.getOrNull()
 
     private companion object {

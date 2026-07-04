@@ -1,5 +1,6 @@
 package com.porizo.core.platform
 
+import com.porizo.core.domain.platform.PushRoute
 import org.json.JSONObject
 
 object PushRouting {

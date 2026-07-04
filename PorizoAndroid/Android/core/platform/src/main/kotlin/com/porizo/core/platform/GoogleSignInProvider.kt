@@ -5,6 +5,9 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
+import com.porizo.core.domain.platform.GoogleSignInGateway
+import com.porizo.core.domain.platform.GoogleSignInToken
+import com.porizo.core.domain.platform.PlatformResult
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -15,8 +18,8 @@ import javax.inject.Singleton
 class GoogleSignInProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val activityHolder: ActivityHolder,
-) {
-    suspend fun signIn(webClientId: String): PlatformResult<GoogleSignInToken> {
+) : GoogleSignInGateway {
+    override suspend fun signIn(webClientId: String): PlatformResult<GoogleSignInToken> {
         if (webClientId.isBlank()) {
             return PlatformResult.Failure("Google sign-in is not configured.")
         }

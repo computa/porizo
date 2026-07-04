@@ -8,6 +8,9 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.porizo.core.domain.platform.NativeRecording
+import com.porizo.core.domain.platform.PlatformResult
+import com.porizo.core.domain.platform.VoiceRecorder
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.RandomAccessFile
@@ -21,7 +24,7 @@ import kotlin.math.max
 class RecorderProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val activityHolder: ActivityHolder,
-) {
+) : VoiceRecorder {
     private var recorder: AudioRecord? = null
     private var recordingThread: Thread? = null
     @Volatile private var isRecording = false
@@ -30,10 +33,10 @@ class RecorderProvider @Inject constructor(
     private var startedAtMs: Long = 0L
     private var lastStatus: String = "Recorder idle."
 
-    fun hasMicrophonePermission(): Boolean =
+    override fun hasMicrophonePermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-    fun requestMicrophonePermission(): String {
+    override fun requestMicrophonePermission(): String {
         val activity = activityHolder.current() ?: return "Open the app foreground before requesting microphone permission."
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             return "Microphone permission already granted."
@@ -42,7 +45,7 @@ class RecorderProvider @Inject constructor(
         return "Microphone permission requested."
     }
 
-    fun startRecording(): PlatformResult<String> {
+    override fun startRecording(): PlatformResult<String> {
         if (isRecording) return PlatformResult.Failure("Recording is already in progress.")
         if (!hasMicrophonePermission()) return PlatformResult.Failure("Microphone permission is required.")
 
@@ -99,7 +102,7 @@ class RecorderProvider @Inject constructor(
         return PlatformResult.Success(file.absolutePath)
     }
 
-    fun stopRecording(): PlatformResult<NativeRecording> {
+    override fun stopRecording(): PlatformResult<NativeRecording> {
         if (!isRecording) return PlatformResult.Failure("No recording is in progress.")
         isRecording = false
         val localRecorder = recorder
@@ -128,15 +131,15 @@ class RecorderProvider @Inject constructor(
         )
     }
 
-    fun readBytes(recording: NativeRecording): ByteArray? =
+    override fun readBytes(recording: NativeRecording): ByteArray? =
         File(recording.path).takeIf { it.isFile }?.readBytes()
 
-    fun delete(recording: NativeRecording): String {
+    override fun delete(recording: NativeRecording): String {
         val file = File(recording.path)
         return if (file.delete()) "Recording deleted." else "Recording was already removed or could not be deleted."
     }
 
-    fun status(): String = lastStatus
+    override fun status(): String = lastStatus
 
     private fun writeWavHeader(file: File, dataBytes: Long) {
         RandomAccessFile(file, "rw").use { raf ->

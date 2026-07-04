@@ -3,6 +3,12 @@ package com.porizo.app.di
 import android.content.Context
 import com.porizo.app.BuildConfig
 import com.porizo.core.data.PorizoDataGraph
+import com.porizo.core.domain.platform.GoogleSignInGateway
+import com.porizo.core.domain.platform.PlayBillingGateway
+import com.porizo.core.domain.platform.PushGateway
+import com.porizo.core.domain.platform.PushRouteStore
+import com.porizo.core.domain.platform.VoiceRecorder
+import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.BillingRepository
 import com.porizo.core.domain.repository.CreateRepository
@@ -11,11 +17,18 @@ import com.porizo.core.domain.repository.PushRepository
 import com.porizo.core.domain.repository.RenderRepository
 import com.porizo.core.domain.repository.ShareRepository
 import com.porizo.core.domain.repository.VoiceEnrollmentRepository
+import com.porizo.core.domain.share.ShareDispatcher
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
+import com.porizo.core.platform.GoogleSignInProvider
+import com.porizo.core.platform.PlayBillingProvider
+import com.porizo.core.platform.PushProvider
+import com.porizo.core.platform.PushTapStore
+import com.porizo.core.platform.RecorderProvider
 import com.porizo.core.share.AndroidShareDispatcher
 import com.porizo.feature.auth.GoogleAuthConfig
 import com.porizo.feature.settings.SettingsPlatformConfig
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -81,10 +94,10 @@ object PorizoAppModule {
 
     @Provides
     @Singleton
-    fun providePorizoPlayer(
+    fun providePlayerController(
         @ApplicationContext context: Context,
         dataGraph: PorizoDataGraph,
-    ): PorizoPlayer =
+    ): PlayerController =
         PorizoPlayer(
             engine = Media3AudioPlaybackEngine(context),
             baseUrl = BuildConfig.PORIZO_API_BASE_URL,
@@ -93,8 +106,32 @@ object PorizoAppModule {
 
     @Provides
     @Singleton
-    fun provideAndroidShareDispatcher(@ApplicationContext context: Context): AndroidShareDispatcher =
+    fun provideShareDispatcher(@ApplicationContext context: Context): ShareDispatcher =
         AndroidShareDispatcher(context)
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class PorizoPlatformBindingsModule {
+    @Binds
+    @Singleton
+    abstract fun bindGoogleSignInGateway(provider: GoogleSignInProvider): GoogleSignInGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindPlayBillingGateway(provider: PlayBillingProvider): PlayBillingGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindPushGateway(provider: PushProvider): PushGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindPushRouteStore(store: PushTapStore): PushRouteStore
+
+    @Binds
+    @Singleton
+    abstract fun bindVoiceRecorder(provider: RecorderProvider): VoiceRecorder
 }
 
 private fun String.csvValues(): List<String> =

@@ -4,6 +4,23 @@ import com.porizo.core.model.CreateContentType
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
+interface ShareDispatcher {
+    fun sendGift(
+        recipientName: String,
+        phone: String?,
+        link: String,
+        contentType: CreateContentType,
+    ): ShareDispatchResult
+
+    fun copyToClipboard(text: String): Boolean
+}
+
+enum class ShareDispatchResult {
+    OpenedShareSheet,
+    SentSms,
+    Failed,
+}
+
 object ShareLogic {
     sealed interface SendChannel {
         data class Sms(val phone: String) : SendChannel

@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:domain"))
     implementation(project(":core:model"))
 
     implementation(libs.androidx.media3.datasource)

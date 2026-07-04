@@ -2,6 +2,12 @@ package com.porizo.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.porizo.core.domain.platform.PlatformResult
+import com.porizo.core.domain.platform.PlayBillingGateway
+import com.porizo.core.domain.platform.PushGateway
+import com.porizo.core.domain.platform.PushRoute
+import com.porizo.core.domain.platform.PushRouteStore
+import com.porizo.core.domain.platform.VoiceRecorder
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.BillingRepository
 import com.porizo.core.domain.repository.PushRepository
@@ -9,13 +15,6 @@ import com.porizo.core.domain.repository.VoiceEnrollmentRepository
 import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.PorizoFailure
 import com.porizo.core.model.UploadUrl
-import com.porizo.core.platform.NativeRecording
-import com.porizo.core.platform.PlatformResult
-import com.porizo.core.platform.PlayBillingProvider
-import com.porizo.core.platform.PushProvider
-import com.porizo.core.platform.PushRoute
-import com.porizo.core.platform.PushTapStore
-import com.porizo.core.platform.RecorderProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -31,10 +30,10 @@ class SettingsViewModel @Inject constructor(
     private val billingRepository: BillingRepository,
     private val pushRepository: PushRepository,
     private val voiceEnrollmentRepository: VoiceEnrollmentRepository,
-    private val billingProvider: PlayBillingProvider,
-    private val pushProvider: PushProvider,
-    private val pushTapStore: PushTapStore,
-    private val recorderProvider: RecorderProvider,
+    private val billingProvider: PlayBillingGateway,
+    private val pushProvider: PushGateway,
+    private val pushRouteStore: PushRouteStore,
+    private val recorderProvider: VoiceRecorder,
     private val config: SettingsPlatformConfig,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -176,7 +175,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun consumePendingPushRoute(): PushRoute? = pushTapStore.consume()
+    fun consumePendingPushRoute(): PushRoute? = pushRouteStore.consume()
 
     fun loadVoiceStatus() {
         runVoice {

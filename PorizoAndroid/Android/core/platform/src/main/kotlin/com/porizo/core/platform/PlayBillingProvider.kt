@@ -11,6 +11,8 @@ import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
+import com.porizo.core.domain.platform.PlayBillingGateway
+import com.porizo.core.domain.platform.PlayProductSummary
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -20,7 +22,7 @@ import javax.inject.Singleton
 class PlayBillingProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val activityHolder: ActivityHolder,
-) {
+) : PlayBillingGateway {
     private var billingClient: BillingClient? = null
     private val productDetailsById = ConcurrentHashMap<String, ProductDetails>()
     private val purchaseTokensByProductId = ConcurrentHashMap<String, String>()
@@ -35,7 +37,7 @@ class PlayBillingProvider @Inject constructor(
         }
     }
 
-    fun queryProducts(subscriptionIds: List<String>, oneTimeIds: List<String>): String {
+    override fun queryProducts(subscriptionIds: List<String>, oneTimeIds: List<String>): String {
         pendingSubscriptionIds = subscriptionIds.cleaned()
         pendingOneTimeIds = oneTimeIds.cleaned()
         val client = ensureClient()
@@ -48,7 +50,7 @@ class PlayBillingProvider @Inject constructor(
         return lastStatus
     }
 
-    fun launchPurchase(productId: String, obfuscatedAccountId: String?): String {
+    override fun launchPurchase(productId: String, obfuscatedAccountId: String?): String {
         val activity = activityHolder.current() ?: return "No foreground Android activity is available for Play Billing."
         val client = billingClient ?: return "Play Billing client is not initialized."
         if (!client.isReady) {
@@ -80,7 +82,7 @@ class PlayBillingProvider @Inject constructor(
         return lastStatus
     }
 
-    fun queryActivePurchases(): String {
+    override fun queryActivePurchases(): String {
         val client = ensureClient()
         if (client.isReady) {
             queryPurchasesNow(client)
@@ -90,14 +92,14 @@ class PlayBillingProvider @Inject constructor(
         return lastStatus
     }
 
-    fun lastPurchaseToken(productId: String): String? =
+    override fun lastPurchaseToken(productId: String): String? =
         if (productId.isBlank()) {
             purchaseTokensByProductId.values.firstOrNull()
         } else {
             purchaseTokensByProductId[productId]
         }
 
-    fun loadedProducts(): List<PlayProductSummary> =
+    override fun loadedProducts(): List<PlayProductSummary> =
         productDetailsById.values
             .sortedBy { it.productId }
             .map { details ->
@@ -109,7 +111,7 @@ class PlayBillingProvider @Inject constructor(
                 )
             }
 
-    fun status(): String = lastStatus
+    override fun status(): String = lastStatus
 
     private fun ensureClient(): BillingClient {
         val existing = billingClient
