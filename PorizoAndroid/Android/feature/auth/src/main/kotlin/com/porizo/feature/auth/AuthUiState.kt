@@ -12,10 +12,16 @@ sealed interface AuthPhase {
 data class AuthUiState(
     val phase: AuthPhase = AuthPhase.SignedOut,
     val phoneNumber: String = "",
+    val normalizedPhoneNumber: String? = null,
     val code: String = "",
     val isWorking: Boolean = false,
+    val isGoogleSignInConfigured: Boolean = false,
     val errorMessage: String? = null,
+    val pushWarningMessage: String? = null,
 ) {
     val isAuthenticated: Boolean
         get() = phase is AuthPhase.Authenticated
+
+    val canSendPhoneCode: Boolean
+        get() = normalizedPhoneNumber != null && !isWorking
 }

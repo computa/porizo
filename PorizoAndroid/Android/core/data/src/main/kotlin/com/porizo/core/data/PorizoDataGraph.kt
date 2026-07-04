@@ -33,7 +33,7 @@ class PorizoDataGraph private constructor(
             val tokenProvider = AccessTokenProvider { sessionStore.currentAccessToken() }
             val apiService = PorizoNetworkClient.apiService(
                 baseUrl = baseUrl,
-                okHttpClient = PorizoNetworkClient.okHttpClient(appVersion, tokenProvider),
+                okHttpClient = PorizoNetworkClient.okHttpClient(baseUrl, appVersion, tokenProvider),
             )
             val authRepository = DefaultAuthRepository(
                 service = apiService,

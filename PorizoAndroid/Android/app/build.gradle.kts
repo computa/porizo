@@ -9,6 +9,17 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val googleWebClientId: String =
+    providers.gradleProperty("porizoGoogleWebClientId")
+        .orElse(providers.environmentVariable("PORIZO_GOOGLE_WEB_CLIENT_ID"))
+        .orElse("")
+        .get()
+val allowDebugReleaseSigning: Boolean =
+    providers.gradleProperty("allowDebugReleaseSigning")
+        .map(String::toBoolean)
+        .orElse(false)
+        .get()
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_17
@@ -26,10 +37,11 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "PORIZO_API_BASE_URL", "\"https://api.porizo.co/\"")
-        buildConfigField("String", "PORIZO_GOOGLE_WEB_CLIENT_ID", "\"\"")
+        buildConfigField("String", "PORIZO_GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("String", "PORIZO_ONESIGNAL_APP_ID", "\"67365cfb-f88a-44cc-ba25-29a9a01d01f0\"")
         buildConfigField("String", "PORIZO_SUBSCRIPTION_PRODUCT_IDS", "\"com.porizo.plus_monthly,com.porizo.plus_annual,com.porizo.pro_monthly,com.porizo.pro_annual\"")
         buildConfigField("String", "PORIZO_ONE_TIME_PRODUCT_IDS", "\"com.porizo.gift_token_oneoff,com.porizo.gift_bundle_1,com.porizo.gift_bundle_3,com.porizo.gift_bundle_5\"")
+        buildConfigField("boolean", "PORIZO_ENABLE_VOICE_ENROLLMENT", "false")
     }
 
     compileOptions {
@@ -77,6 +89,19 @@ android {
             isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val requestsReleaseArtifact = allTasks.any { task ->
+        task.path in setOf(":app:assembleRelease", ":app:bundleRelease")
+    }
+    val hasReleaseKeystore = file("keystore.properties").isFile
+    if (requestsReleaseArtifact && !hasReleaseKeystore && !allowDebugReleaseSigning) {
+        throw GradleException(
+            "Release signing requires app/keystore.properties. " +
+                "For local packaging smoke tests only, rerun with -PallowDebugReleaseSigning=true.",
+        )
     }
 }
 

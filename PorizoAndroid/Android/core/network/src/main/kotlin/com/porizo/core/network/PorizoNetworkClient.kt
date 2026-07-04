@@ -1,6 +1,7 @@
 package com.porizo.core.network
 
 import com.squareup.moshi.Moshi
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
@@ -14,28 +15,41 @@ fun interface AccessTokenProvider {
 class PorizoHeaderInterceptor(
     private val appVersion: String,
     private val accessTokenProvider: AccessTokenProvider,
+    private val authenticatedHost: String?,
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val builder = original.newBuilder()
             .header("User-Agent", "PorizoAndroid/$appVersion")
 
-        accessTokenProvider.currentAccessToken()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { builder.header("Authorization", "Bearer $it") }
+        if (shouldAttachAuthorization(original.url.host, authenticatedHost)) {
+            accessTokenProvider.currentAccessToken()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { builder.header("Authorization", "Bearer $it") }
+        }
 
         return chain.proceed(builder.build())
     }
 }
 
+internal fun shouldAttachAuthorization(requestHost: String, authenticatedHost: String?): Boolean =
+    authenticatedHost == null || requestHost.equals(authenticatedHost, ignoreCase = true)
+
 object PorizoNetworkClient {
     fun moshi(): Moshi = Moshi.Builder().build()
 
     fun okHttpClient(
+        baseUrl: String,
         appVersion: String,
         accessTokenProvider: AccessTokenProvider,
     ): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(PorizoHeaderInterceptor(appVersion, accessTokenProvider))
+        .addInterceptor(
+            PorizoHeaderInterceptor(
+                appVersion = appVersion,
+                accessTokenProvider = accessTokenProvider,
+                authenticatedHost = baseUrl.toHttpUrl().host,
+            ),
+        )
         .build()
 
     fun apiService(

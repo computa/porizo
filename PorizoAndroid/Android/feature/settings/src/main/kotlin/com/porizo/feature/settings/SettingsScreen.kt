@@ -9,15 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -299,50 +295,53 @@ private fun VoiceSection(
             SettingLine("Ready", if (status.myVoiceReady == true) "Yes" else "No")
             status.qualityTier?.let { SettingLine("Quality", it) }
         }
-        state.enrollmentPrompt?.let { prompt ->
-            FrauncesTitle(text = "Read this", sizeSp = 22)
-            Text(
-                text = prompt,
-                color = PorizoColors.TextSecondary,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
         PorizoPrimaryButton(
             text = "Load voice status",
             onClick = onLoadVoiceStatus,
             enabled = !state.isVoiceWorking,
             icon = Icons.Filled.Refresh,
         )
-        PorizoSecondaryButton(
-            text = "Allow microphone",
-            onClick = onRequestMic,
-            enabled = !state.isVoiceWorking,
-            icon = Icons.Filled.Mic,
-        )
-        PorizoSecondaryButton(
-            text = "Start enrollment",
-            onClick = onStartEnrollment,
-            enabled = !state.isVoiceWorking,
-            icon = Icons.Filled.PlayArrow,
-        )
-        PorizoSecondaryButton(
-            text = "Record",
-            onClick = onStartRecording,
-            enabled = !state.isVoiceWorking,
-            icon = Icons.Filled.Mic,
-        )
-        PorizoSecondaryButton(
-            text = "Stop and upload",
-            onClick = onStopAndUpload,
-            enabled = !state.isVoiceWorking,
-            icon = Icons.Filled.Upload,
-        )
-        PorizoSecondaryButton(
-            text = "Create voice",
-            onClick = onCreateVoiceProfile,
-            enabled = !state.isVoiceWorking && state.activeEnrollmentId != null,
-            icon = Icons.Filled.Stop,
-        )
+        if (state.voiceEnrollmentEnabled) {
+            state.enrollmentPrompt?.let { prompt ->
+                FrauncesTitle(text = "Read this", sizeSp = 22)
+                Text(
+                    text = prompt,
+                    color = PorizoColors.TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            PorizoSecondaryButton(
+                text = "Allow microphone",
+                onClick = onRequestMic,
+                enabled = !state.isVoiceWorking,
+            )
+            PorizoSecondaryButton(
+                text = "Start enrollment",
+                onClick = onStartEnrollment,
+                enabled = !state.isVoiceWorking,
+            )
+            PorizoSecondaryButton(
+                text = "Record",
+                onClick = onStartRecording,
+                enabled = !state.isVoiceWorking,
+            )
+            PorizoSecondaryButton(
+                text = "Stop and upload",
+                onClick = onStopAndUpload,
+                enabled = !state.isVoiceWorking,
+            )
+            PorizoSecondaryButton(
+                text = "Create voice",
+                onClick = onCreateVoiceProfile,
+                enabled = !state.isVoiceWorking && state.activeEnrollmentId != null,
+            )
+        } else {
+            Text(
+                text = "My Voice is coming soon. AI voices and instrumental previews are available now.",
+                color = PorizoColors.TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         StatusText(state.voiceStatus)
     }
 }
@@ -386,8 +385,15 @@ private fun StatusText(text: String) {
     )
 }
 
-private fun billingProductChoices(state: SettingsUiState): List<String> =
-    (state.loadedProducts.map { it.id } + state.plans.flatMap { it.googleSubscriptionProductIds })
+internal fun billingProductChoices(state: SettingsUiState): List<String> =
+    (
+        state.loadedProducts
+            .filter { it.productType == GOOGLE_SUBSCRIPTION_PRODUCT_TYPE }
+            .map { it.id } +
+            state.plans.flatMap { it.googleSubscriptionProductIds }
+        )
         .filter { it.isNotBlank() }
         .distinct()
         .sorted()
+
+private const val GOOGLE_SUBSCRIPTION_PRODUCT_TYPE = "subs"

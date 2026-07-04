@@ -35,4 +35,6 @@ dependencies {
     api(libs.retrofit.converter.moshi)
 
     ksp(libs.moshi.kotlin.codegen)
+
+    testImplementation(libs.kotlin.test)
 }

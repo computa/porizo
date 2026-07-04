@@ -75,12 +75,14 @@ fun AuthScreen(
         when (val phase = state.phase) {
             AuthPhase.SignedOut -> SignInOptions(
                 isWorking = state.isWorking,
+                isGoogleSignInConfigured = state.isGoogleSignInConfigured,
                 onGoogle = onGoogle,
                 onBeginPhone = onBeginPhone,
                 onCancel = onCancel,
             )
             AuthPhase.PhoneEntry -> PhoneEntry(
                 phoneNumber = state.phoneNumber,
+                canSend = state.canSendPhoneCode,
                 isWorking = state.isWorking,
                 onPhoneChange = onPhoneChange,
                 onSendCode = onSendCode,
@@ -129,12 +131,23 @@ fun AuthScreen(
                 )
             }
         }
+
+        state.pushWarningMessage?.let { message ->
+            PorizoCard {
+                Text(
+                    text = message,
+                    color = PorizoColors.Error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun SignInOptions(
     isWorking: Boolean,
+    isGoogleSignInConfigured: Boolean,
     onGoogle: () -> Unit,
     onBeginPhone: () -> Unit,
     onCancel: () -> Unit,
@@ -143,7 +156,7 @@ private fun SignInOptions(
         PorizoSecondaryButton(
             text = "Continue with Google",
             onClick = onGoogle,
-            enabled = !isWorking,
+            enabled = !isWorking && isGoogleSignInConfigured,
             icon = Icons.Filled.VerifiedUser,
         )
         PorizoPrimaryButton(
@@ -161,6 +174,7 @@ private fun SignInOptions(
 @Composable
 private fun PhoneEntry(
     phoneNumber: String,
+    canSend: Boolean,
     isWorking: Boolean,
     onPhoneChange: (String) -> Unit,
     onSendCode: () -> Unit,
@@ -172,10 +186,15 @@ private fun PhoneEntry(
             onValueChange = onPhoneChange,
             label = "Phone number",
         )
+        Text(
+            text = "Use a valid mobile number. We'll send codes in international format.",
+            color = PorizoColors.TextSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+        )
         PorizoPrimaryButton(
             text = "Send code",
             onClick = onSendCode,
-            enabled = !isWorking && phoneNumber.trim().isNotEmpty(),
+            enabled = canSend,
             icon = Icons.AutoMirrored.Filled.Send,
         )
         TextButton(onClick = onBack) {

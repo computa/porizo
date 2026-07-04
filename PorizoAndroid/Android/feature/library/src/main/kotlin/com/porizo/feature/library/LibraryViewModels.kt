@@ -64,6 +64,34 @@ class SongsViewModel @Inject constructor(
                 }
         }
     }
+
+    fun openTrackReveal(trackId: String) {
+        if (trackId.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    filter = SongLibraryFilter.Mine,
+                    isLoading = true,
+                    message = "Opening your ready song...",
+                )
+            }
+            runCatching { libraryRepository.tracks() }
+                .onSuccess { tracks ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            tracks = tracks,
+                            message = tracks.firstOrNull { track -> track.id == trackId }?.let { track ->
+                                "Ready: ${track.title}"
+                            } ?: "Your render is ready.",
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isLoading = false, message = error.userMessage()) }
+                }
+        }
+    }
 }
 
 @HiltViewModel

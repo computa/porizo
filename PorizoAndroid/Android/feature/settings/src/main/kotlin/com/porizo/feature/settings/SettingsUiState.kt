@@ -13,6 +13,7 @@ data class SettingsUiState(
     val billingStatus: String = "Billing not loaded.",
     val pushStatus: String = "Push not enabled.",
     val voiceStatus: String = "Voice profile not loaded.",
+    val voiceEnrollmentEnabled: Boolean = false,
     val entitlements: BillingEntitlements? = null,
     val subscriptionStatus: SubscriptionStatus? = null,
     val plans: List<SubscriptionPlan> = emptyList(),

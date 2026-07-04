@@ -29,8 +29,21 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/s/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/play/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/p/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/poem/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/poem-share/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/receiver-handoff/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/s/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/play/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/p/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/poem/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/poem-share/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/receiver-handoff/" />
                 <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/s/" />
                 <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/play/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/p/" />
                 <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/poem/" />
                 <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/poem-share/" />
                 <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/receiver-handoff/" />

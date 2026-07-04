@@ -58,6 +58,7 @@ object PorizoAppModule {
             oneSignalAppId = BuildConfig.PORIZO_ONESIGNAL_APP_ID,
             subscriptionProductIds = BuildConfig.PORIZO_SUBSCRIPTION_PRODUCT_IDS.csvValues(),
             oneTimeProductIds = BuildConfig.PORIZO_ONE_TIME_PRODUCT_IDS.csvValues(),
+            voiceEnrollmentEnabled = BuildConfig.PORIZO_ENABLE_VOICE_ENROLLMENT,
         )
 
     @Provides

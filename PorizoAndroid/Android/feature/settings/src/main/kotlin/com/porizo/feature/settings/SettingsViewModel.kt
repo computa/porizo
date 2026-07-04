@@ -36,7 +36,16 @@ class SettingsViewModel @Inject constructor(
     private val recorderProvider: VoiceRecorder,
     private val config: SettingsPlatformConfig,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(SettingsUiState())
+    private val _uiState = MutableStateFlow(
+        SettingsUiState(
+            voiceEnrollmentEnabled = config.voiceEnrollmentEnabled,
+            voiceStatus = if (config.voiceEnrollmentEnabled) {
+                "Voice profile not loaded."
+            } else {
+                "My Voice is coming soon."
+            },
+        ),
+    )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     private var activeEnrollment: EnrollmentSession? = null
@@ -57,10 +66,11 @@ class SettingsViewModel @Inject constructor(
                 .sorted()
             val status = billingProvider.queryProducts(
                 subscriptionIds = subscriptionIds,
-                oneTimeIds = config.oneTimeProductIds,
+                oneTimeIds = emptyList(),
             )
             delay(1_200)
             val loadedProducts = billingProvider.loadedProducts()
+                .filter { it.productType == GOOGLE_SUBSCRIPTION_PRODUCT_TYPE }
             val selected = _uiState.value.selectedProductId
                 .takeIf { current -> loadedProducts.any { it.id == current } }
                 ?: loadedProducts.firstOrNull { it.productType == "subs" }?.id
@@ -190,18 +200,30 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun requestMicrophonePermission() {
+        if (!config.voiceEnrollmentEnabled) {
+            _uiState.update { it.copy(voiceStatus = "My Voice is coming soon.") }
+            return
+        }
         _uiState.update {
             it.copy(voiceStatus = recorderProvider.requestMicrophonePermission())
         }
     }
 
     fun startEnrollment() {
+        if (!config.voiceEnrollmentEnabled) {
+            _uiState.update { it.copy(voiceStatus = "My Voice is coming soon.") }
+            return
+        }
         runVoice {
             startEnrollmentInternal()
         }
     }
 
     fun startRecording() {
+        if (!config.voiceEnrollmentEnabled) {
+            _uiState.update { it.copy(voiceStatus = "My Voice is coming soon.") }
+            return
+        }
         runVoice {
             if (activeEnrollment == null || activeUploadUrl == null) {
                 startEnrollmentInternal()
@@ -219,6 +241,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun stopAndUploadRecording() {
+        if (!config.voiceEnrollmentEnabled) {
+            _uiState.update { it.copy(voiceStatus = "My Voice is coming soon.") }
+            return
+        }
         runVoice {
             val enrollment = activeEnrollment ?: throw PorizoFailure.Unknown("Start voice enrollment first.")
             val uploadUrl = activeUploadUrl ?: throw PorizoFailure.Unknown("No upload URL is available.")
@@ -252,6 +278,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun createVoiceProfile() {
+        if (!config.voiceEnrollmentEnabled) {
+            _uiState.update { it.copy(voiceStatus = "My Voice is coming soon.") }
+            return
+        }
         runVoice {
             val sessionId = activeEnrollment?.sessionId ?: _uiState.value.activeEnrollmentId
             if (sessionId.isNullOrBlank()) {
@@ -330,5 +360,6 @@ class SettingsViewModel @Inject constructor(
 
     private companion object {
         const val MIN_RECORDING_SECONDS = 1.0
+        const val GOOGLE_SUBSCRIPTION_PRODUCT_TYPE = "subs"
     }
 }

@@ -94,9 +94,19 @@ class CreateViewModel @Inject constructor(
     }
 
     fun startOver() {
+        beginNew()
+    }
+
+    fun beginNew(
+        occasion: Occasion? = null,
+        contentType: CreateContentType? = null,
+    ) {
         renderJob?.cancel()
         pollingFailureCount = 0
-        _uiState.value = CreateUiState()
+        _uiState.value = CreateUiState(
+            occasion = occasion ?: Occasion.Birthday,
+            contentType = contentType ?: CreateContentType.Song,
+        )
         viewModelScope.launch {
             createRepository.clearDraft()
             renderRepository.clearPendingRender()
@@ -228,7 +238,7 @@ class CreateViewModel @Inject constructor(
                 notice = null,
                 render = RenderUiState(
                     phase = RenderPhase.Rendering,
-                    statusMessage = "Starting your preview...",
+                    statusMessage = "Starting your full-quality render...",
                 ),
             )
         }
@@ -237,11 +247,11 @@ class CreateViewModel @Inject constructor(
             try {
                 if (resumeIfPossible(trackId, state.createdVersionNum)) return@launch
                 runCatching { renderRepository.approveLyrics(trackId, state.createdVersionNum) }
-                val response = renderRepository.renderPreview(trackId, state.createdVersionNum)
+                val response = renderRepository.renderFull(trackId, state.createdVersionNum)
                 val jobId = response.jobId
                 if (jobId != null) {
                     persistPending(trackId, state.createdVersionNum, jobId)
-                    poll(jobId, trackId, state.createdVersionNum)
+                    poll(jobId, trackId, state.createdVersionNum, isFull = true)
                 } else {
                     checkTrack(trackId, state.createdVersionNum, failOnMissing = true)
                 }
@@ -266,18 +276,18 @@ class CreateViewModel @Inject constructor(
                     errorMessage = null,
                     showEditLyricsCta = false,
                     showPaywallCta = false,
-                    statusMessage = "Retrying the preview...",
+                    statusMessage = "Retrying the render...",
                 ),
             )
         }
 
         renderJob = viewModelScope.launch {
             runCatching {
-                val response = renderRepository.retryPreview(trackId, state.createdVersionNum)
+                val response = renderRepository.renderFull(trackId, state.createdVersionNum)
                 val jobId = response.jobId
                 if (jobId != null) {
                     persistPending(trackId, state.createdVersionNum, jobId)
-                    poll(jobId, trackId, state.createdVersionNum)
+                    poll(jobId, trackId, state.createdVersionNum, isFull = true)
                 } else {
                     checkTrack(trackId, state.createdVersionNum, failOnMissing = true)
                 }
@@ -427,14 +437,14 @@ class CreateViewModel @Inject constructor(
     private suspend fun resumeIfPossible(trackId: String, versionNum: Int): Boolean {
         val detail = runCatching { renderRepository.getTrack(trackId) }.getOrNull() ?: return false
         val version = detail.versions.firstOrNull { it.versionNum == versionNum } ?: return false
-        return when (val decision = RenderController.resumeDecision(version, isFull = false)) {
+        return when (val decision = RenderController.resumeDecision(version, isFull = true)) {
             is RenderController.ResumeDecision.Complete -> {
                 completeRender(trackId, decision.url, detail)
                 true
             }
             is RenderController.ResumeDecision.ResumePoll -> {
                 persistPending(trackId, versionNum, decision.jobId)
-                poll(decision.jobId, trackId, versionNum)
+                poll(decision.jobId, trackId, versionNum, isFull = true)
                 true
             }
             is RenderController.ResumeDecision.Failed -> {
@@ -445,9 +455,10 @@ class CreateViewModel @Inject constructor(
         }
     }
 
-    private suspend fun poll(jobId: String, trackId: String, versionNum: Int) {
+    private suspend fun poll(jobId: String, trackId: String, versionNum: Int, isFull: Boolean) {
         var elapsed = 0L
-        while (elapsed < RenderController.previewMaxDurationNs) {
+        val maxDurationNs = if (isFull) RenderController.fullMaxDurationNs else RenderController.previewMaxDurationNs
+        while (elapsed < maxDurationNs) {
             val interval = RenderController.backoffIntervalsNs[RenderController.backoffIndex(elapsed)]
             delay(interval / 1_000_000L)
             elapsed += interval
@@ -494,24 +505,24 @@ class CreateViewModel @Inject constructor(
     private suspend fun checkTrack(trackId: String, versionNum: Int, failOnMissing: Boolean): Boolean {
         val detail = runCatching { renderRepository.getTrack(trackId) }.getOrNull()
         if (detail == null) {
-            if (failOnMissing) applyRenderFailure(null, "Preview not ready yet.", emptyList())
+            if (failOnMissing) applyRenderFailure(null, "Render not ready yet.", emptyList())
             return false
         }
         val version = detail.versions.firstOrNull { it.versionNum == versionNum }
         if (version == null) {
-            if (failOnMissing) applyRenderFailure(null, "Preview not ready yet.", emptyList())
+            if (failOnMissing) applyRenderFailure(null, "Render not ready yet.", emptyList())
             return false
         }
         if (version.status == "failed") {
             applyRenderFailure(version.lastErrorCode, version.lastErrorMessage, emptyList())
             return true
         }
-        val url = version.previewUrl ?: version.fullUrl
+        val url = version.fullUrl ?: version.previewUrl
         if (url != null) {
             completeRender(trackId, url, detail)
             return true
         }
-        if (failOnMissing) applyRenderFailure(null, "Preview not ready yet.", emptyList())
+        if (failOnMissing) applyRenderFailure(null, "Render not ready yet.", emptyList())
         return false
     }
 
@@ -559,7 +570,7 @@ class CreateViewModel @Inject constructor(
                 trackId = trackId,
                 versionNum = versionNum,
                 jobId = jobId,
-                renderType = "preview",
+                renderType = "full",
                 updatedAt = Instant.now().toString(),
             ),
         )

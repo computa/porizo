@@ -31,30 +31,43 @@ class PushProvider @Inject constructor(
             return "OneSignal already initialized."
         }
 
-        if (verbose) {
-            OneSignal.Debug.logLevel = LogLevel.VERBOSE
-        }
-        OneSignal.initWithContext(context.applicationContext, appId)
-        initializedAppId = appId
-        OneSignal.Notifications.addClickListener(object : INotificationClickListener {
-            override fun onClick(event: INotificationClickEvent) {
-                event.notification.additionalData?.toString()?.let(tapStore::save)
+        return try {
+            if (verbose) {
+                OneSignal.Debug.logLevel = LogLevel.VERBOSE
             }
-        })
-        return "OneSignal initialized."
+            OneSignal.initWithContext(context.applicationContext, appId)
+            OneSignal.Notifications.addClickListener(object : INotificationClickListener {
+                override fun onClick(event: INotificationClickEvent) {
+                    event.notification.additionalData?.toString()?.let(tapStore::save)
+                }
+            })
+            initializedAppId = appId
+            "OneSignal initialized."
+        } catch (error: Throwable) {
+            initializedAppId = null
+            "OneSignal initialization failed: ${error.message ?: error.javaClass.simpleName}"
+        }
     }
 
     override fun login(userId: String): String {
         if (userId.isBlank()) {
             return "No user id supplied for OneSignal login."
         }
-        OneSignal.login(userId)
-        return "OneSignal external id set."
+        return try {
+            OneSignal.login(userId)
+            "OneSignal external id set."
+        } catch (error: Throwable) {
+            "OneSignal login failed: ${error.message ?: error.javaClass.simpleName}"
+        }
     }
 
     override fun logout(): String {
-        OneSignal.logout()
-        return "OneSignal user logged out."
+        return try {
+            OneSignal.logout()
+            "OneSignal user logged out."
+        } catch (error: Throwable) {
+            "OneSignal logout failed: ${error.message ?: error.javaClass.simpleName}"
+        }
     }
 
     override fun optIn(): String =

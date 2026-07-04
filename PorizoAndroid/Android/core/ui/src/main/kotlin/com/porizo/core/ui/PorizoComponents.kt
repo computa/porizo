@@ -1,7 +1,6 @@
 package com.porizo.core.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,13 +10,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -28,7 +27,6 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -55,7 +53,7 @@ fun PorizoScreen(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 28.dp),
+            .padding(horizontal = PorizoSpacing.Section.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -119,7 +117,7 @@ fun PorizoCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(PorizoSpacing.Medium.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             content = content,
         )
@@ -215,12 +213,15 @@ fun PorizoTextField(
 
 @Composable
 fun PorizoBottomNavigationBar(content: @Composable RowScope.() -> Unit) {
-    NavigationBar(
-        containerColor = PorizoColors.Surface,
-        contentColor = PorizoColors.TextPrimary,
-        tonalElevation = 0.dp,
-        content = content,
-    )
+    Column {
+        HorizontalDivider(thickness = 1.dp, color = PorizoColors.SurfaceMuted)
+        NavigationBar(
+            containerColor = PorizoColors.Background,
+            contentColor = PorizoColors.TextPrimary,
+            tonalElevation = 0.dp,
+            content = content,
+        )
+    }
 }
 
 @Composable
@@ -233,11 +234,7 @@ fun <T> RowScope.PorizoBottomNavigationItem(
         modifier = Modifier
             .weight(1f)
             .heightIn(min = 64.dp)
-            .padding(horizontal = 4.dp, vertical = 6.dp)
-            .background(
-                color = if (selected) PorizoColors.CoralBubble else Color.Transparent,
-                shape = CircleShape,
-            )
+            .padding(horizontal = 4.dp, vertical = 8.dp)
             .clickable(onClick = onClick)
             .semantics {
                 contentDescription = item.contentDescription
@@ -249,13 +246,13 @@ fun <T> RowScope.PorizoBottomNavigationItem(
         Icon(
             imageVector = item.icon,
             contentDescription = null,
-            tint = if (selected) PorizoColors.TextPrimary else PorizoColors.TextTertiary,
+            tint = if (selected) PorizoColors.Accent else PorizoColors.TextTertiary,
         )
         Text(
             text = item.label,
-            color = if (selected) PorizoColors.TextPrimary else PorizoColors.TextTertiary,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+            color = if (selected) PorizoColors.Accent else PorizoColors.TextTertiary,
+            fontSize = 10.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }

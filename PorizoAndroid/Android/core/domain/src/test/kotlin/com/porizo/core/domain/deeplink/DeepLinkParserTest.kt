@@ -22,10 +22,28 @@ class DeepLinkParserTest {
 
     @Test
     fun appLinkRoutes() {
-        assertEquals(DeepLinkRoute.Share("abc"), parser.parse("https://porizo.app/s/abc"))
+        assertEquals(DeepLinkRoute.Share("abc"), parser.parse("https://porizo.co/s/abc"))
+        assertEquals(DeepLinkRoute.Share("abc"), parser.parse("https://www.porizo.co/play/abc"))
+        assertEquals(DeepLinkRoute.Poem("p1"), parser.parse("https://porizo.co/p/p1"))
+        assertEquals(DeepLinkRoute.Poem("p1"), parser.parse("https://porizo.co/poem/p1"))
+        assertEquals(DeepLinkRoute.PoemShare("ps1"), parser.parse("https://porizo.co/poem-share/ps1"))
+        assertEquals(DeepLinkRoute.ReceiverHandoff("rh1"), parser.parse("https://porizo.co/receiver-handoff/rh1"))
+    }
+
+    @Test
+    fun legacyAppHostRoutesRemainSupported() {
         assertEquals(DeepLinkRoute.Share("abc"), parser.parse("https://porizo.app/play/abc"))
-        assertEquals(DeepLinkRoute.Poem("p1"), parser.parse("https://porizo.app/poem/p1"))
-        assertEquals(DeepLinkRoute.PoemShare("ps1"), parser.parse("https://porizo.app/poem-share/ps1"))
-        assertEquals(DeepLinkRoute.ReceiverHandoff("rh1"), parser.parse("https://porizo.app/receiver-handoff/rh1"))
+    }
+
+    @Test
+    fun oneLinkRoutesParseNestedDeepLinks() {
+        assertEquals(
+            DeepLinkRoute.Share("abc"),
+            parser.parse("https://porizo.onelink.me/app?deep_link_value=https%3A%2F%2Fporizo.co%2Fplay%2Fabc"),
+        )
+        assertEquals(
+            DeepLinkRoute.PoemShare("ps1"),
+            parser.parse("https://porizo.onelink.me/app?deep_link_sub1=porizo%3A%2F%2Fpoem-share%2Fps1"),
+        )
     }
 }

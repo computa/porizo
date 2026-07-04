@@ -91,6 +91,14 @@ Start from `Android/app/keystore.properties.example` on a release machine. The
 fallback signing path exists only to verify release compilation locally; do not
 upload fallback-signed artifacts to Play Console.
 
+## App Links
+
+The Android manifest declares verified App Links for `https://porizo.co` and
+`https://www.porizo.co`, with `https://porizo.app` retained as a legacy fallback.
+Publish `Android/release/assetlinks.json.example` at each enabled share host
+after replacing the placeholder with the Play App Signing SHA-256 fingerprint
+from Play Console. Do not publish the template with the placeholder fingerprint.
+
 ## Runtime Integration Surface
 
 - App Links and custom `porizo://` links enter through `MainActivity` and route
@@ -113,6 +121,8 @@ upload fallback-signed artifacts to Play Console.
 ## Store Checklist
 
 Use `Android/PLAY_STORE_CHECKLIST.md` before internal testing or Play upload.
+Use `Android/play-store/internal-testing-config.md` for the Play Console listing,
+product, Data Safety, and upload-gate values.
 External release blockers remain: real upload keystore, Play Console products,
 OneSignal Android/FCM credentials, backend Google Play service-account
 configuration, App Links `assetlinks.json` for the final signing fingerprint,

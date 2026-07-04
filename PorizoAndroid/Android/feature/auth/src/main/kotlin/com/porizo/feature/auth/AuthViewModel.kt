@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.porizo.core.domain.auth.AuthLogic
 import com.porizo.core.domain.platform.GoogleSignInGateway
 import com.porizo.core.domain.platform.PlatformResult
+import com.porizo.core.domain.platform.PushGateway
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.model.PorizoFailure
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,8 +21,11 @@ class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val googleAuthConfig: GoogleAuthConfig,
     private val googleSignInGateway: GoogleSignInGateway,
+    private val pushGateway: PushGateway,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(AuthUiState())
+    private val _uiState = MutableStateFlow(
+        AuthUiState(isGoogleSignInConfigured = googleAuthConfig.webClientId.isNotBlank()),
+    )
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     init {
@@ -31,27 +35,35 @@ class AuthViewModel @Inject constructor(
     fun restore() {
         viewModelScope.launch {
             val session = runCatching { authRepository.restoreSession() }.getOrNull()
+            val userId = session?.userId?.takeIf { userId -> userId.isNotBlank() }
+            val pushWarningMessage = userId?.let(::syncPushIdentity)
             _uiState.update {
                 it.copy(
-                    phase = session?.userId?.takeIf { userId -> userId.isNotBlank() }
+                    phase = userId
                         ?.let(AuthPhase::Authenticated)
                         ?: AuthPhase.SignedOut,
                     errorMessage = null,
+                    pushWarningMessage = pushWarningMessage,
                 )
             }
         }
     }
 
     fun showOptions() {
-        _uiState.update { it.copy(phase = AuthPhase.SignedOut, errorMessage = null) }
+        _uiState.update { it.copy(phase = AuthPhase.SignedOut, errorMessage = null, pushWarningMessage = null) }
     }
 
     fun beginPhone() {
-        _uiState.update { it.copy(phase = AuthPhase.PhoneEntry, errorMessage = null) }
+        _uiState.update { it.copy(phase = AuthPhase.PhoneEntry, errorMessage = null, pushWarningMessage = null) }
     }
 
     fun updatePhoneNumber(value: String) {
-        _uiState.update { it.copy(phoneNumber = value) }
+        _uiState.update {
+            it.copy(
+                phoneNumber = value,
+                normalizedPhoneNumber = PhoneNumberFormatting.normalizedE164PhoneNumber(value),
+            )
+        }
     }
 
     fun updateCode(value: String) {
@@ -59,8 +71,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun sendPhoneCode() {
-        val phone = uiState.value.phoneNumber.trim()
-        if (phone.isEmpty()) return
+        val phone = uiState.value.normalizedPhoneNumber ?: return
         runAuthAction {
             authRepository.sendPhoneVerificationCode(phone)
             _uiState.update { it.copy(phase = AuthPhase.PhoneVerify(phone), code = "") }
@@ -77,7 +88,7 @@ class AuthViewModel @Inject constructor(
             val result = authRepository.verifyPhoneCode(phase.phoneNumber, code)
             when (val outcome = AuthLogic.phoneVerifyOutcome(result)) {
                 is AuthLogic.PhoneVerifyOutcome.Authenticated ->
-                    _uiState.update { it.copy(phase = AuthPhase.Authenticated(outcome.userId), code = "") }
+                    setAuthenticated(outcome.userId) { it.copy(code = "") }
                 is AuthLogic.PhoneVerifyOutcome.NeedsRegistration ->
                     _uiState.update {
                         it.copy(
@@ -102,7 +113,7 @@ class AuthViewModel @Inject constructor(
                 phoneNumber = phase.phoneNumber,
             )
             val userId = result.userId ?: throw PorizoFailure.Unknown("Phone registration did not return an account.")
-            _uiState.update { it.copy(phase = AuthPhase.Authenticated(userId)) }
+            setAuthenticated(userId)
         }
     }
 
@@ -124,7 +135,8 @@ class AuthViewModel @Inject constructor(
     fun logout() {
         runAuthAction {
             authRepository.logout()
-            _uiState.update { AuthUiState() }
+            val pushWarningMessage = syncPushLogout()
+            _uiState.update { initialState().copy(pushWarningMessage = pushWarningMessage) }
         }
     }
 
@@ -149,12 +161,12 @@ class AuthViewModel @Inject constructor(
 
         val userId = result.userId
             ?: throw PorizoFailure.Unknown("Google sign-in did not return an account.")
-        _uiState.update { it.copy(phase = AuthPhase.Authenticated(userId)) }
+        setAuthenticated(userId)
     }
 
     private fun runAuthAction(action: suspend () -> Unit) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isWorking = true, errorMessage = null) }
+            _uiState.update { it.copy(isWorking = true, errorMessage = null, pushWarningMessage = null) }
             try {
                 action()
             } catch (error: Throwable) {
@@ -164,6 +176,41 @@ class AuthViewModel @Inject constructor(
             }
         }
     }
+
+    private fun setAuthenticated(
+        userId: String,
+        transform: (AuthUiState) -> AuthUiState = { it },
+    ) {
+        val pushWarningMessage = syncPushIdentity(userId)
+        _uiState.update { state ->
+            transform(state).copy(
+                phase = AuthPhase.Authenticated(userId),
+                pushWarningMessage = pushWarningMessage,
+            )
+        }
+    }
+
+    private fun syncPushIdentity(userId: String): String? =
+        pushWarningFrom(
+            runCatching { pushGateway.login(userId) }
+                .getOrElse { error -> "Push identity sync failed: ${error.userMessage()}" },
+        )
+
+    private fun syncPushLogout(): String? =
+        pushWarningFrom(
+            runCatching { pushGateway.logout() }
+                .getOrElse { error -> "Push identity cleanup failed: ${error.userMessage()}" },
+        )
+
+    private fun pushWarningFrom(message: String): String? =
+        message.takeIf {
+            it.contains("failed", ignoreCase = true) ||
+                it.contains("not configured", ignoreCase = true) ||
+                it.contains("not initialized", ignoreCase = true)
+        }
+
+    private fun initialState(): AuthUiState =
+        AuthUiState(isGoogleSignInConfigured = googleAuthConfig.webClientId.isNotBlank())
 
     private fun Throwable.userMessage(): String =
         when (this) {

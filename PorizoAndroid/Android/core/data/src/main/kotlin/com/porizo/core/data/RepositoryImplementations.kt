@@ -422,7 +422,11 @@ class DefaultShareRepository(
 
     override suspend fun claimPoemShare(shareId: String, pin: String?): ShareClaimResult =
         networkCall(errorMapper) {
-            service.claimPoemShare(shareId, ClaimShareRequestDto(pin.cleanPin(), null)).toModel()
+            service.claimPoemShare(
+                shareId = shareId,
+                deviceToken = ensureDeviceToken(),
+                body = ClaimShareRequestDto(pin.cleanPin(), appVersion),
+            ).toModel()
         }
 
     override suspend fun resolveReceiverHandoff(handoffId: String) =

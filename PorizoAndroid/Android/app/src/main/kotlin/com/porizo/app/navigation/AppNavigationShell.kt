@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import com.porizo.core.domain.deeplink.DeepLinkRoute
 import com.porizo.core.domain.platform.PushRoute
 import com.porizo.core.domain.player.PlayerController
+import com.porizo.core.model.Occasion
 import com.porizo.feature.auth.AuthPhase
 import com.porizo.core.ui.PorizoBottomNavigationBar
 import com.porizo.core.ui.PorizoBottomNavigationItem
@@ -23,6 +24,7 @@ import com.porizo.feature.claim.ClaimSheet
 import com.porizo.feature.claim.ClaimViewModel
 import com.porizo.feature.create.CreateScreen
 import com.porizo.feature.create.CreateViewModel
+import com.porizo.feature.create.ExploreScreen
 import com.porizo.feature.library.MiniPlayerBar
 import com.porizo.feature.library.NowPlayingSheet
 import com.porizo.feature.library.PoemsScreen
@@ -49,8 +51,15 @@ fun AppNavigationShell(
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
+    var isCreateFlowVisible by rememberSaveable { mutableStateOf(false) }
     var routeNotice by rememberSaveable { mutableStateOf<String?>(null) }
     var showNowPlaying by rememberSaveable { mutableStateOf(false) }
+
+    fun launchCreate(occasion: Occasion? = null) {
+        createViewModel.beginNew(occasion = occasion)
+        isCreateFlowVisible = true
+        selectedTab = AppTab.Home
+    }
 
     LaunchedEffect(pendingDeepLink) {
         val route = pendingDeepLink ?: return@LaunchedEffect
@@ -87,6 +96,7 @@ fun AppNavigationShell(
             is PushRoute.TrackReveal -> {
                 selectedTab = AppTab.Songs
                 routeNotice = "Your render is ready: ${pushRoute.trackId}."
+                songsViewModel.openTrackReveal(pushRoute.trackId)
             }
             PushRoute.Informational -> {
                 selectedTab = AppTab.Songs
@@ -118,13 +128,26 @@ fun AppNavigationShell(
         },
     ) { innerPadding ->
         when (selectedTab) {
-            AppTab.Home -> CreateScreen(
-                viewModel = createViewModel,
-                isAuthenticated = authState.isAuthenticated,
-                onSignInRequested = onSignInRequested,
-                routeNotice = routeNotice,
-                innerPadding = innerPadding,
-            )
+            AppTab.Home -> {
+                if (isCreateFlowVisible) {
+                    CreateScreen(
+                        viewModel = createViewModel,
+                        isAuthenticated = authState.isAuthenticated,
+                        onSignInRequested = onSignInRequested,
+                        routeNotice = routeNotice,
+                        innerPadding = innerPadding,
+                        onFlowDone = { isCreateFlowVisible = false },
+                    )
+                } else {
+                    ExploreScreen(
+                        routeNotice = routeNotice,
+                        onCreate = { launchCreate() },
+                        onOccasionSelected = { occasion -> launchCreate(occasion) },
+                        onSeeAllSongs = { selectedTab = AppTab.Songs },
+                        innerPadding = innerPadding,
+                    )
+                }
+            }
             AppTab.Songs -> SongsScreen(
                 viewModel = songsViewModel,
                 isAuthenticated = authState.isAuthenticated,

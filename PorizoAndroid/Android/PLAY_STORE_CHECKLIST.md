@@ -5,19 +5,22 @@
 - Application ID: `com.porizo.app`
 - Display name: `Porizo`
 - Default production API: `https://api.porizo.co`
-- App Link host: `porizo.app`
+- App Link hosts: `porizo.co`, `www.porizo.co`; legacy fallback `porizo.app`
 
 ## Release Signing
 
 - Generate a release keystore outside Git.
 - Copy `app/keystore.properties.example` to `app/keystore.properties`.
 - Replace all passwords and verify `app/keystore.properties` and `app/keystore.jks` remain ignored.
+- Confirm Git ignores release signing files:
+  `git check-ignore -v PorizoAndroid/Android/app/keystore.properties PorizoAndroid/Android/app/keystore.jks`.
 - Build a Play-uploadable release APK/AAB only after signing values are configured.
 - The local fallback release signing path is for compile/package verification only; do not upload fallback-signed artifacts.
 
 ## Store Readiness
 
 - Launcher icon and adaptive icon layers are tracked for the internal Android build.
+- Play listing/internal-testing setup is tracked in `play-store/internal-testing-config.md`.
 - Release builds disable Android backup so auth/device state is not restored onto
   a different install.
 - Microphone hardware is declared optional; voice enrollment still requests
@@ -40,6 +43,7 @@
   recording, presigned upload, chunk notification, completion, and profile status
   checks. Physical-device QA must still verify real microphone behavior.
 - Verify App Links after `assetlinks.json` includes the Android signing certificate fingerprint.
+- Start from `release/assetlinks.json.example`; replace the placeholder with the Play App Signing SHA-256 fingerprint and publish the same body at `https://porizo.co/.well-known/assetlinks.json`, `https://www.porizo.co/.well-known/assetlinks.json`, and any fallback share host still enabled in the manifest.
 - Run physical-device smoke tests before uploading an internal testing build.
 
 ## Internal Testing Gate
@@ -53,7 +57,11 @@
   error handling, OneSignal token registration, Play Billing subscription sync,
   voice enrollment recording/upload/complete, and Settings readiness states.
 
-## 2026-07-04 Native Release Verification
+## 2026-07-04 Native Release Verification Baseline
+
+This was the last known release-packaging baseline before the U1-U10 parity
+fix pass. Rerun the release gate after the current parity changes before any
+internal-testing upload.
 
 - `gradle :app:assembleRelease :app:bundleRelease` succeeded with R8/resource shrinking enabled.
 - Generated APK: `app/build/outputs/apk/release/app-release.apk` (`6.6M`).

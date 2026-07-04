@@ -64,6 +64,7 @@ fun CreateScreen(
     onSignInRequested: () -> Unit,
     routeNotice: String?,
     innerPadding: PaddingValues,
+    onFlowDone: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -122,7 +123,10 @@ fun CreateScreen(
                 onEnsureLink = viewModel::ensureShareLink,
                 onCopy = viewModel::copyShareLink,
                 onShare = viewModel::shareViaSheet,
-                onDone = viewModel::startOver,
+                onDone = {
+                    viewModel.startOver()
+                    onFlowDone()
+                },
             )
         }
     }

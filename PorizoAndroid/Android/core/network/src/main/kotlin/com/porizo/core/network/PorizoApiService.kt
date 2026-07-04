@@ -124,6 +124,7 @@ interface PorizoApiService {
     @POST("poem-share/{shareId}/claim")
     suspend fun claimPoemShare(
         @Path("shareId") shareId: String,
+        @Header("x-device-token") deviceToken: String?,
         @Body body: ClaimShareRequestDto,
     ): ShareClaimDto
 
