@@ -59,7 +59,7 @@ final class AndroidCreateFlowModel {
     var voiceSource: VoiceSource = .aiGuide
 
     /// Owns the render lifecycle once lyrics are approved (U9).
-    let render = AndroidRenderModel()
+    let render: AndroidRenderModel
 
     // Share state (U10).
     private(set) var shareLink: String?
@@ -71,9 +71,21 @@ final class AndroidCreateFlowModel {
     private(set) var createdPoemId: String?
     private(set) var poemVerses: [String] = []
 
-    private let apiClient = AndroidAPIClient()
-    private let directSend = AndroidDirectSend()
-    private let sharer = AndroidShareProvider()
+    private let apiClient: AndroidAPIClient
+    private let directSend: AndroidDirectSend
+    private let sharer: AndroidShareProvider
+
+    init(
+        apiClient: AndroidAPIClient = AndroidAPIClient(),
+        directSend: AndroidDirectSend = AndroidDirectSend(),
+        sharer: AndroidShareProvider = AndroidShareProvider(),
+        render: AndroidRenderModel? = nil
+    ) {
+        self.apiClient = apiClient
+        self.directSend = directSend
+        self.sharer = sharer
+        self.render = render ?? AndroidRenderModel(apiClient: apiClient)
+    }
 
     /// Whether the details step can advance (needs a recipient name).
     var canStartConversation: Bool {
