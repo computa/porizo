@@ -22,6 +22,9 @@ class OnboardingGraphEngine(
     val recipientName: String?
         get() = answers["name"]?.trim()?.takeIf { it.isNotEmpty() }
 
+    fun answerFor(nodeId: String): String? =
+        answers[nodeId]?.trim()?.takeIf { it.isNotEmpty() }
+
     val currentQuestion: String
         get() {
             val template = currentNode.questionTemplate ?: return currentNode.question

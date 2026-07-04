@@ -262,6 +262,9 @@ private fun PushSection(
         if (state.pushToken.isNotBlank()) {
             SettingLine("Token", state.pushToken.take(18) + "...")
         }
+        state.appSetId?.takeIf { it.isNotBlank() }?.let { appSetId ->
+            SettingLine("App Set", appSetId.take(18) + "...")
+        }
         PorizoPrimaryButton(
             text = "Enable push",
             onClick = onEnablePush,
@@ -275,6 +278,7 @@ private fun PushSection(
             icon = Icons.Filled.NotificationsOff,
         )
         StatusText(state.pushStatus)
+        StatusText(state.deviceTrustStatus)
     }
 }
 
@@ -388,12 +392,9 @@ private fun StatusText(text: String) {
 internal fun billingProductChoices(state: SettingsUiState): List<String> =
     (
         state.loadedProducts
-            .filter { it.productType == GOOGLE_SUBSCRIPTION_PRODUCT_TYPE }
             .map { it.id } +
             state.plans.flatMap { it.googleSubscriptionProductIds }
         )
         .filter { it.isNotBlank() }
         .distinct()
         .sorted()
-
-private const val GOOGLE_SUBSCRIPTION_PRODUCT_TYPE = "subs"

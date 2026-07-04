@@ -40,8 +40,8 @@ Subscriptions configured in Android code:
 - `com.porizo.pro_monthly`
 - `com.porizo.pro_annual`
 
-One-time gift products remain blocked until the backend Google consumable
-receipt endpoint exists:
+One-time gift products are wired to the backend Google consumable receipt
+endpoint; Play Console products and real purchase QA are still required:
 
 - `com.porizo.gift_token_oneoff`
 - `com.porizo.gift_bundle_1`

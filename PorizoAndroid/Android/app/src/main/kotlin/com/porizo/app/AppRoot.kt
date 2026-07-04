@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -13,8 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.porizo.app.navigation.AppNavigationShell
+import com.porizo.app.navigation.PendingDeepLinkStore
 import com.porizo.core.domain.deeplink.DeepLinkRoute
 import com.porizo.core.domain.player.PlayerController
+import com.porizo.core.model.Occasion
 import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoTheme
 import com.porizo.feature.auth.AuthScreen
@@ -47,8 +50,16 @@ fun AppRoot(
     var onboardingCompleted by rememberSaveable {
         mutableStateOf(onboardingPreferences.getBoolean(KEY_ONBOARDING_COMPLETED, false))
     }
+    val pendingDeepLinkStore = remember { PendingDeepLinkStore(context.applicationContext) }
+    var authPendingDeepLink by remember { mutableStateOf(pendingDeepLinkStore.load()) }
     var authRequested by rememberSaveable { mutableStateOf(false) }
     val authState by authViewModel.uiState.collectAsState()
+
+    LaunchedEffect(authState.isAuthenticated, authPendingDeepLink) {
+        if (authState.isAuthenticated && authPendingDeepLink != null) {
+            authRequested = false
+        }
+    }
 
     PorizoTheme {
         Surface(color = PorizoColors.Background) {
@@ -58,10 +69,18 @@ fun AppRoot(
                     OnboardingScreen(
                         modifier = Modifier.fillMaxSize(),
                         viewModel = onboardingViewModel,
-                        onComplete = { recipientName ->
+                        onComplete = { result ->
+                            val recipientName = result.recipientName.trim()
+                                .ifBlank { "someone special" }
+                            createViewModel.beginFromOnboarding(
+                                recipientName = recipientName,
+                                occasion = result.occasion.toCreateOccasion(),
+                                tone = result.suggestion?.title,
+                                message = result.suggestion?.detail ?: result.emotionalSeed,
+                            )
                             onboardingPreferences.edit()
                                 .putBoolean(KEY_ONBOARDING_COMPLETED, true)
-                                .putString(KEY_ONBOARDING_RECIPIENT, recipientName.orEmpty())
+                                .putString(KEY_ONBOARDING_RECIPIENT, recipientName)
                                 .apply()
                             onboardingCompleted = true
                         },
@@ -75,12 +94,25 @@ fun AppRoot(
                     )
                 }
                 else -> {
+                    val routeForShell = authPendingDeepLink ?: pendingDeepLink
                     AppNavigationShell(
                         modifier = Modifier,
-                        pendingDeepLink = pendingDeepLink,
-                        onDeepLinkConsumed = onDeepLinkConsumed,
+                        pendingDeepLink = routeForShell,
+                        onDeepLinkConsumed = {
+                            if (authPendingDeepLink != null && authState.isAuthenticated) {
+                                pendingDeepLinkStore.clear()
+                                authPendingDeepLink = null
+                            } else {
+                                onDeepLinkConsumed()
+                            }
+                        },
                         authState = authState,
                         onSignInRequested = { authRequested = true },
+                        onAuthRequiredForDeepLink = { route ->
+                            pendingDeepLinkStore.save(route)
+                            authPendingDeepLink = route
+                            authRequested = true
+                        },
                         onLogoutRequested = authViewModel::logout,
                         claimViewModel = claimViewModel,
                         createViewModel = createViewModel,
@@ -99,3 +131,9 @@ fun AppRoot(
 private const val ONBOARDING_PREFS = "porizo_onboarding"
 private const val KEY_ONBOARDING_COMPLETED = "completed"
 private const val KEY_ONBOARDING_RECIPIENT = "recipient"
+
+private fun String?.toCreateOccasion(): Occasion =
+    when (this) {
+        "birthday" -> Occasion.Birthday
+        else -> Occasion.Birthday
+    }

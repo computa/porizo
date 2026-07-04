@@ -103,6 +103,7 @@ fun CreateScreen(
             )
             CreatePhase.Lyrics -> LyricsStep(
                 state = state,
+                onLyricsChange = viewModel::updateLyricsText,
                 onVoiceSourceChange = viewModel::updateVoiceSource,
                 onApprove = viewModel::approveLyricsAndRender,
             )
@@ -293,6 +294,7 @@ private fun ConversationStep(
 @Composable
 private fun LyricsStep(
     state: CreateUiState,
+    onLyricsChange: (String) -> Unit,
     onVoiceSourceChange: (VoiceSource) -> Unit,
     onApprove: () -> Unit,
 ) {
@@ -304,15 +306,30 @@ private fun LyricsStep(
             color = PorizoColors.TextSecondary,
             style = MaterialTheme.typography.bodyMedium,
         )
-        Text(
-            text = state.lyricsText?.takeIf { it.isNotBlank() } ?: "Lyrics are still being prepared.",
+        PorizoTextField(
+            value = state.lyricsText.orEmpty(),
+            onValueChange = onLyricsChange,
+            label = "Lyrics",
             modifier = Modifier
                 .fillMaxWidth()
                 .background(PorizoColors.SurfaceMuted, RoundedCornerShape(12.dp))
                 .padding(14.dp),
-            color = PorizoColors.TextPrimary,
-            style = MaterialTheme.typography.bodyLarge,
         )
+        state.lyricsSaveMessage?.let { message ->
+            Text(
+                text = message,
+                color = if (state.hasUnsavedLyricsChanges) PorizoColors.Warning else PorizoColors.TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        state.notice?.let { message ->
+            Text(
+                text = message,
+                color = PorizoColors.Error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        PolicyTermList(terms = state.policyTerms)
         PorizoSectionLabel("Voice")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             VoiceChoiceButton(
@@ -336,9 +353,13 @@ private fun LyricsStep(
             enabled = false,
         )
         PorizoPrimaryButton(
-            text = "Create my ${state.createLabel}",
+            text = when {
+                state.isSavingLyrics -> "Saving lyrics..."
+                state.hasUnsavedLyricsChanges -> "Save and create my ${state.createLabel}"
+                else -> "Create my ${state.createLabel}"
+            },
             onClick = onApprove,
-            enabled = state.lyricsText?.isNotBlank() == true,
+            enabled = state.lyricsText?.isNotBlank() == true && !state.isSavingLyrics,
             icon = Icons.Filled.MusicNote,
         )
     }
@@ -361,6 +382,7 @@ private fun RenderStep(
                     color = PorizoColors.TextPrimary,
                     style = MaterialTheme.typography.bodyLarge,
                 )
+                PolicyTermList(terms = state.render.policyTerms)
                 when {
                     state.render.showEditLyricsCta -> PorizoPrimaryButton(
                         text = "Edit lyrics",
@@ -525,6 +547,34 @@ private fun ShareStep(
         }
         TextButton(onClick = onDone, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Done", color = PorizoColors.TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun PolicyTermList(terms: List<String>) {
+    if (terms.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Provider flagged terms to revise",
+            color = PorizoColors.TextSecondary,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        terms.chunked(2).forEach { rowTerms ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowTerms.forEach { term ->
+                    Text(
+                        text = term,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(PorizoColors.SurfaceMuted)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = PorizoColors.TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
         }
     }
 }

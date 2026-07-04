@@ -1,6 +1,7 @@
 package com.porizo.core.platform
 
 import android.content.Context
+import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
@@ -23,9 +24,11 @@ class PlayBillingProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val activityHolder: ActivityHolder,
 ) : PlayBillingGateway {
+    private val preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private var billingClient: BillingClient? = null
     private val productDetailsById = ConcurrentHashMap<String, ProductDetails>()
     private val purchaseTokensByProductId = ConcurrentHashMap<String, String>()
+    private val acknowledgedTokensByProductId = ConcurrentHashMap<String, String>()
     private var lastStatus: String = "Play Billing has not started."
     private var pendingSubscriptionIds: List<String> = emptyList()
     private var pendingOneTimeIds: List<String> = emptyList()
@@ -35,6 +38,10 @@ class PlayBillingProvider @Inject constructor(
         if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
             rememberPurchases(purchases)
         }
+    }
+
+    init {
+        restorePersistedPurchases()
     }
 
     override fun queryProducts(subscriptionIds: List<String>, oneTimeIds: List<String>): String {
@@ -98,6 +105,38 @@ class PlayBillingProvider @Inject constructor(
         } else {
             purchaseTokensByProductId[productId]
         }
+
+    override fun pendingReceiptProductIds(): List<String> =
+        purchaseTokensByProductId
+            .filter { (productId, token) -> acknowledgedTokensByProductId[productId] != token }
+            .keys
+            .sorted()
+
+    override fun acknowledgePurchase(productId: String): String {
+        val token = lastPurchaseToken(productId)
+            ?: return "No purchase token is available to acknowledge."
+        if (acknowledgedTokensByProductId[productId] == token) {
+            return "Purchase already acknowledged."
+        }
+        val client = ensureClient()
+        if (!client.isReady) {
+            connect(client, queryAfterConnect = true)
+            return "Play Billing is connecting before acknowledgement."
+        }
+
+        val params = AcknowledgePurchaseParams.newBuilder()
+            .setPurchaseToken(token)
+            .build()
+        client.acknowledgePurchase(params) { result ->
+            lastStatus = "Purchase acknowledgement: ${result.describe()}"
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                acknowledgedTokensByProductId[productId] = token
+                preferences.edit().putString("$KEY_ACK_PREFIX$productId", token).apply()
+            }
+        }
+        lastStatus = "Acknowledging purchase after backend receipt acceptance."
+        return lastStatus
+    }
 
     override fun loadedProducts(): List<PlayProductSummary> =
         productDetailsById.values
@@ -209,7 +248,36 @@ class PlayBillingProvider @Inject constructor(
         purchases.forEach { purchase ->
             purchase.products.forEach { productId ->
                 purchaseTokensByProductId[productId] = purchase.purchaseToken
+                preferences.edit().putString("$KEY_PURCHASE_PREFIX$productId", purchase.purchaseToken).apply()
+                lastStatus = when (purchase.purchaseState) {
+                    Purchase.PurchaseState.PENDING -> "Purchase pending for $productId."
+                    Purchase.PurchaseState.PURCHASED -> "Purchase captured for $productId. Sync receipt to activate."
+                    else -> "Purchase state ${purchase.purchaseState} for $productId."
+                }
             }
+        }
+    }
+
+    private fun restorePersistedPurchases() {
+        preferences.all.forEach { (key, value) ->
+            val token = value as? String ?: return@forEach
+            when {
+                key.startsWith(KEY_PURCHASE_PREFIX) -> {
+                    val productId = key.removePrefix(KEY_PURCHASE_PREFIX)
+                    if (productId.isNotBlank() && token.isNotBlank()) {
+                        purchaseTokensByProductId[productId] = token
+                    }
+                }
+                key.startsWith(KEY_ACK_PREFIX) -> {
+                    val productId = key.removePrefix(KEY_ACK_PREFIX)
+                    if (productId.isNotBlank() && token.isNotBlank()) {
+                        acknowledgedTokensByProductId[productId] = token
+                    }
+                }
+            }
+        }
+        if (purchaseTokensByProductId.isNotEmpty()) {
+            lastStatus = "Restored ${purchaseTokensByProductId.size} Play purchase token(s). Sync receipt to activate."
         }
     }
 
@@ -234,4 +302,10 @@ class PlayBillingProvider @Inject constructor(
         map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
+
+    private companion object {
+        const val PREFS_NAME = "porizo_play_billing"
+        const val KEY_PURCHASE_PREFIX = "purchase_token_"
+        const val KEY_ACK_PREFIX = "acknowledged_token_"
+    }
 }

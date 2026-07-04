@@ -15,6 +15,8 @@ import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
 import com.porizo.core.model.GoogleSubscriptionSummary
 import com.porizo.core.model.JobStatus
+import com.porizo.core.model.LyricsDocument
+import com.porizo.core.model.LyricsSection
 import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.PoemBody
 import com.porizo.core.model.PoemShareInfo
@@ -194,7 +196,15 @@ fun ShareInfoDto.toModel() = ShareInfo(
     isDemo = isDemo,
 )
 
-fun ShareClaimDto.toModel() = ShareClaimResult(status, appSaveAllowed, expiresAt)
+fun ShareClaimDto.toModel() = ShareClaimResult(
+    status = status,
+    appSaveAllowed = appSaveAllowed,
+    expiresAt = expiresAt,
+    trackId = trackId,
+    trackVersionId = trackVersionId,
+    streamPath = streamPath,
+    receiverClaimStreamPath = receiverClaimStreamPath,
+)
 
 fun ReceiverHandoffDto.toModel() = com.porizo.core.model.ReceiverHandoffResult(
     receiverSessionId,
@@ -210,6 +220,34 @@ fun RenderPreviewDto.toModel() = RenderPreviewResult(jobId, estimatedCompletionS
 fun RenderFullDto.toModel() = RenderFullResult(jobId, estimatedCompletionSec)
 
 fun ApproveLyricsDto.toModel() = ApproveLyricsResult(status)
+
+fun LyricsDocumentDto.toModel() = LyricsDocument(
+    title = title,
+    style = style,
+    sections = sections.map { it.toModel() },
+    anchorLine = anchorLine,
+)
+
+fun LyricsSectionDto.toModel() = LyricsSection(
+    name = name,
+    lines = lines,
+    startTime = startTime,
+    endTime = endTime,
+)
+
+fun LyricsDocument.toDto() = LyricsDocumentDto(
+    title = title,
+    style = style,
+    sections = sections.map { it.toDto() },
+    anchorLine = anchorLine,
+)
+
+fun LyricsSection.toDto() = LyricsSectionDto(
+    name = name,
+    lines = lines,
+    startTime = startTime,
+    endTime = endTime,
+)
 
 fun JobStatusDto.toModel() = JobStatus(
     id = id,

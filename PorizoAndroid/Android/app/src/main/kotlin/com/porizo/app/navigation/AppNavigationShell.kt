@@ -20,6 +20,8 @@ import com.porizo.core.ui.PorizoBottomNavigationBar
 import com.porizo.core.ui.PorizoBottomNavigationItem
 import com.porizo.core.ui.PorizoColors
 import com.porizo.feature.auth.AuthUiState
+import com.porizo.feature.claim.ClaimCompletion
+import com.porizo.feature.claim.ClaimKind
 import com.porizo.feature.claim.ClaimSheet
 import com.porizo.feature.claim.ClaimViewModel
 import com.porizo.feature.create.CreateScreen
@@ -40,6 +42,7 @@ fun AppNavigationShell(
     onDeepLinkConsumed: () -> Unit,
     authState: AuthUiState,
     onSignInRequested: () -> Unit,
+    onAuthRequiredForDeepLink: (DeepLinkRoute) -> Unit,
     onLogoutRequested: () -> Unit,
     claimViewModel: ClaimViewModel,
     createViewModel: CreateViewModel,
@@ -61,6 +64,16 @@ fun AppNavigationShell(
         selectedTab = AppTab.Home
     }
 
+    fun openClaimRoute(route: DeepLinkRoute) {
+        selectedTab = AppTab.Home
+        routeNotice = null
+        if (!authState.isAuthenticated) {
+            onAuthRequiredForDeepLink(route)
+            return
+        }
+        claimViewModel.open(route)
+    }
+
     LaunchedEffect(pendingDeepLink) {
         val route = pendingDeepLink ?: return@LaunchedEffect
         when (route) {
@@ -69,19 +82,13 @@ fun AppNavigationShell(
                 routeNotice = "Opening poem ${route.id}."
             }
             is DeepLinkRoute.PoemShare -> {
-                selectedTab = AppTab.Home
-                routeNotice = null
-                claimViewModel.open(route)
+                openClaimRoute(route)
             }
             is DeepLinkRoute.ReceiverHandoff -> {
-                selectedTab = AppTab.Home
-                routeNotice = null
-                claimViewModel.open(route)
+                openClaimRoute(route)
             }
             is DeepLinkRoute.Share -> {
-                selectedTab = AppTab.Home
-                routeNotice = null
-                claimViewModel.open(route)
+                openClaimRoute(route)
             }
             is DeepLinkRoute.Unknown -> {
                 selectedTab = AppTab.Home
@@ -89,6 +96,28 @@ fun AppNavigationShell(
             }
         }
         onDeepLinkConsumed()
+    }
+
+    LaunchedEffect(claimViewModel) {
+        claimViewModel.completionEvents.collect { completion ->
+            when (completion.kind) {
+                ClaimKind.TrackShare,
+                ClaimKind.ReceiverHandoff -> {
+                    selectedTab = AppTab.Songs
+                    routeNotice = if (completion.playableTrack != null) {
+                        "Saved to Songs. Playing now."
+                    } else {
+                        "Saved to Songs."
+                    }
+                    songsViewModel.refresh()
+                }
+                ClaimKind.PoemShare -> {
+                    selectedTab = AppTab.Poems
+                    routeNotice = "Saved to Poems."
+                    poemsViewModel.refresh()
+                }
+            }
+        }
     }
 
     LaunchedEffect(resumeSignal) {
@@ -101,6 +130,10 @@ fun AppNavigationShell(
             PushRoute.Informational -> {
                 selectedTab = AppTab.Songs
                 routeNotice = "Gift activity updated."
+            }
+            is PushRoute.Unsupported -> {
+                selectedTab = AppTab.Songs
+                routeNotice = "Notification type is not supported yet."
             }
             null -> Unit
         }

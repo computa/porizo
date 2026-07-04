@@ -85,6 +85,19 @@ interface PorizoApiService {
         @Body body: Map<String, String> = emptyMap(),
     ): ApproveLyricsDto
 
+    @GET("tracks/{trackId}/versions/{versionNum}/lyrics")
+    suspend fun getLyrics(
+        @Path("trackId") trackId: String,
+        @Path("versionNum") versionNum: Int,
+    ): LyricsWrapperDto
+
+    @PUT("tracks/{trackId}/versions/{versionNum}/lyrics")
+    suspend fun updateLyrics(
+        @Path("trackId") trackId: String,
+        @Path("versionNum") versionNum: Int,
+        @Body body: LyricsWrapperDto,
+    ): Response<Unit>
+
     @POST("tracks/{trackId}/share")
     suspend fun createShare(
         @Path("trackId") trackId: String,
@@ -152,6 +165,12 @@ interface PorizoApiService {
         @Body body: ReceiverClaimRequestDto,
     ): ShareClaimDto
 
+    @GET("receiver-claim/{claimToken}/stream")
+    suspend fun getReceiverClaimStream(
+        @Path("claimToken") claimToken: String,
+        @Header("x-device-token") deviceToken: String,
+    ): ShareStreamDto
+
     @GET("share/{shareId}/stream")
     suspend fun getShareStream(
         @Path("shareId") shareId: String,
@@ -165,6 +184,9 @@ interface PorizoApiService {
 
     @POST("billing/receipt/google")
     suspend fun validateGoogleSubscription(@Body body: GoogleReceiptRequestDto): GoogleReceiptDto
+
+    @POST("billing/receipt/google/consumable")
+    suspend fun validateGoogleConsumable(@Body body: GoogleConsumableReceiptRequestDto): GoogleReceiptDto
 
     @GET("billing/plans")
     suspend fun getBillingPlans(): PlansDto

@@ -10,11 +10,15 @@ import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.domain.repository.ShareRepository
 import com.porizo.core.model.PlayableTrack
 import com.porizo.core.model.PorizoFailure
+import com.porizo.core.model.ShareClaimResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -26,6 +30,8 @@ class ClaimViewModel @Inject constructor(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ClaimUiState())
     val uiState: StateFlow<ClaimUiState> = _uiState.asStateFlow()
+    private val _completionEvents = MutableSharedFlow<ClaimCompletion>(extraBufferCapacity = 1)
+    val completionEvents: SharedFlow<ClaimCompletion> = _completionEvents.asSharedFlow()
 
     fun open(route: DeepLinkRoute) {
         when (route) {
@@ -73,8 +79,23 @@ class ClaimViewModel @Inject constructor(
                     null -> error("No claim is active.")
                 }
             }
-                .onSuccess {
+                .onSuccess { result ->
+                    val playableTrack = playableTrackAfterClaim(state, result)
+                    if (playableTrack != null) {
+                        player.play(playableTrack)
+                    }
                     _uiState.update { it.copy(phase = ClaimPhase.Claimed, pin = "") }
+                    val kind = state.kind
+                    if (kind != null) {
+                        _completionEvents.tryEmit(
+                            ClaimCompletion(
+                                kind = kind,
+                                shareId = state.shareId,
+                                receiverClaimToken = state.receiverClaimToken,
+                                playableTrack = playableTrack,
+                            ),
+                        )
+                    }
                 }
                 .onFailure { error ->
                     _uiState.update { it.copy(phase = ClaimPhase.Failed(error.userMessage())) }
@@ -194,6 +215,30 @@ class ClaimViewModel @Inject constructor(
             authRepository.registerDevice()
             block()
         }
+
+    private suspend fun playableTrackAfterClaim(
+        state: ClaimUiState,
+        result: ShareClaimResult,
+    ): PlayableTrack? {
+        val stream = when (state.kind) {
+            ClaimKind.TrackShare -> state.shareId?.let { shareId ->
+                runCatching { shareRepository.shareStream(shareId) }.getOrNull()
+            }
+            ClaimKind.ReceiverHandoff -> state.receiverClaimToken?.let { claimToken ->
+                runCatching { shareRepository.receiverClaimStream(claimToken) }.getOrNull()
+            }
+            else -> null
+        }
+        val streamUrl = stream?.streamUrl?.takeIf { it.isNotBlank() } ?: return null
+        return PlayableTrack(
+            id = result.trackId ?: state.shareId ?: state.receiverClaimToken ?: "claimed-share",
+            title = state.title ?: "Shared gift",
+            recipientName = state.subtitle,
+            artworkUrl = null,
+            streamUrl = streamUrl,
+            isOwnedContent = true,
+        )
+    }
 
     private fun Throwable.userMessage(): String =
         when (this) {

@@ -20,6 +20,7 @@ async function makeApp(t, extraConfig = {}) {
     STORAGE_PROVIDER: "local",
     STREAM_BASE_URL: "http://stream.local",
     PUBLIC_BASE_URL: "http://public.local",
+    ALLOW_ANON_USER_ID: true,
     ALLOW_DEVICE_TOKEN_FALLBACK: true,
     ...extraConfig,
   };
@@ -532,6 +533,15 @@ test("handoff resolves to routing data without exposing audio URL", async (t) =>
     },
   });
   assert.equal(opaqueClaim.statusCode, 200, opaqueClaim.body);
+  const opaqueClaimBody = JSON.parse(opaqueClaim.body);
+  assert.equal(opaqueClaimBody.status, "claimed");
+  assert.equal(opaqueClaimBody.track_id, "track_receiver_test");
+  assert.equal(opaqueClaimBody.track_version_id, "tv_receiver_test");
+  assert.equal(opaqueClaimBody.stream_path, `/share/${shareId}/stream`);
+  assert.equal(
+    opaqueClaimBody.receiver_claim_stream_path,
+    `/receiver-claim/${replayBody.receiver_claim_token}/stream`,
+  );
 
   const retryOpaqueClaim = await app.inject({
     method: "POST",
@@ -543,7 +553,12 @@ test("handoff resolves to routing data without exposing audio URL", async (t) =>
     },
   });
   assert.equal(retryOpaqueClaim.statusCode, 200, retryOpaqueClaim.body);
-  assert.equal(JSON.parse(retryOpaqueClaim.body).status, "claimed");
+  const retryOpaqueClaimBody = JSON.parse(retryOpaqueClaim.body);
+  assert.equal(retryOpaqueClaimBody.status, "claimed");
+  assert.equal(
+    retryOpaqueClaimBody.receiver_claim_stream_path,
+    `/receiver-claim/${replayBody.receiver_claim_token}/stream`,
+  );
 
   const postClaimStream = await app.inject({
     method: "GET",

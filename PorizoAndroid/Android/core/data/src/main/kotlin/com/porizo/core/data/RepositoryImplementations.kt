@@ -25,6 +25,7 @@ import com.porizo.core.model.DeviceRegistration
 import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
 import com.porizo.core.model.JobStatus
+import com.porizo.core.model.LyricsDocument
 import com.porizo.core.model.PendingRender
 import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.PoemBody
@@ -59,7 +60,9 @@ import com.porizo.core.network.CreateShareRequestDto
 import com.porizo.core.network.DeviceRegisterRequestDto
 import com.porizo.core.network.EnrollmentStartRequestDto
 import com.porizo.core.network.ErrorEnvelopeDto
+import com.porizo.core.network.GoogleConsumableReceiptRequestDto
 import com.porizo.core.network.GoogleReceiptRequestDto
+import com.porizo.core.network.LyricsWrapperDto
 import com.porizo.core.network.NetworkErrorMapper
 import com.porizo.core.network.PhoneRegisterRequestDto
 import com.porizo.core.network.PorizoApiService
@@ -72,6 +75,7 @@ import com.porizo.core.network.StartStoryRequestDto
 import com.porizo.core.network.StoryGuidanceDto
 import com.porizo.core.network.StoryToTrackRequestDto
 import com.porizo.core.network.VerifyPhoneCodeRequestDto
+import com.porizo.core.network.toDto
 import com.porizo.core.network.toModel
 import com.squareup.moshi.Moshi
 import okhttp3.MediaType.Companion.toMediaType
@@ -88,9 +92,15 @@ private suspend fun <T> networkCall(
         throw errorMapper.map(error)
     }
 
+private suspend fun <T> protectedNetworkCall(
+    sessionCoordinator: AuthSessionCoordinator,
+    block: suspend () -> T,
+): T = sessionCoordinator.protectedCall(block)
+
 class DefaultAuthRepository(
     private val service: PorizoApiService,
     private val sessionStore: AndroidSessionStore,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val platform: String,
     private val appVersion: String,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
@@ -107,7 +117,7 @@ class DefaultAuthRepository(
     }
 
     override suspend fun currentUser(): AuthUser =
-        networkCall(errorMapper) { service.getMe().toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getMe().toModel() }
 
     override suspend fun sendPhoneVerificationCode(phoneNumber: String): SendPhoneCodeResult =
         networkCall(errorMapper) {
@@ -191,12 +201,12 @@ class DefaultAuthRepository(
         }
 
     override suspend fun logout() {
-        runCatching { service.logout() }
+        runCatching { protectedNetworkCall(sessionCoordinator) { service.logout() } }
         clearSession()
     }
 
     override suspend fun registerDevice(): DeviceRegistration =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.registerDevice(
                 DeviceRegisterRequestDto(
                     deviceId = sessionStore.getOrCreateDeviceId(),
@@ -215,6 +225,7 @@ class DefaultAuthRepository(
 class DefaultCreateRepository(
     private val service: PorizoApiService,
     private val draftStore: CreateDraftStore,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val moshi: Moshi = PorizoNetworkClient.moshi(),
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(moshi),
 ) : CreateRepository {
@@ -236,7 +247,7 @@ class DefaultCreateRepository(
         occasion: String,
         recipientName: String,
     ): StartStoryResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             val response = service.startStory(StartStoryRequestDto(initialPrompt, occasion, recipientName))
             StartStoryResult(response.storyId, response.question, response.sessionVersion)
         }
@@ -246,7 +257,7 @@ class DefaultCreateRepository(
         answer: String,
         expectedSessionVersion: Int?,
     ): ContinueStoryResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             val response = service.continueStory(storyId, ContinueStoryRequestDto(answer, expectedSessionVersion))
             ContinueStoryResult(
                 question = response.question,
@@ -257,7 +268,7 @@ class DefaultCreateRepository(
         }
 
     override suspend fun confirmStory(storyId: String): ConfirmStoryResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             val response = service.confirmStory(storyId)
             when {
                 response.isSuccessful -> ConfirmStoryResult.Confirmed
@@ -267,13 +278,13 @@ class DefaultCreateRepository(
         }
 
     override suspend fun generateStoryLyrics(storyId: String): StoryLyrics =
-        networkCall(errorMapper) { service.generateStoryLyrics(storyId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.generateStoryLyrics(storyId).toModel() }
 
     override suspend fun storyToTrack(storyId: String, voiceMode: String): StoryToTrackResult =
-        networkCall(errorMapper) { service.storyToTrack(storyId, StoryToTrackRequestDto(voiceMode)).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.storyToTrack(storyId, StoryToTrackRequestDto(voiceMode)).toModel() }
 
     override suspend fun storyToPoem(storyId: String): StoryToPoemResult =
-        networkCall(errorMapper) { service.storyToPoem(storyId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.storyToPoem(storyId).toModel() }
 
     private fun parseGuidance(response: Response<*>): StoryGuidance {
         val body = response.errorBody()?.string().orEmpty()
@@ -296,25 +307,42 @@ class DefaultCreateRepository(
 class DefaultRenderRepository(
     private val service: PorizoApiService,
     private val renderPollStore: RenderPollStore,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : RenderRepository {
+    override suspend fun getLyrics(trackId: String, versionNum: Int): LyricsDocument? =
+        protectedNetworkCall(sessionCoordinator) { service.getLyrics(trackId, versionNum).lyrics?.toModel() }
+
+    override suspend fun updateLyrics(trackId: String, versionNum: Int, lyrics: LyricsDocument) {
+        protectedNetworkCall(sessionCoordinator) {
+            val response = service.updateLyrics(trackId, versionNum, LyricsWrapperDto(lyrics.toDto()))
+            if (!response.isSuccessful) {
+                throw PorizoFailure.Server(
+                    status = response.code(),
+                    code = null,
+                    message = "Lyrics save failed with status ${response.code()}.",
+                )
+            }
+        }
+    }
+
     override suspend fun approveLyrics(trackId: String, versionNum: Int): ApproveLyricsResult =
-        networkCall(errorMapper) { service.approveLyrics(trackId, versionNum).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.approveLyrics(trackId, versionNum).toModel() }
 
     override suspend fun renderPreview(trackId: String, versionNum: Int): RenderPreviewResult =
-        networkCall(errorMapper) { service.renderPreview(trackId, versionNum).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.renderPreview(trackId, versionNum).toModel() }
 
     override suspend fun renderFull(trackId: String, versionNum: Int): RenderFullResult =
-        networkCall(errorMapper) { service.renderFull(trackId, versionNum).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.renderFull(trackId, versionNum).toModel() }
 
     override suspend fun retryPreview(trackId: String, versionNum: Int): RenderPreviewResult =
-        networkCall(errorMapper) { service.retryPreview(trackId, versionNum).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.retryPreview(trackId, versionNum).toModel() }
 
     override suspend fun getJobStatus(jobId: String): JobStatus =
-        networkCall(errorMapper) { service.getJobStatus(jobId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getJobStatus(jobId).toModel() }
 
     override suspend fun getTrack(trackId: String): TrackDetail =
-        networkCall(errorMapper) { service.getTrack(trackId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getTrack(trackId).toModel() }
 
     override suspend fun loadPendingRender(): PendingRender? = renderPollStore.load()
 
@@ -329,16 +357,17 @@ class DefaultRenderRepository(
 
 class DefaultLibraryRepository(
     private val service: PorizoApiService,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : LibraryRepository {
     override suspend fun tracks(): List<TrackSummary> =
-        networkCall(errorMapper) { service.getTracks(limit = 50, offset = 0).tracks.map { it.toModel() } }
+        protectedNetworkCall(sessionCoordinator) { service.getTracks(limit = 50, offset = 0).tracks.map { it.toModel() } }
 
     override suspend fun track(trackId: String): TrackDetail =
-        networkCall(errorMapper) { service.getTrack(trackId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getTrack(trackId).toModel() }
 
     override suspend fun deleteTrack(trackId: String) {
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             val response = service.deleteTrack(trackId)
             if (!response.isSuccessful) {
                 throw PorizoFailure.Server(
@@ -351,10 +380,10 @@ class DefaultLibraryRepository(
     }
 
     override suspend fun poems(): List<PoemSummary> =
-        networkCall(errorMapper) { service.getPoems().poems.map { it.toModel() } }
+        protectedNetworkCall(sessionCoordinator) { service.getPoems().poems.map { it.toModel() } }
 
     override suspend fun deletePoem(poemId: String) {
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             val response = service.deletePoem(poemId)
             if (!response.isSuccessful) {
                 throw PorizoFailure.Server(
@@ -367,27 +396,28 @@ class DefaultLibraryRepository(
     }
 
     override suspend fun poemAudio(poemId: String): String? =
-        networkCall(errorMapper) { service.generatePoemAudio(poemId).audioUrl ?: "/poems/$poemId/audio" }
+        protectedNetworkCall(sessionCoordinator) { service.generatePoemAudio(poemId).audioUrl ?: "/poems/$poemId/audio" }
 }
 
 class DefaultShareRepository(
     private val service: PorizoApiService,
     private val sessionStore: AndroidSessionStore,
     private val authRepository: AuthRepository,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val platform: String,
     private val appVersion: String,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : ShareRepository {
     override suspend fun createTrackShare(trackId: String, versionNum: Int, requirePin: Boolean): CreateShareResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.createShare(trackId, CreateShareRequestDto(requirePin, versionNum)).toModel()
         }
 
     override suspend fun createPoemShare(poemId: String): CreateShareResult =
-        networkCall(errorMapper) { service.createPoemShare(poemId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.createPoemShare(poemId).toModel() }
 
     override suspend fun shareInfo(shareId: String): ShareInfo =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.getShareInfo(
                 shareId = shareId,
                 deviceId = sessionStore.getOrCreateDeviceId(),
@@ -396,7 +426,7 @@ class DefaultShareRepository(
         }
 
     override suspend fun claimShare(shareId: String, pin: String?): ShareClaimResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.claimShare(
                 shareId = shareId,
                 deviceToken = ensureDeviceToken(),
@@ -405,7 +435,7 @@ class DefaultShareRepository(
         }
 
     override suspend fun shareStream(shareId: String): ShareStreamResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.getShareStream(
                 shareId = shareId,
                 deviceId = sessionStore.getOrCreateDeviceId(),
@@ -415,13 +445,13 @@ class DefaultShareRepository(
         }
 
     override suspend fun poemShareInfo(shareId: String): PoemShareInfo =
-        networkCall(errorMapper) { service.getPoemShareInfo(shareId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getPoemShareInfo(shareId).toModel() }
 
     override suspend fun poemShareBody(shareId: String): PoemBody? =
         poemShareInfo(shareId).poem
 
     override suspend fun claimPoemShare(shareId: String, pin: String?): ShareClaimResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.claimPoemShare(
                 shareId = shareId,
                 deviceToken = ensureDeviceToken(),
@@ -430,10 +460,10 @@ class DefaultShareRepository(
         }
 
     override suspend fun resolveReceiverHandoff(handoffId: String) =
-        networkCall(errorMapper) { service.resolveReceiverHandoff(handoffId).toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.resolveReceiverHandoff(handoffId).toModel() }
 
     override suspend fun claimReceiverToken(claimToken: String, pin: String?): ShareClaimResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.claimReceiverToken(
                 claimToken = claimToken,
                 deviceToken = ensureDeviceToken(),
@@ -446,6 +476,14 @@ class DefaultShareRepository(
             ).toModel()
         }
 
+    override suspend fun receiverClaimStream(claimToken: String): ShareStreamResult =
+        protectedNetworkCall(sessionCoordinator) {
+            service.getReceiverClaimStream(
+                claimToken = claimToken,
+                deviceToken = ensureDeviceToken(),
+            ).toModel()
+        }
+
     private suspend fun ensureDeviceToken(): String =
         sessionStore.currentDeviceToken() ?: authRepository.registerDevice().deviceToken
 
@@ -454,32 +492,39 @@ class DefaultShareRepository(
 
 class DefaultBillingRepository(
     private val service: PorizoApiService,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : BillingRepository {
     override suspend fun entitlements(): BillingEntitlements =
-        networkCall(errorMapper) { service.getBillingEntitlements().toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getBillingEntitlements().toModel() }
 
     override suspend fun plans(): List<SubscriptionPlan> =
-        networkCall(errorMapper) { service.getBillingPlans().plans.map { it.toModel() } }
+        protectedNetworkCall(sessionCoordinator) { service.getBillingPlans().plans.map { it.toModel() } }
 
     override suspend fun subscriptionStatus(): SubscriptionStatus =
-        networkCall(errorMapper) { service.getSubscriptionStatus().toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getSubscriptionStatus().toModel() }
 
     override suspend fun submitGoogleReceipt(productId: String, purchaseToken: String): GoogleReceiptResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.validateGoogleSubscription(GoogleReceiptRequestDto(purchaseToken, productId)).toModel()
+        }
+
+    override suspend fun submitGoogleConsumableReceipt(productId: String, purchaseToken: String): GoogleReceiptResult =
+        protectedNetworkCall(sessionCoordinator) {
+            service.validateGoogleConsumable(GoogleConsumableReceiptRequestDto(purchaseToken, productId)).toModel()
         }
 }
 
 class DefaultPushRepository(
     private val service: PorizoApiService,
     private val sessionStore: AndroidSessionStore,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val platform: String,
     private val appVersion: String,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : PushRepository {
     override suspend fun registerPushToken(token: String) {
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.registerDevice(
                 DeviceRegisterRequestDto(
                     deviceId = sessionStore.getOrCreateDeviceId(),
@@ -498,10 +543,11 @@ class DefaultPushRepository(
 
 class DefaultVoiceEnrollmentRepository(
     private val service: PorizoApiService,
+    private val sessionCoordinator: AuthSessionCoordinator,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : VoiceEnrollmentRepository {
     override suspend fun startEnrollment(): EnrollmentSession =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.startEnrollment(
                 EnrollmentStartRequestDto(
                     consentAccepted = true,
@@ -520,7 +566,7 @@ class DefaultVoiceEnrollmentRepository(
         durationSec: Double,
         checksum: String?,
     ): ChunkUploadResult =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             val mediaType = contentType.toMediaType()
             val uploadResponse = service.uploadEnrollmentChunk(
                 uploadUrl = uploadUrl.url,
@@ -545,7 +591,7 @@ class DefaultVoiceEnrollmentRepository(
         }
 
     override suspend fun createVoiceProfile(sessionId: String): VoiceProfile =
-        networkCall(errorMapper) {
+        protectedNetworkCall(sessionCoordinator) {
             service.completeEnrollment(
                 CompleteEnrollmentRequestDto(
                     sessionId = sessionId,
@@ -556,5 +602,5 @@ class DefaultVoiceEnrollmentRepository(
         }
 
     override suspend fun voiceProfileStatus(): VoiceProfileStatus =
-        networkCall(errorMapper) { service.getVoiceProfile().toModel() }
+        protectedNetworkCall(sessionCoordinator) { service.getVoiceProfile().toModel() }
 }

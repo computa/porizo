@@ -42,6 +42,10 @@ data class CreateUiState(
     val isBusy: Boolean = false,
     val notice: String? = null,
     val lyricsText: String? = null,
+    val hasUnsavedLyricsChanges: Boolean = false,
+    val isSavingLyrics: Boolean = false,
+    val lyricsSaveMessage: String? = null,
+    val policyTerms: List<String> = emptyList(),
     val createdTrackId: String? = null,
     val createdVersionNum: Int = 1,
     val createdPoemId: String? = null,
@@ -69,5 +73,6 @@ data class RenderUiState(
     val errorMessage: String? = null,
     val showEditLyricsCta: Boolean = false,
     val showPaywallCta: Boolean = false,
+    val policyTerms: List<String> = emptyList(),
     val result: RenderResult? = null,
 )

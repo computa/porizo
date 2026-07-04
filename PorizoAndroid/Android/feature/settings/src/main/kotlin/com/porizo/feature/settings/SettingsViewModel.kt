@@ -2,6 +2,7 @@ package com.porizo.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.porizo.core.domain.platform.DeviceTrustGateway
 import com.porizo.core.domain.platform.PlatformResult
 import com.porizo.core.domain.platform.PlayBillingGateway
 import com.porizo.core.domain.platform.PushGateway
@@ -33,6 +34,7 @@ class SettingsViewModel @Inject constructor(
     private val billingProvider: PlayBillingGateway,
     private val pushProvider: PushGateway,
     private val pushRouteStore: PushRouteStore,
+    private val deviceTrustProvider: DeviceTrustGateway,
     private val recorderProvider: VoiceRecorder,
     private val config: SettingsPlatformConfig,
 ) : ViewModel() {
@@ -51,6 +53,10 @@ class SettingsViewModel @Inject constructor(
     private var activeEnrollment: EnrollmentSession? = null
     private var activeUploadUrl: UploadUrl? = null
 
+    init {
+        recoverPendingReceipts()
+    }
+
     fun selectProduct(productId: String) {
         _uiState.update { it.copy(selectedProductId = productId) }
     }
@@ -66,15 +72,15 @@ class SettingsViewModel @Inject constructor(
                 .sorted()
             val status = billingProvider.queryProducts(
                 subscriptionIds = subscriptionIds,
-                oneTimeIds = emptyList(),
+                oneTimeIds = config.oneTimeProductIds,
             )
             delay(1_200)
             val loadedProducts = billingProvider.loadedProducts()
-                .filter { it.productType == GOOGLE_SUBSCRIPTION_PRODUCT_TYPE }
             val selected = _uiState.value.selectedProductId
                 .takeIf { current -> loadedProducts.any { it.id == current } }
                 ?: loadedProducts.firstOrNull { it.productType == "subs" }?.id
                 ?: subscriptionIds.firstOrNull()
+                ?: loadedProducts.firstOrNull()?.id
                 ?: ""
             _uiState.update {
                 it.copy(
@@ -135,11 +141,84 @@ class SettingsViewModel @Inject constructor(
             return
         }
         runBilling {
-            val result = billingRepository.submitGoogleReceipt(productId, purchaseToken)
+            val isConsumable = isConsumableProduct(productId)
+            val result = if (isConsumable) {
+                billingRepository.submitGoogleConsumableReceipt(productId, purchaseToken)
+            } else {
+                billingRepository.submitGoogleReceipt(productId, purchaseToken)
+            }
+            val acknowledgementStatus = if (result.success) {
+                billingProvider.acknowledgePurchase(productId)
+            } else {
+                null
+            }
             _uiState.update {
                 it.copy(
-                    billingStatus = if (result.success) "Google receipt synced." else "Google receipt was not accepted.",
+                    billingStatus = if (result.success) {
+                        val label = if (isConsumable) "Gift purchase synced." else "Google receipt synced."
+                        "$label ${acknowledgementStatus.orEmpty()}".trim()
+                    } else {
+                        "Google receipt was not accepted."
+                    },
                     entitlements = result.entitlements ?: it.entitlements,
+                )
+            }
+        }
+    }
+
+    private fun recoverPendingReceipts() {
+        viewModelScope.launch {
+            val pendingProductIds = billingProvider.pendingReceiptProductIds()
+            if (pendingProductIds.isEmpty()) return@launch
+            val session = authRepository.restoreSession()
+            if (session == null) {
+                _uiState.update {
+                    it.copy(billingStatus = "Purchase receipt saved. Sign in to finish activation.")
+                }
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    isBillingWorking = true,
+                    billingStatus = "Recovering ${pendingProductIds.size} saved purchase receipt(s)...",
+                )
+            }
+
+            var synced = 0
+            var failed = 0
+            var latestEntitlements = _uiState.value.entitlements
+            pendingProductIds.forEach { productId ->
+                val token = billingProvider.lastPurchaseToken(productId).orEmpty()
+                if (token.isBlank()) return@forEach
+                runCatching {
+                    if (isConsumableProduct(productId)) {
+                        billingRepository.submitGoogleConsumableReceipt(productId, token)
+                    } else {
+                        billingRepository.submitGoogleReceipt(productId, token)
+                    }
+                }
+                    .onSuccess { result ->
+                        if (result.success) {
+                            synced += 1
+                            latestEntitlements = result.entitlements ?: latestEntitlements
+                            billingProvider.acknowledgePurchase(productId)
+                        } else {
+                            failed += 1
+                        }
+                    }
+                    .onFailure { failed += 1 }
+            }
+
+            _uiState.update {
+                it.copy(
+                    isBillingWorking = false,
+                    entitlements = latestEntitlements,
+                    billingStatus = when {
+                        synced > 0 && failed == 0 -> "Recovered $synced saved purchase receipt(s)."
+                        synced > 0 -> "Recovered $synced saved receipt(s); $failed still need retry."
+                        else -> "Saved purchase receipt still needs retry."
+                    },
                 )
             }
         }
@@ -157,14 +236,26 @@ class SettingsViewModel @Inject constructor(
             val optInStatus = pushProvider.optIn()
             delay(1_000)
             val pushToken = pushProvider.pushToken().orEmpty()
-            if (pushToken.isNotBlank()) {
-                pushRepository.registerPushToken(pushToken)
+            val pushSubscriptionId = pushProvider.subscriptionId().orEmpty()
+            val trustSnapshot = deviceTrustProvider.snapshot(
+                nonce = listOfNotNull(session?.userId, pushSubscriptionId.takeIf { it.isNotBlank() }, pushToken.takeIf { it.isNotBlank() })
+                    .joinToString(":")
+                    .takeIf { it.isNotBlank() },
+            )
+            val backendPushIdentifier = pushSubscriptionId.ifBlank { pushToken }
+            val registrationStatus = if (backendPushIdentifier.isNotBlank()) {
+                pushRepository.registerPushToken(backendPushIdentifier)
+                "Backend push identifier registered."
+            } else {
+                "No OneSignal subscription id or push token available yet."
             }
             _uiState.update {
                 it.copy(
                     pushToken = pushToken,
-                    pushSubscriptionId = pushProvider.subscriptionId().orEmpty(),
-                    pushStatus = listOf(initStatus, loginStatus, permissionStatus, optInStatus)
+                    pushSubscriptionId = pushSubscriptionId,
+                    appSetId = trustSnapshot.appSetId,
+                    deviceTrustStatus = trustSnapshot.status,
+                    pushStatus = listOf(initStatus, loginStatus, permissionStatus, optInStatus, registrationStatus, trustSnapshot.status)
                         .joinToString(" "),
                 )
             }
@@ -358,8 +449,15 @@ class SettingsViewModel @Inject constructor(
             else -> message ?: "Something went wrong."
         }
 
+    private fun isConsumableProduct(productId: String): Boolean {
+        if (productId in config.oneTimeProductIds) return true
+        return _uiState.value.loadedProducts
+            .firstOrNull { it.id == productId }
+            ?.productType == GOOGLE_IN_APP_PRODUCT_TYPE
+    }
+
     private companion object {
         const val MIN_RECORDING_SECONDS = 1.0
-        const val GOOGLE_SUBSCRIPTION_PRODUCT_TYPE = "subs"
+        const val GOOGLE_IN_APP_PRODUCT_TYPE = "inapp"
     }
 }

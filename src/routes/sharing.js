@@ -1167,6 +1167,10 @@ function registerSharingRoutes(
         status: "claimed",
         app_save_allowed: true,
         expires_at: share.expires_at,
+        track_id: share.track_id,
+        track_version_id: share.track_version_id,
+        stream_path: `/share/${resolved.shareId}/stream`,
+        receiver_claim_stream_path: `/receiver-claim/${request.params.claimToken}/stream`,
       });
       return;
     }
@@ -1225,6 +1229,12 @@ function registerSharingRoutes(
         );
       } catch (err) {
         request.log.warn({ err }, "receiver claim token consume failed");
+      }
+      if (responseBody && typeof responseBody === "object") {
+        responseBody = {
+          ...responseBody,
+          receiver_claim_stream_path: `/receiver-claim/${request.params.claimToken}/stream`,
+        };
       }
     }
 
@@ -2174,6 +2184,9 @@ function registerSharingRoutes(
         status: "claimed",
         app_save_allowed: true,
         expires_at: share.expires_at,
+        track_id: share.track_id,
+        track_version_id: share.track_version_id,
+        stream_path: `/share/${share.id}/stream`,
       });
     },
   );

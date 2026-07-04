@@ -14,6 +14,8 @@ import com.porizo.core.domain.share.ShareDispatcher
 import com.porizo.core.model.ContinueStorySignal
 import com.porizo.core.model.CreateContentType
 import com.porizo.core.model.CreateDraft
+import com.porizo.core.model.LyricsDocument
+import com.porizo.core.model.LyricsSection
 import com.porizo.core.model.Occasion
 import com.porizo.core.model.PendingRender
 import com.porizo.core.model.PlayableTrack
@@ -84,6 +86,18 @@ class CreateViewModel @Inject constructor(
         _uiState.update { it.copy(draftAnswer = value) }
     }
 
+    fun updateLyricsText(value: String) {
+        _uiState.update {
+            it.copy(
+                lyricsText = value,
+                hasUnsavedLyricsChanges = true,
+                lyricsSaveMessage = null,
+                policyTerms = emptyList(),
+                notice = null,
+            )
+        }
+    }
+
     fun confirmName() {
         if (!_uiState.value.canContinueName) return
         _uiState.update { it.copy(phase = CreatePhase.Details, notice = null) }
@@ -110,6 +124,29 @@ class CreateViewModel @Inject constructor(
         viewModelScope.launch {
             createRepository.clearDraft()
             renderRepository.clearPendingRender()
+        }
+    }
+
+    fun beginFromOnboarding(
+        recipientName: String,
+        occasion: Occasion? = null,
+        tone: String? = null,
+        message: String? = null,
+    ) {
+        renderJob?.cancel()
+        pollingFailureCount = 0
+        val nextState = CreateUiState(
+            recipientName = recipientName.trim(),
+            occasion = occasion ?: Occasion.Birthday,
+            contentType = CreateContentType.Song,
+            tone = tone?.trim().orEmpty(),
+            message = message?.trim().orEmpty(),
+        )
+        _uiState.value = nextState
+        viewModelScope.launch {
+            createRepository.clearDraft()
+            renderRepository.clearPendingRender()
+            saveDraftSnapshot(nextState)
         }
     }
 
@@ -246,7 +283,8 @@ class CreateViewModel @Inject constructor(
         renderJob = viewModelScope.launch {
             try {
                 if (resumeIfPossible(trackId, state.createdVersionNum)) return@launch
-                runCatching { renderRepository.approveLyrics(trackId, state.createdVersionNum) }
+                saveLyricsIfNeeded()
+                renderRepository.approveLyrics(trackId, state.createdVersionNum)
                 val response = renderRepository.renderFull(trackId, state.createdVersionNum)
                 val jobId = response.jobId
                 if (jobId != null) {
@@ -257,7 +295,7 @@ class CreateViewModel @Inject constructor(
                 }
             } catch (error: Throwable) {
                 if (!resumeIfPossible(trackId, state.createdVersionNum)) {
-                    applyRenderFailure(code = null, message = error.userMessage(), terms = emptyList())
+                    applyApproveFailure(error)
                 }
             }
         }
@@ -423,13 +461,36 @@ class CreateViewModel @Inject constructor(
 
         val lyrics = createRepository.generateStoryLyrics(storyId)
         val track = createRepository.storyToTrack(storyId, state.voiceSource.apiValue)
+        val lyricsText = lyrics.lyrics.orEmpty()
         _uiState.update {
             it.copy(
                 phase = CreatePhase.Lyrics,
                 isBusy = false,
-                lyricsText = lyrics.lyrics,
+                lyricsText = lyricsText,
+                hasUnsavedLyricsChanges = true,
+                lyricsSaveMessage = null,
                 createdTrackId = track.trackId,
                 createdVersionNum = track.versionNum ?: 1,
+            )
+        }
+    }
+
+    private suspend fun saveLyricsIfNeeded() {
+        val state = _uiState.value
+        val trackId = state.createdTrackId ?: return
+        val lyricsText = state.lyricsText?.trim().orEmpty()
+        if (lyricsText.isBlank() || !state.hasUnsavedLyricsChanges) return
+        _uiState.update { it.copy(isSavingLyrics = true, lyricsSaveMessage = "Saving lyrics edits...") }
+        renderRepository.updateLyrics(
+            trackId = trackId,
+            versionNum = state.createdVersionNum,
+            lyrics = state.toLyricsDocument(),
+        )
+        _uiState.update {
+            it.copy(
+                isSavingLyrics = false,
+                hasUnsavedLyricsChanges = false,
+                lyricsSaveMessage = "Lyrics saved.",
             )
         }
     }
@@ -558,7 +619,24 @@ class CreateViewModel @Inject constructor(
                     errorMessage = friendly,
                     showEditLyricsCta = RenderController.shouldShowEditLyricsCta(code, message, terms),
                     showPaywallCta = RenderController.isPaywallError(code),
+                    policyTerms = terms,
                 ),
+                policyTerms = terms,
+            )
+        }
+        viewModelScope.launch { renderRepository.clearPendingRender() }
+    }
+
+    private fun applyApproveFailure(error: Throwable) {
+        val terms = error.policyTerms()
+        _uiState.update {
+            it.copy(
+                phase = CreatePhase.Lyrics,
+                isBusy = false,
+                isSavingLyrics = false,
+                notice = "Lyrics were not approved: ${error.userMessage()}",
+                policyTerms = terms,
+                render = RenderUiState(),
             )
         }
         viewModelScope.launch { renderRepository.clearPendingRender() }
@@ -585,22 +663,27 @@ class CreateViewModel @Inject constructor(
         val state = _uiState.value
         if (state.recipientName.isBlank()) return
         viewModelScope.launch {
-            createRepository.saveDraft(
-                CreateDraft(
-                    recipientName = state.recipientName.trim(),
-                    recipientPhone = state.recipientPhone.trim().ifBlank { null },
-                    occasionRawValue = state.occasion.apiValue,
-                    contentTypeRawValue = state.contentType.apiValue,
-                    voiceSourceRawValue = state.voiceSource.apiValue,
-                    tone = state.tone,
-                    message = state.message,
-                    targetDuration = state.targetDurationSec.toDouble(),
-                    includeNameHook = true,
-                    appOnlySave = true,
-                    updatedAt = Instant.now().toString(),
-                ),
-            )
+            saveDraftSnapshot(state)
         }
+    }
+
+    private suspend fun saveDraftSnapshot(state: CreateUiState) {
+        if (state.recipientName.isBlank()) return
+        createRepository.saveDraft(
+            CreateDraft(
+                recipientName = state.recipientName.trim(),
+                recipientPhone = state.recipientPhone.trim().ifBlank { null },
+                occasionRawValue = state.occasion.apiValue,
+                contentTypeRawValue = state.contentType.apiValue,
+                voiceSourceRawValue = state.voiceSource.apiValue,
+                tone = state.tone,
+                message = state.message,
+                targetDuration = state.targetDurationSec.toDouble(),
+                includeNameHook = true,
+                appOnlySave = true,
+                updatedAt = Instant.now().toString(),
+            ),
+        )
     }
 
     private fun CreateUiState.initialPrompt(): String =
@@ -609,6 +692,29 @@ class CreateViewModel @Inject constructor(
             if (tone.isNotBlank()) append(" Tone: ${tone.trim()}.")
             if (message.isNotBlank()) append(" Message: ${message.trim()}.")
         }
+
+    private fun CreateUiState.toLyricsDocument(): LyricsDocument {
+        val lines = lyricsText.orEmpty()
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        val sections = if (lines.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(
+                LyricsSection(
+                    name = "lyrics",
+                    lines = lines,
+                ),
+            )
+        }
+        return LyricsDocument(
+            title = "For ${recipientName.trim()}",
+            style = tone.trim().ifBlank { null },
+            sections = sections,
+            anchorLine = lines.firstOrNull(),
+        )
+    }
 
     private fun PoemBody.displayVerses(): List<String> =
         verses?.filter { it.isNotBlank() }
@@ -620,6 +726,30 @@ class CreateViewModel @Inject constructor(
             is PorizoFailure -> message ?: "Something went wrong."
             else -> message ?: "Something went wrong."
         }
+
+    private fun Throwable.policyTerms(): List<String> {
+        val message = userMessage()
+        val lowercased = message.lowercase()
+        val knownTerms = buildList {
+            if (lowercased.contains("producer tag")) add("producer tag")
+            if (lowercased.contains("specific artist")) add("specific artist name")
+            if (lowercased.contains("artist likeness")) add("artist likeness")
+            if (lowercased.contains("blocked word")) add("blocked word")
+            if (lowercased.contains("sensitive_word_error")) add("sensitive word")
+            if (lowercased.contains("copyright")) add("copyrighted reference")
+            if (lowercased.contains("trademark")) add("trademarked reference")
+        }
+        val quotedTerms = Regex("['\"]([^'\"]{2,48})['\"]")
+            .findAll(message)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+        return (knownTerms + quotedTerms)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(8)
+    }
 
     private fun occasionFromApiValue(value: String): Occasion =
         Occasion.entries.firstOrNull { it.apiValue == value } ?: Occasion.Birthday

@@ -35,20 +35,27 @@ class PorizoDataGraph private constructor(
                 baseUrl = baseUrl,
                 okHttpClient = PorizoNetworkClient.okHttpClient(baseUrl, appVersion, tokenProvider),
             )
+            val sessionCoordinator = AuthSessionCoordinator(
+                service = apiService,
+                sessionStore = sessionStore,
+            )
             val authRepository = DefaultAuthRepository(
                 service = apiService,
                 sessionStore = sessionStore,
+                sessionCoordinator = sessionCoordinator,
                 platform = platform,
                 appVersion = appVersion,
             )
             val renderRepository = DefaultRenderRepository(
                 service = apiService,
                 renderPollStore = RenderPollStore(context),
+                sessionCoordinator = sessionCoordinator,
             )
             val shareRepository = DefaultShareRepository(
                 service = apiService,
                 sessionStore = sessionStore,
                 authRepository = authRepository,
+                sessionCoordinator = sessionCoordinator,
                 platform = platform,
                 appVersion = appVersion,
             )
@@ -60,13 +67,14 @@ class PorizoDataGraph private constructor(
                 createRepository = DefaultCreateRepository(
                     service = apiService,
                     draftStore = CreateDraftStore(context),
+                    sessionCoordinator = sessionCoordinator,
                 ),
                 renderRepository = renderRepository,
-                libraryRepository = DefaultLibraryRepository(apiService),
+                libraryRepository = DefaultLibraryRepository(apiService, sessionCoordinator),
                 shareRepository = shareRepository,
-                billingRepository = DefaultBillingRepository(apiService),
-                pushRepository = DefaultPushRepository(apiService, sessionStore, platform, appVersion),
-                voiceEnrollmentRepository = DefaultVoiceEnrollmentRepository(apiService),
+                billingRepository = DefaultBillingRepository(apiService, sessionCoordinator),
+                pushRepository = DefaultPushRepository(apiService, sessionStore, sessionCoordinator, platform, appVersion),
+                voiceEnrollmentRepository = DefaultVoiceEnrollmentRepository(apiService, sessionCoordinator),
             )
         }
     }

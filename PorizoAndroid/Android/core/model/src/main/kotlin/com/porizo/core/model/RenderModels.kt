@@ -23,6 +23,20 @@ data class ApproveLyricsResult(
     val status: String?,
 )
 
+data class LyricsDocument(
+    val title: String?,
+    val style: String?,
+    val sections: List<LyricsSection>,
+    val anchorLine: String?,
+)
+
+data class LyricsSection(
+    val name: String,
+    val lines: List<String>,
+    val startTime: Double? = null,
+    val endTime: Double? = null,
+)
+
 data class JobStatus(
     val id: String,
     val status: String,

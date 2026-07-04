@@ -28,7 +28,15 @@ class PorizoPlayer(
     override fun play(track: PlayableTrack) {
         val absoluteUrl = StreamingPolicy.absoluteUrl(track.streamUrl, baseUrl)
         val headers = StreamingPolicy.headersFor(track, accessTokenProvider())
-        engine.prepare(absoluteUrl, headers)
+        engine.prepare(
+            url = absoluteUrl,
+            headers = headers,
+            metadata = PlaybackMetadata(
+                title = track.title,
+                artist = track.recipientName,
+                artworkUrl = track.artworkUrl,
+            ),
+        )
             .onSuccess {
                 engine.play()
                 _state.value = PlayerUiState(

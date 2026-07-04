@@ -2,18 +2,21 @@ package com.porizo.core.media
 
 import android.content.Context
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.MediaSession
 
 @androidx.annotation.OptIn(UnstableApi::class)
 class Media3AudioPlaybackEngine(
     private val context: Context,
 ) : AudioPlaybackEngine {
     private var player: ExoPlayer? = null
+    private var mediaSession: MediaSession? = null
 
-    override fun prepare(url: String, headers: Map<String, String>): Result<Unit> =
+    override fun prepare(url: String, headers: Map<String, String>, metadata: PlaybackMetadata): Result<Unit> =
         runCatching {
             release()
             val dataSourceFactory = DefaultHttpDataSource.Factory()
@@ -23,9 +26,21 @@ class Media3AudioPlaybackEngine(
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
 
-            exoPlayer.setMediaItem(MediaItem.fromUri(url))
+            val mediaMetadata = MediaMetadata.Builder()
+                .setTitle(metadata.title)
+                .setArtist(metadata.artist)
+                .setArtworkUri(metadata.artworkUrl?.let(android.net.Uri::parse))
+                .build()
+            val mediaItem = MediaItem.Builder()
+                .setUri(url)
+                .setMediaMetadata(mediaMetadata)
+                .build()
+
+            exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             player = exoPlayer
+            mediaSession = MediaSession.Builder(context.applicationContext, exoPlayer)
+                .build()
         }
 
     override fun play() {
@@ -41,6 +56,8 @@ class Media3AudioPlaybackEngine(
     }
 
     override fun release() {
+        mediaSession?.release()
+        mediaSession = null
         player?.release()
         player = null
     }

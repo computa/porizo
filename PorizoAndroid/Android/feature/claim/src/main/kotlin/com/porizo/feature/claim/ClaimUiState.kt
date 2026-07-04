@@ -1,5 +1,7 @@
 package com.porizo.feature.claim
 
+import com.porizo.core.model.PlayableTrack
+
 sealed interface ClaimPhase {
     data object Idle : ClaimPhase
     data object Loading : ClaimPhase
@@ -15,6 +17,13 @@ enum class ClaimKind {
     PoemShare,
     ReceiverHandoff,
 }
+
+data class ClaimCompletion(
+    val kind: ClaimKind,
+    val shareId: String?,
+    val receiverClaimToken: String?,
+    val playableTrack: PlayableTrack? = null,
+)
 
 data class ClaimUiState(
     val phase: ClaimPhase = ClaimPhase.Idle,

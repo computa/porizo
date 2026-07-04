@@ -11,6 +11,7 @@ import com.porizo.core.model.DeviceRegistration
 import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
 import com.porizo.core.model.JobStatus
+import com.porizo.core.model.LyricsDocument
 import com.porizo.core.model.PendingRender
 import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.PoemBody
@@ -99,6 +100,8 @@ data class ContinueStoryResult(
 )
 
 interface RenderRepository {
+    suspend fun getLyrics(trackId: String, versionNum: Int): LyricsDocument?
+    suspend fun updateLyrics(trackId: String, versionNum: Int, lyrics: LyricsDocument)
     suspend fun approveLyrics(trackId: String, versionNum: Int): ApproveLyricsResult
     suspend fun renderPreview(trackId: String, versionNum: Int): RenderPreviewResult
     suspend fun renderFull(trackId: String, versionNum: Int): RenderFullResult
@@ -130,6 +133,7 @@ interface ShareRepository {
     suspend fun claimPoemShare(shareId: String, pin: String?): ShareClaimResult
     suspend fun resolveReceiverHandoff(handoffId: String): ReceiverHandoffResult
     suspend fun claimReceiverToken(claimToken: String, pin: String?): ShareClaimResult
+    suspend fun receiverClaimStream(claimToken: String): ShareStreamResult
 }
 
 interface BillingRepository {
@@ -137,6 +141,7 @@ interface BillingRepository {
     suspend fun plans(): List<SubscriptionPlan>
     suspend fun subscriptionStatus(): SubscriptionStatus
     suspend fun submitGoogleReceipt(productId: String, purchaseToken: String): GoogleReceiptResult
+    suspend fun submitGoogleConsumableReceipt(productId: String, purchaseToken: String): GoogleReceiptResult
 }
 
 interface PushRepository {

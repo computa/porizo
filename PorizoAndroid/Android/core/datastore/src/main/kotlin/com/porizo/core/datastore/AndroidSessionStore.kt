@@ -2,6 +2,7 @@ package com.porizo.core.datastore
 
 import android.content.Context
 import com.porizo.core.model.AuthSession
+import java.time.Instant
 import java.util.UUID
 
 class AndroidSessionStore(
@@ -25,14 +26,17 @@ class AndroidSessionStore(
         val accessToken = secureStore.getString(KEY_AUTH_ACCESS_TOKEN)?.takeIf { it.isNotBlank() } ?: return null
         val refreshToken = secureStore.getString(KEY_AUTH_REFRESH_TOKEN)?.takeIf { it.isNotBlank() } ?: return null
         val expiresIn = secureStore.getString(KEY_AUTH_EXPIRES_IN)?.toIntOrNull() ?: DEFAULT_EXPIRES_IN
-        return AuthSession(userId, accessToken, refreshToken, expiresIn)
+        val issuedAt = secureStore.getString(KEY_AUTH_ISSUED_AT)?.toLongOrNull() ?: 0L
+        return AuthSession(userId, accessToken, refreshToken, expiresIn, issuedAt)
     }
 
     fun saveAuthSession(session: AuthSession) {
+        val issuedAt = session.issuedAtEpochSeconds.takeIf { it > 0L } ?: Instant.now().epochSecond
         secureStore.putString(KEY_AUTH_USER_ID, session.userId)
         secureStore.putString(KEY_AUTH_ACCESS_TOKEN, session.accessToken)
         secureStore.putString(KEY_AUTH_REFRESH_TOKEN, session.refreshToken)
         secureStore.putString(KEY_AUTH_EXPIRES_IN, session.expiresInSeconds.toString())
+        secureStore.putString(KEY_AUTH_ISSUED_AT, issuedAt.toString())
     }
 
     fun clearAuthSession() {
@@ -40,6 +44,7 @@ class AndroidSessionStore(
         secureStore.removeString(KEY_AUTH_ACCESS_TOKEN)
         secureStore.removeString(KEY_AUTH_REFRESH_TOKEN)
         secureStore.removeString(KEY_AUTH_EXPIRES_IN)
+        secureStore.removeString(KEY_AUTH_ISSUED_AT)
     }
 
     fun currentAccessToken(): String? = loadAuthSession()?.accessToken
@@ -68,6 +73,7 @@ class AndroidSessionStore(
         const val KEY_AUTH_ACCESS_TOKEN = "porizo_android_auth_access_token"
         const val KEY_AUTH_REFRESH_TOKEN = "porizo_android_auth_refresh_token"
         const val KEY_AUTH_EXPIRES_IN = "porizo_android_auth_expires_in"
+        const val KEY_AUTH_ISSUED_AT = "porizo_android_auth_issued_at"
         const val KEY_DEVICE_TOKEN = "porizo_android_device_token"
         const val KEY_DEVICE_TOKEN_EXPIRY = "porizo_android_device_token_expiry"
     }

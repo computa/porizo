@@ -35,6 +35,10 @@ data class ShareClaimResult(
     val status: String,
     val appSaveAllowed: Boolean?,
     val expiresAt: String?,
+    val trackId: String? = null,
+    val trackVersionId: String? = null,
+    val streamPath: String? = null,
+    val receiverClaimStreamPath: String? = null,
 )
 
 data class ReceiverHandoffResult(

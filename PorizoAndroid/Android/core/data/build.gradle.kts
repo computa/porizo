@@ -30,7 +30,10 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:network"))
     implementation(project(":core:datastore"))
+    implementation(libs.kotlinx.coroutines.core)
     implementation(libs.moshi)
     implementation(libs.okhttp)
     implementation(libs.retrofit)
+
+    testImplementation(libs.kotlin.test)
 }

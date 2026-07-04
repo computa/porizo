@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -26,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -97,11 +101,26 @@ fun SongsScreen(
                 PorizoSectionLabel(state.filter.label)
                 PorizoCard {
                     state.visibleTracks.forEach { track ->
-                        SongRow(track = track, onPlay = { viewModel.play(track) })
+                        SongRow(
+                            track = track,
+                            onPlay = { viewModel.play(track) },
+                            onShare = { viewModel.share(track) },
+                            onDelete = { viewModel.requestDelete(track) },
+                        )
                     }
                 }
             }
         }
+    }
+
+    state.pendingDeleteTrack?.let { track ->
+        DeleteConfirmDialog(
+            title = "Delete song?",
+            message = "Delete \"${track.title}\" from this library? This cannot be undone from Android.",
+            confirmText = "Delete song",
+            onConfirm = viewModel::confirmDelete,
+            onDismiss = viewModel::cancelDelete,
+        )
     }
 }
 
@@ -150,7 +169,12 @@ fun PoemsScreen(
                 PorizoSectionLabel(state.filter.label)
                 PorizoCard {
                     state.visiblePoems.forEach { poem ->
-                        PoemRow(poem = poem, onOpen = { viewModel.selectPoem(poem) })
+                        PoemRow(
+                            poem = poem,
+                            onOpen = { viewModel.selectPoem(poem) },
+                            onShare = { viewModel.share(poem) },
+                            onDelete = { viewModel.requestDelete(poem) },
+                        )
                     }
                 }
             }
@@ -163,9 +187,21 @@ fun PoemsScreen(
                 poem = poem,
                 isPreparingAudio = state.isPreparingAudio,
                 onListen = { viewModel.listen(poem) },
+                onShare = { viewModel.share(poem) },
+                onDelete = { viewModel.requestDelete(poem) },
                 onClose = viewModel::closePoem,
             )
         }
+    }
+
+    state.pendingDeletePoem?.let { poem ->
+        DeleteConfirmDialog(
+            title = "Delete poem?",
+            message = "Delete \"${poem.title}\" from this library? This cannot be undone from Android.",
+            confirmText = "Delete poem",
+            onConfirm = viewModel::confirmDelete,
+            onDismiss = viewModel::cancelDelete,
+        )
     }
 }
 
@@ -340,7 +376,7 @@ private fun FilterButton(text: String, selected: Boolean, onClick: () -> Unit, m
 }
 
 @Composable
-private fun SongRow(track: TrackSummary, onPlay: () -> Unit) {
+private fun SongRow(track: TrackSummary, onPlay: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
     val status = SongLibrary.displayStatus(track.status)
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -364,11 +400,17 @@ private fun SongRow(track: TrackSummary, onPlay: () -> Unit) {
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyMedium,
         )
+        Button(onClick = onShare, enabled = track.canShare != false && status == SongDisplayStatus.Ready) {
+            Icon(Icons.Filled.Share, contentDescription = "Share ${track.title}")
+        }
+        Button(onClick = onDelete, enabled = track.canDelete != false) {
+            Icon(Icons.Filled.Delete, contentDescription = "Delete ${track.title}")
+        }
     }
 }
 
 @Composable
-private fun PoemRow(poem: PoemSummary, onOpen: () -> Unit) {
+private fun PoemRow(poem: PoemSummary, onOpen: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
@@ -393,6 +435,12 @@ private fun PoemRow(poem: PoemSummary, onOpen: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+        Button(onClick = onShare) {
+            Icon(Icons.Filled.Share, contentDescription = "Share ${poem.title}")
+        }
+        Button(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "Delete ${poem.title}")
+        }
     }
 }
 
@@ -401,6 +449,8 @@ private fun PoemDetail(
     poem: PoemSummary,
     isPreparingAudio: Boolean,
     onListen: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
     onClose: () -> Unit,
 ) {
     Column(
@@ -422,6 +472,20 @@ private fun PoemDetail(
             enabled = !isPreparingAudio,
             icon = Icons.Filled.PlayArrow,
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PorizoSecondaryButton(
+                text = "Share",
+                onClick = onShare,
+                icon = Icons.Filled.Share,
+                modifier = Modifier.weight(1f),
+            )
+            PorizoSecondaryButton(
+                text = "Delete",
+                onClick = onDelete,
+                icon = Icons.Filled.Delete,
+                modifier = Modifier.weight(1f),
+            )
+        }
         poem.verses.forEach { verse ->
             Text(
                 text = verse,
@@ -480,6 +544,36 @@ private fun RouteNotice(message: String?) {
             Text(text = it, color = PorizoColors.AccentDark)
         }
     }
+}
+
+@Composable
+private fun DeleteConfirmDialog(
+    title: String,
+    message: String,
+    confirmText: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(title, color = PorizoColors.TextPrimary)
+        },
+        text = {
+            Text(message, color = PorizoColors.TextSecondary)
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirmText, color = PorizoColors.Error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = PorizoColors.TextSecondary)
+            }
+        },
+        containerColor = PorizoColors.Surface,
+    )
 }
 
 private fun timeLabel(seconds: Double): String {

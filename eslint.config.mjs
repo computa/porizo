@@ -12,6 +12,7 @@ export default [
       ".venv/",
       "backup/",
       "build/",
+      "PorizoAndroid/Android/**/build/",
       "data/",
       "test-output/",
       "public/admin/assets/",

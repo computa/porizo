@@ -4,6 +4,7 @@ import android.content.Context
 import com.porizo.app.BuildConfig
 import com.porizo.core.data.PorizoDataGraph
 import com.porizo.core.domain.platform.GoogleSignInGateway
+import com.porizo.core.domain.platform.DeviceTrustGateway
 import com.porizo.core.domain.platform.PlayBillingGateway
 import com.porizo.core.domain.platform.PushGateway
 import com.porizo.core.domain.platform.PushRouteStore
@@ -21,6 +22,7 @@ import com.porizo.core.domain.share.ShareDispatcher
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.platform.GoogleSignInProvider
+import com.porizo.core.platform.DeviceTrustProvider
 import com.porizo.core.platform.PlayBillingProvider
 import com.porizo.core.platform.PushProvider
 import com.porizo.core.platform.PushTapStore
@@ -129,6 +131,10 @@ abstract class PorizoPlatformBindingsModule {
     @Binds
     @Singleton
     abstract fun bindPushRouteStore(store: PushTapStore): PushRouteStore
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceTrustGateway(provider: DeviceTrustProvider): DeviceTrustGateway
 
     @Binds
     @Singleton

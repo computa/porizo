@@ -133,6 +133,39 @@ async function sendToUsers({ userIds, title, body, data, imageUrl, name }) {
 }
 
 /**
+ * Send a push notification to specific OneSignal subscription IDs.
+ *
+ * @param {Object} options
+ * @param {string[]} options.subscriptionIds - OneSignal subscription IDs
+ * @param {string} options.title - Notification title
+ * @param {string} options.body - Notification body
+ * @param {Object} [options.data] - Custom data payload
+ * @param {string} [options.name] - OneSignal notification name
+ * @returns {Promise<Object>} OneSignal API response
+ */
+async function sendToSubscriptions({ subscriptionIds, title, body, data, name }) {
+  const { appId } = getConfig();
+
+  const payload = {
+    app_id: appId,
+    include_subscription_ids: subscriptionIds,
+    target_channel: "push",
+    headings: { en: title },
+    contents: { en: body },
+  };
+
+  if (name) {
+    payload.name = name;
+  }
+
+  if (data) {
+    payload.data = data;
+  }
+
+  return apiRequest("POST", "/notifications", payload);
+}
+
+/**
  * Update tags for a user identified by external ID.
  * Tags are used for segmentation (e.g., songs_created, days_since_last_song).
  *
@@ -250,6 +283,7 @@ module.exports = {
   isConfigured,
   sendToSegment,
   sendToUsers,
+  sendToSubscriptions,
   setUserTags,
   songsCreatedBucket,
   daysSince,

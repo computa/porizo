@@ -5,6 +5,7 @@ data class AuthSession(
     val accessToken: String,
     val refreshToken: String,
     val expiresInSeconds: Int,
+    val issuedAtEpochSeconds: Long = 0,
 )
 
 data class PhoneRegisterResult(

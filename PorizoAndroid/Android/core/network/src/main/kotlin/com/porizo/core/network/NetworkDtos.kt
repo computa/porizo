@@ -326,6 +326,10 @@ data class ShareClaimDto(
     val status: String,
     @Json(name = "app_save_allowed") val appSaveAllowed: Boolean?,
     @Json(name = "expires_at") val expiresAt: String?,
+    @Json(name = "track_id") val trackId: String?,
+    @Json(name = "track_version_id") val trackVersionId: String?,
+    @Json(name = "stream_path") val streamPath: String?,
+    @Json(name = "receiver_claim_stream_path") val receiverClaimStreamPath: String?,
 )
 
 @JsonClass(generateAdapter = true)
@@ -367,6 +371,25 @@ data class RenderFullDto(
 
 @JsonClass(generateAdapter = true)
 data class ApproveLyricsDto(val status: String?)
+
+@JsonClass(generateAdapter = true)
+data class LyricsWrapperDto(val lyrics: LyricsDocumentDto?)
+
+@JsonClass(generateAdapter = true)
+data class LyricsDocumentDto(
+    val title: String?,
+    val style: String?,
+    val sections: List<LyricsSectionDto>,
+    @Json(name = "anchor_line") val anchorLine: String?,
+)
+
+@JsonClass(generateAdapter = true)
+data class LyricsSectionDto(
+    val name: String,
+    val lines: List<String>,
+    @Json(name = "startTime") val startTime: Double?,
+    @Json(name = "endTime") val endTime: Double?,
+)
 
 @JsonClass(generateAdapter = true)
 data class JobStatusDto(
@@ -418,6 +441,12 @@ data class GoogleSubscriptionSummaryDto(
 data class GoogleReceiptRequestDto(
     @Json(name = "purchase_token") val purchaseToken: String,
     @Json(name = "subscription_id") val subscriptionId: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class GoogleConsumableReceiptRequestDto(
+    @Json(name = "purchase_token") val purchaseToken: String,
+    @Json(name = "product_id") val productId: String,
 )
 
 @JsonClass(generateAdapter = true)

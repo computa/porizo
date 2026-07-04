@@ -209,7 +209,7 @@ function createShareTokenRepository(db) {
   async function getSongShareDeviceState(shareTokenId) {
     return dbGet(
       db,
-      "SELECT status, bound_device_id, bound_device_platform, expires_at FROM share_tokens WHERE id = ?",
+      "SELECT status, bound_device_id, bound_device_platform, expires_at, track_id, track_version_id FROM share_tokens WHERE id = ?",
       [shareTokenId],
     );
   }

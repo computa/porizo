@@ -180,6 +180,60 @@ function registerBillingRoutes(
     return body || null;
   }
 
+  function googleWebhookNotificationUuid(requestBody, notification) {
+    const messageId =
+      requestBody?.message?.messageId ||
+      requestBody?.message?.message_id ||
+      notification?.eventTimeMillis ||
+      null;
+    if (messageId) return String(messageId);
+    return crypto
+      .createHash("sha256")
+      .update(toJson(requestBody || notification || {}))
+      .digest("hex");
+  }
+
+  async function upsertGoogleWebhookNotification({
+    requestBody,
+    notification,
+    subNotification,
+    userId = null,
+    subscriptionId = null,
+    status,
+  }) {
+    const notificationUuid = googleWebhookNotificationUuid(
+      requestBody,
+      notification,
+    );
+    const notificationType = subNotification?.notificationType
+      ? String(subNotification.notificationType)
+      : "unknown";
+    await db
+      .prepare(
+        `INSERT INTO webhook_notifications
+         (id, platform, notification_type, notification_uuid, subscription_id,
+          user_id, payload_json, status, processed_at, created_at)
+         VALUES (?, 'google', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT(platform, notification_uuid) DO UPDATE SET
+           notification_type = excluded.notification_type,
+           subscription_id = COALESCE(excluded.subscription_id, webhook_notifications.subscription_id),
+           user_id = COALESCE(excluded.user_id, webhook_notifications.user_id),
+           payload_json = excluded.payload_json,
+           status = excluded.status,
+           processed_at = CURRENT_TIMESTAMP`,
+      )
+      .run(
+        `gwh_${crypto.randomBytes(12).toString("hex")}`,
+        notificationType,
+        notificationUuid,
+        subscriptionId,
+        userId,
+        toJson({ raw: requestBody, decoded: notification }),
+        status,
+      );
+    return notificationUuid;
+  }
+
   async function handleGoogleSubscriptionValidation({
     userId,
     purchaseToken,
@@ -628,6 +682,229 @@ function registerBillingRoutes(
       if (sendAppleAuthFailure(reply, err)) {
         return;
       }
+      sendError(reply, 500, "GIFT_PURCHASE_SYNC_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Validate a Google Play consumable purchase and credit gift tokens.
+   * POST /billing/receipt/google/consumable
+   */
+  app.post("/billing/receipt/google/consumable", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const {
+      purchase_token,
+      purchaseToken,
+      product_id,
+      productId,
+    } = request.body || {};
+    const resolvedPurchaseToken = purchase_token || purchaseToken;
+    const resolvedProductId = product_id || productId;
+
+    if (!resolvedPurchaseToken || !resolvedProductId) {
+      sendError(
+        reply,
+        400,
+        "MISSING_PARAMS",
+        "purchase_token and product_id are required.",
+      );
+      return;
+    }
+
+    if (!googleValidator.isConfigured()) {
+      sendError(
+        reply,
+        503,
+        "GOOGLE_NOT_CONFIGURED",
+        "Google Play validation is not configured.",
+      );
+      return;
+    }
+
+    try {
+      const validation = await googleValidator.verifyPurchase(
+        resolvedPurchaseToken,
+        resolvedProductId,
+      );
+      if (!validation.valid) {
+        sendError(
+          reply,
+          400,
+          "INVALID_RECEIPT",
+          validation.reason || "Receipt validation failed.",
+        );
+        return;
+      }
+
+      let tokenCount;
+      let bundleDisplayName;
+      try {
+        const bundle = await resolveGiftBundle(resolvedProductId);
+        tokenCount = bundle.tokenCount;
+        bundleDisplayName = bundle.bundleDisplayName;
+      } catch (bundleErr) {
+        if (bundleErr?.code === "INVALID_PRODUCT") {
+          sendError(reply, 400, "INVALID_PRODUCT", bundleErr.message);
+          return;
+        }
+        if (bundleErr?.code === "INVALID_BUNDLE") {
+          sendError(reply, 400, "INVALID_BUNDLE", bundleErr.message);
+          return;
+        }
+        throw bundleErr;
+      }
+
+      const normalizedTransactionId =
+        validation.orderId || `google:${resolvedProductId}:${resolvedPurchaseToken}`;
+      const existingReceipt =
+        await subscriptionEntitlementsRepo.findPurchaseReceiptByTransactionId(
+          normalizedTransactionId,
+        );
+      if (existingReceipt) {
+        if (existingReceipt.user_id !== userId) {
+          sendError(
+            reply,
+            409,
+            "PURCHASE_CONFLICT",
+            "This purchase is already linked to a different account.",
+          );
+          return;
+        }
+        const existingCredit = await hasGiftWalletReceiptCredit({
+          userId,
+          receiptId: existingReceipt.id,
+        });
+        if (!existingCredit) {
+          await applyGiftWalletTransaction({
+            userId,
+            type: "gift_purchase",
+            amount: tokenCount,
+            source: "google_consumable_reconcile",
+            referenceType: "receipt",
+            referenceId: existingReceipt.id,
+            description: `${bundleDisplayName} — Google Play consumable gift purchase (reconciled)`,
+            metadata: {
+              transaction_id: normalizedTransactionId,
+              product_id: resolvedProductId,
+              bundle_token_count: tokenCount,
+              bundle_display_name: bundleDisplayName,
+              recovered_from_missing_credit: true,
+            },
+            idempotencyKey: `gift_receipt_${normalizedTransactionId}`,
+          });
+        }
+        const summary = await getGiftWalletSummary(userId, 20);
+        const entitlements = await subscriptionManager.getEntitlements(userId);
+        reply.send({
+          success: true,
+          already_processed: true,
+          balance: summary.balance,
+          transactions: summary.transactions,
+          entitlements: entitlements
+            ? buildEntitlementsPayload(entitlements, null)
+            : null,
+        });
+        return;
+      }
+
+      const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
+      await db.transaction(async (query) => {
+        await query(
+          `INSERT INTO purchase_receipts (
+            id, user_id, subscription_id, transaction_id, original_transaction_id,
+            product_id, platform, receipt_data, verification_status, verification_response,
+            purchase_date, expires_date, is_trial, is_upgrade, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            receiptId,
+            userId,
+            null,
+            normalizedTransactionId,
+            resolvedPurchaseToken,
+            resolvedProductId,
+            "google",
+            null,
+            "verified",
+            toJson({
+              type: "one_time_purchase",
+              platform: "google",
+              purchase_state: validation.purchaseState,
+              consumption_state: validation.consumptionState,
+              acknowledged: validation.acknowledged,
+            }),
+            validation.purchaseTimeMillis
+              ? new Date(Number(validation.purchaseTimeMillis)).toISOString()
+              : nowIso(),
+            null,
+            0,
+            0,
+            nowIso(),
+          ],
+        );
+
+        await applyGiftWalletTransaction({
+          userId,
+          type: "gift_purchase",
+          amount: tokenCount,
+          source: "google_consumable",
+          referenceType: "receipt",
+          referenceId: receiptId,
+          description: `${bundleDisplayName} — Google Play consumable gift purchase`,
+          metadata: {
+            transaction_id: normalizedTransactionId,
+            product_id: resolvedProductId,
+            bundle_token_count: tokenCount,
+            bundle_display_name: bundleDisplayName,
+          },
+          idempotencyKey: `gift_receipt_${normalizedTransactionId}`,
+          externalQuery: query,
+        });
+      });
+
+      if (!validation.acknowledged && typeof googleValidator.acknowledgePurchase === "function") {
+        try {
+          await googleValidator.acknowledgePurchase(
+            resolvedPurchaseToken,
+            resolvedProductId,
+            "product",
+          );
+        } catch (ackErr) {
+          request.log.warn(
+            { err: ackErr },
+            "Google consumable purchase acknowledgement failed",
+          );
+        }
+      }
+
+      await addAuditEntry({
+        userId,
+        action: "gift_token_purchased",
+        resourceType: "purchase_receipt",
+        resourceId: receiptId,
+        metadata: { product_id: resolvedProductId, token_count: tokenCount, platform: "google" },
+      });
+      eventsService.emit("gift_token_purchased", {
+        userId,
+        resourceType: "purchase_receipt",
+        resourceId: receiptId,
+        metadata: { product_id: resolvedProductId, token_count: tokenCount, platform: "google" },
+      });
+
+      const summary = await getGiftWalletSummary(userId, 20);
+      const entitlements = await subscriptionManager.getEntitlements(userId);
+      reply.send({
+        success: true,
+        already_processed: false,
+        balance: summary.balance,
+        transactions: summary.transactions,
+        entitlements: entitlements
+          ? buildEntitlementsPayload(entitlements, null)
+          : null,
+      });
+    } catch (err) {
+      console.error("[Billing] Google consumable sync error:", err.message);
       sendError(reply, 500, "GIFT_PURCHASE_SYNC_ERROR", err.message);
     }
   });
@@ -1325,11 +1602,19 @@ function registerBillingRoutes(
     }
     // --- End authentication guard ---
 
+    let googleWebhookContext = null;
     try {
       const notification = decodeGoogleWebhookPayload(request.body);
       const subNotification = notification?.subscriptionNotification;
+      googleWebhookContext = { notification, subNotification };
 
       if (!subNotification?.purchaseToken) {
+        await upsertGoogleWebhookNotification({
+          requestBody: request.body,
+          notification,
+          subNotification,
+          status: "ignored",
+        });
         reply.send({
           received: true,
           processed: false,
@@ -1348,6 +1633,12 @@ function registerBillingRoutes(
         );
 
       if (!existing?.user_id) {
+        await upsertGoogleWebhookNotification({
+          requestBody: request.body,
+          notification,
+          subNotification,
+          status: "deferred",
+        });
         reply.send({
           received: true,
           processed: false,
@@ -1374,12 +1665,33 @@ function registerBillingRoutes(
         }
       }
 
+      await upsertGoogleWebhookNotification({
+        requestBody: request.body,
+        notification,
+        subNotification,
+        userId: existing.user_id,
+        subscriptionId: existing.id,
+        status: "completed",
+      });
+
       reply.send({
         received: true,
         processed: true,
         notificationType,
       });
     } catch (err) {
+      if (googleWebhookContext) {
+        try {
+          await upsertGoogleWebhookNotification({
+            requestBody: request.body,
+            notification: googleWebhookContext.notification,
+            subNotification: googleWebhookContext.subNotification,
+            status: "failed",
+          });
+        } catch (recordErr) {
+          console.error("[Google Webhook] Failed to record webhook failure:", recordErr);
+        }
+      }
       console.error("[Google Webhook] Error:", err);
       reply.status(500).send({ error: "Webhook processing error" });
     }

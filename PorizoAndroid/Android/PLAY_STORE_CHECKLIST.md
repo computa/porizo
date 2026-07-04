@@ -33,12 +33,20 @@
   active-purchase token lookup, backend `POST /billing/receipt/google` sync, and
   entitlement refresh. Real purchases still need Play Console products and a
   store-signed/internal-testing install.
-- Android gift-bundle purchases still need a backend Google consumable receipt
-  endpoint before gift wallet credit can match the iOS Apple consumable path.
-- OneSignal Android is wired as the first push-provider path. Real push delivery
-  still requires Android/FCM credentials in the OneSignal dashboard.
+- Android gift-bundle purchases are wired to
+  `POST /billing/receipt/google/consumable`; real Play Console purchase QA is
+  still required before release.
+- OneSignal Android is wired for client registration and server delivery. Android
+  must register the OneSignal subscription ID with `/device/register`; backend
+  render/recipient-played pushes require `ONESIGNAL_APP_ID` and
+  `ONESIGNAL_REST_API_KEY`. iOS APNs delivery remains controlled by the existing
+  `APNS_*` environment variables.
 - Backend Google validation requires `GOOGLE_PLAY_PACKAGE_NAME` and service-account
   credentials in the backend environment.
+- Device trust has a debug-safe Android seam. Production release still requires
+  a concrete App Set ID provider, Play Integrity token request, backend-issued
+  nonce, backend verification endpoint, package/signature/timestamp freshness
+  checks, and a release fail-closed policy for trust-required actions.
 - Voice enrollment is wired with Android microphone permission, WAV prompt
   recording, presigned upload, chunk notification, completion, and profile status
   checks. Physical-device QA must still verify real microphone behavior.
@@ -56,6 +64,8 @@
   render auto-polling, app-link claim routing, share claim errors, billing receipt
   error handling, OneSignal token registration, Play Billing subscription sync,
   voice enrollment recording/upload/complete, and Settings readiness states.
+- Execute `docs/parity-2026-07/android-u11-parity-qa-matrix.md` and attach the
+  required screenshots/recordings before marking native Android U1-U10 `DONE`.
 
 ## 2026-07-04 Native Release Verification Baseline
 
@@ -70,5 +80,6 @@ internal-testing upload.
   reported `com.porizo.app`, versionCode `1`, versionName `0.1.0`, label `Porizo`,
   minSdk `28`, and targetSdk `36`.
 - Remaining external release setup: real upload keystore, Play Console products,
-  OneSignal Android/FCM credentials, backend Google Play service account, and
-  `assetlinks.json` for the final Play-signing certificate fingerprint.
+  OneSignal Android/FCM credentials, backend OneSignal REST API key, backend
+  Google Play service account, App Set ID/Play Integrity backend verification,
+  and `assetlinks.json` for the final Play-signing certificate fingerprint.

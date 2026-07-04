@@ -25,6 +25,8 @@ interface PlayBillingGateway {
     fun launchPurchase(productId: String, obfuscatedAccountId: String?): String
     fun queryActivePurchases(): String
     fun lastPurchaseToken(productId: String): String?
+    fun pendingReceiptProductIds(): List<String>
+    fun acknowledgePurchase(productId: String): String
     fun loadedProducts(): List<PlayProductSummary>
     fun status(): String
 }
@@ -42,10 +44,21 @@ interface PushGateway {
 sealed interface PushRoute {
     data class TrackReveal(val trackId: String) : PushRoute
     data object Informational : PushRoute
+    data class Unsupported(val type: String?) : PushRoute
 }
 
 interface PushRouteStore {
     fun consume(): PushRoute?
+}
+
+data class DeviceTrustSnapshot(
+    val appSetId: String?,
+    val integrityToken: String?,
+    val status: String,
+)
+
+interface DeviceTrustGateway {
+    fun snapshot(nonce: String?): DeviceTrustSnapshot
 }
 
 data class NativeRecording(

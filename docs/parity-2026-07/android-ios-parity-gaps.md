@@ -18,14 +18,14 @@ This register reconciles the native Android parity plan with the current U1-U10 
 
 ## Still open after this pass
 
-- U1/U2 onboarding parity: Android has a native onboarding flow, but it is not yet the full iOS V2 sequence with splash, adaptive questionnaire, server graph, suggestion, processing, payoff, and post-onboarding create/auth routing.
-- U3 auth refresh parity: Android networking still lacks the iOS-equivalent 401 refresh/retry and proactive expiry handling.
-- U5 receiver handoff: claim/share handoff does not yet persist the pending claim/create payload through sign-in and resume it after auth.
-- U6/U8 lyric review: Android can approve lyrics, but editable lyric review and explicit approve failure recovery are still behind iOS.
-- U7 claim completion: successful claim does not yet auto-open the claimed item, start playback where appropriate, and refresh library state with the same iOS behavior.
-- U8 library/player parity: songs and poems libraries still need the iOS action set, authenticated playback headers, media/session controls, share/delete/variation actions, and richer error states.
-- U9 billing lifecycle: subscriptions are wired, but purchase acknowledgement, retry persistence, and receipt-sync recovery still need a StoreKit-equivalent production lifecycle audit.
-- U9 production push: Android client registration exists, but server-side transactional routing for Android/OneSignal still needs backend verification.
-- U9 device trust: Android device identity is still a generated local token; App Set ID and Play Integrity are not yet integrated.
+- U1/U2 onboarding parity: Android now has native splash, mirror, questionnaire, processing, payoff, typed completion, and create-flow seeding. It remains open until the iOS V2 side-by-side state matrix is captured and the optional server suggestion upgrade contract is verified or explicitly deferred.
+- U3 auth refresh parity: Android now has a shared refresh coordinator, proactive expiry handling, one 401 retry, token rotation persistence, and protected repository wrappers. It remains open until focused refresh race tests and full protected-call coverage are verified.
+- U5 receiver handoff: claim/share handoff now persists pending deep links through sign-in and resumes after auth. It remains open until receiver handoff replay is manually recorded and any PIN/token edge cases are verified.
+- U6/U8 lyric review: Android now has editable lyrics, lyrics GET/PUT, save-before-approve, and approve failure recovery. It remains open until provider policy term surfacing and create-flow recovery evidence are captured.
+- U7 claim completion: successful claim now emits typed completion events, refreshes the relevant library, and routes to Songs/Poems. It remains open because receiver song auto-play/open still needs a returned track payload or Android receiver-claim stream contract.
+- U8 library/player parity: songs and poems now support share/delete actions, owned playback headers, and Media3 session metadata. It remains open until delete confirmation, richer protected/not-ready error copy, and system media-control QA evidence are complete.
+- U9 billing lifecycle: subscriptions now persist purchase tokens, restore unsynced tokens, submit backend receipts, and acknowledge only after backend acceptance. It remains open for startup auto-retry, RTDN/server webhook reconciliation, and Play Console/internal-test proof.
+- U9 production push: Android now registers the OneSignal subscription ID and the server push service can route OneSignal notifications alongside APNs. It remains open until real OneSignal credentials and end-to-end render/recipient-played push proof are captured.
+- U9 device trust: Android now exposes a debug-safe device-trust seam and Settings status. App Set ID, Play Integrity token generation, backend nonce/verification, and release fail-closed enforcement remain external/backend work.
 - U10 external provisioning: Google Web Client ID, release keystore, `assetlinks.json` publication, Play Console listing/config, and production backend URLs are configuration gates outside the codebase.
-- U11 verification gate: side-by-side iOS/Android screenshots and flow recordings for every tab in light and dark mode remain required before marking U1-U10 done.
+- U11 verification gate: `docs/parity-2026-07/android-u11-parity-qa-matrix.md` now defines the required side-by-side screenshots and flow recordings. Evidence remains required before marking U1-U10 done.

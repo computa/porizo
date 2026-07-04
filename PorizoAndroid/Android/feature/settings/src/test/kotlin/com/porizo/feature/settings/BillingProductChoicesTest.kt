@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 
 class BillingProductChoicesTest {
     @Test
-    fun productChoicesExcludeOneTimeProductsUntilConsumableBackendExists() {
+    fun productChoicesIncludeSubscriptionsAndOneTimeProducts() {
         val state = SettingsUiState(
             loadedProducts = listOf(
                 PlayProductSummary(
@@ -45,6 +45,9 @@ class BillingProductChoicesTest {
             ),
         )
 
-        assertEquals(listOf("com.porizo.plus_monthly"), billingProductChoices(state))
+        assertEquals(
+            listOf("com.porizo.gift_bundle_1", "com.porizo.plus_monthly"),
+            billingProductChoices(state),
+        )
     }
 }
