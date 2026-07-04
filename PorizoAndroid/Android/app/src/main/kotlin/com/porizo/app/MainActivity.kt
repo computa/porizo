@@ -10,15 +10,19 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.mutableStateOf
 import com.porizo.core.domain.deeplink.DeepLinkParser
 import com.porizo.core.domain.deeplink.DeepLinkRoute
+import com.porizo.core.platform.ActivityHolder
 import com.porizo.feature.auth.AuthViewModel
 import com.porizo.feature.claim.ClaimViewModel
 import com.porizo.feature.create.CreateViewModel
 import com.porizo.feature.library.PoemsViewModel
 import com.porizo.feature.library.SongsViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var activityHolder: ActivityHolder
+
     private val deepLinkParser = DeepLinkParser()
     private val pendingDeepLink = mutableStateOf<DeepLinkRoute?>(null)
     private val authViewModel: AuthViewModel by viewModels()
@@ -30,6 +34,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activityHolder.set(this)
         enableEdgeToEdge()
         handleIntent(intent)
         setContent {
@@ -50,6 +55,16 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activityHolder.set(this)
+    }
+
+    override fun onPause() {
+        activityHolder.set(null)
+        super.onPause()
     }
 
     private fun handleIntent(intent: Intent?) {

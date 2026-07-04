@@ -1,0 +1,16 @@
+package com.porizo.core.platform
+
+import org.json.JSONObject
+
+object PushRouting {
+    fun route(payloadJson: String): PushRoute? {
+        val payload = runCatching { JSONObject(payloadJson) }.getOrNull() ?: return null
+        return when (payload.optString("type")) {
+            "render_complete" -> payload.optString("trackId")
+                .takeIf { it.isNotBlank() }
+                ?.let(PushRoute::TrackReveal)
+            "recipient_played" -> PushRoute.Informational
+            else -> null
+        }
+    }
+}

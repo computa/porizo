@@ -81,6 +81,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:data"))
     implementation(project(":core:media"))
+    implementation(project(":core:platform"))
     implementation(project(":core:share"))
     implementation(project(":core:ui"))
     implementation(project(":feature:auth"))

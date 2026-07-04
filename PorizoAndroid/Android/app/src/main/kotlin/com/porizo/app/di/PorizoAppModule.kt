@@ -4,10 +4,13 @@ import android.content.Context
 import com.porizo.app.BuildConfig
 import com.porizo.core.data.PorizoDataGraph
 import com.porizo.core.domain.repository.AuthRepository
+import com.porizo.core.domain.repository.BillingRepository
 import com.porizo.core.domain.repository.CreateRepository
 import com.porizo.core.domain.repository.LibraryRepository
+import com.porizo.core.domain.repository.PushRepository
 import com.porizo.core.domain.repository.RenderRepository
 import com.porizo.core.domain.repository.ShareRepository
+import com.porizo.core.domain.repository.VoiceEnrollmentRepository
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.share.AndroidShareDispatcher
@@ -49,6 +52,18 @@ object PorizoAppModule {
     @Provides
     fun provideShareRepository(dataGraph: PorizoDataGraph): ShareRepository =
         dataGraph.shareRepository
+
+    @Provides
+    fun provideBillingRepository(dataGraph: PorizoDataGraph): BillingRepository =
+        dataGraph.billingRepository
+
+    @Provides
+    fun providePushRepository(dataGraph: PorizoDataGraph): PushRepository =
+        dataGraph.pushRepository
+
+    @Provides
+    fun provideVoiceEnrollmentRepository(dataGraph: PorizoDataGraph): VoiceEnrollmentRepository =
+        dataGraph.voiceEnrollmentRepository
 
     @Provides
     @Singleton
