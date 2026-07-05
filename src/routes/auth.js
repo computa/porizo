@@ -26,6 +26,9 @@ const {
 const {
   createAuthCredentialRepository,
 } = require("../database/auth-credential-repository");
+const {
+  createAuthSocialChallengeRepository,
+} = require("../database/auth-social-challenge-repository");
 const { createIdentityRepository } = require("../database/identity-repository");
 const {
   createPhoneRegistrationTokenRepository,
@@ -35,6 +38,7 @@ const {
 } = require("../database/receiver-session-repository");
 const { createRequireUser } = require("../middleware/require-user");
 const { sendError } = require("../utils/http-error");
+const { maskIpAddress } = require("../utils/ip-mask");
 const geoip = require("geoip-lite");
 const {
   verifySocialToken,
@@ -53,6 +57,7 @@ let authRouteProfileRepository = null;
 let authRouteProviderLinkingRepository = null;
 let authRouteCredentialRepository = null;
 let authRouteReceiverSessionRepository = null;
+let authRouteSocialChallengeRepository = null;
 let requireAuthUser = null;
 
 function phoneRegistrationTokenRepositoryFor(dbOrRepository) {
@@ -67,6 +72,22 @@ function authRateLimitRepositoryFor(dbOrRepository) {
     return dbOrRepository;
   }
   return createAuthRateLimitRepository(dbOrRepository);
+}
+
+function googleChallengeRequired() {
+  return process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED === "true";
+}
+
+function socialChallengeRequiredFor({ provider, usedAuthorizationCode }) {
+  return provider === "google" && !usedAuthorizationCode && googleChallengeRequired();
+}
+
+function socialChallengeNonce() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function socialChallengeHash(nonce) {
+  return crypto.createHash("sha256").update(String(nonce), "utf8").digest("hex");
 }
 
 // HMAC key for hashing phone numbers in registration tokens (derived from JWT_SECRET)
@@ -351,6 +372,8 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
     createAuthProviderLinkingRepository(db);
   authRouteCredentialRepository = createAuthCredentialRepository(db);
   authRouteReceiverSessionRepository = createReceiverSessionRepository(db);
+  authRouteSocialChallengeRepository =
+    createAuthSocialChallengeRepository(db);
   const attributionService = new AttributionService(db);
   const identityRepository = createIdentityRepository(db);
   const phoneRegistrationTokenRepository =
@@ -384,12 +407,40 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
   // Cleans both in-memory cache and stale DB rows for auth-keyed entries
   const rateLimitCleanupInterval = setInterval(
     async () => {
-      const cutoff = Date.now() - 60 * 60 * 1000;
-      await authRouteRateLimitRepository.cleanupExpiredAuthEntries(cutoff);
+      try {
+        const cutoff = Date.now() - 60 * 60 * 1000;
+        await authRouteRateLimitRepository.cleanupExpiredAuthEntries(cutoff);
+      } catch (error) {
+        console.warn(
+          "[Auth] Rate-limit cleanup failed:",
+          error.message,
+        );
+      }
     },
     30 * 60 * 1000,
   );
   rateLimitCleanupInterval.unref();
+
+  const accountDeletionCleanupInterval = setInterval(
+    async () => {
+      if (!storageProvider) {
+        return;
+      }
+      try {
+        await authService.processDueAccountDeletionStorageCleanupJobs({
+          storageProvider,
+          limit: 10,
+        });
+      } catch (error) {
+        console.warn(
+          "[Auth] Account deletion storage cleanup retry failed:",
+          error.message,
+        );
+      }
+    },
+    15 * 60 * 1000,
+  );
+  accountDeletionCleanupInterval.unref();
 
   /**
    * DB-backed rate limiting for auth endpoints.
@@ -550,6 +601,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
         id_token: { type: "string" },
         access_token: { type: "string" },
         name: { type: "string", maxLength: 100 },
+        challenge_id: { type: "string", minLength: 8, maxLength: 128 },
         nonce: { type: "string", minLength: 8, maxLength: 256 },
         provider_user_id: { type: "string", maxLength: 255 },
         authorization_code: { type: "string", maxLength: 2048 },
@@ -559,6 +611,17 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
         pending_phone_link: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
         locale: { type: "string", maxLength: 10 },
         country: { type: "string", maxLength: 2 },
+      },
+    },
+  };
+
+  const socialAuthChallengeSchema = {
+    body: {
+      type: "object",
+      required: ["provider"],
+      additionalProperties: false,
+      properties: {
+        provider: { type: "string", enum: ["google"] },
       },
     },
   };
@@ -974,6 +1037,74 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
     }
   });
 
+  // ==================== SOCIAL AUTH CHALLENGE ====================
+
+  app.post(
+    "/auth/social/challenge",
+    { schema: socialAuthChallengeSchema },
+    async (request, reply) => {
+      const { provider } = request.body;
+      const clientIp = getClientIp(request);
+
+      if (
+        await consumeAuthRateLimit(
+          `social-challenge:${clientIp}`,
+          20,
+          60 * 60 * 1000,
+          { failClosed: true },
+        )
+      ) {
+        return sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Too many authentication attempts. Please try again later.",
+        );
+      }
+
+      if (!isProviderConfigured(provider)) {
+        return sendError(
+          reply,
+          501,
+          "PROVIDER_NOT_CONFIGURED",
+          `${provider} authentication is not configured.`,
+        );
+      }
+
+      const nonce = socialChallengeNonce();
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 5 * 60 * 1000);
+      const challengeId = `sac_${crypto.randomBytes(12).toString("hex")}`;
+
+      try {
+        await authRouteSocialChallengeRepository.pruneExpired({
+          now: now.toISOString(),
+        });
+        await authRouteSocialChallengeRepository.insertChallenge({
+          id: challengeId,
+          provider,
+          nonceHash: socialChallengeHash(nonce),
+          expiresAt: expiresAt.toISOString(),
+          createdAt: now.toISOString(),
+        });
+      } catch (error) {
+        console.error("Social auth challenge error:", error);
+        return sendError(
+          reply,
+          500,
+          "CHALLENGE_CREATE_FAILED",
+          "Could not start sign-in. Please try again.",
+        );
+      }
+
+      return reply.send({
+        challenge_id: challengeId,
+        nonce,
+        expires_at: expiresAt.toISOString(),
+      });
+    },
+  );
+
   // ==================== SOCIAL AUTH ====================
 
   app.post(
@@ -985,6 +1116,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
         id_token,
         access_token,
         name,
+        challenge_id,
         nonce,
         authorization_code,
         code_verifier,
@@ -1000,7 +1132,9 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
 
       // Rate limit: 20/hour per IP
       if (
-        await consumeAuthRateLimit(`social:${clientIp}`, 20, 60 * 60 * 1000)
+        await consumeAuthRateLimit(`social:${clientIp}`, 20, 60 * 60 * 1000, {
+          failClosed: true,
+        })
       ) {
         return sendError(
           reply,
@@ -1051,6 +1185,63 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
             400,
             "TOKEN_REQUIRED",
             "Google Sign-In requires an ID token or authorization code.",
+          );
+        }
+
+        const hasChallengeId =
+          typeof challenge_id === "string" && challenge_id.trim();
+        const hasChallengeNonce =
+          typeof nonce === "string" && nonce.trim();
+        const googleIdTokenFlow = provider === "google" && hasIdToken;
+        const googleCodeFlow = provider === "google" && !hasIdToken && hasAuthCode;
+        const googleChallengeEnforced = socialChallengeRequiredFor({
+          provider,
+          usedAuthorizationCode: googleCodeFlow,
+        });
+
+        if (googleCodeFlow && googleChallengeRequired()) {
+          return sendError(
+            reply,
+            400,
+            "CHALLENGE_REQUIRED",
+            "Google authorization-code sign-in is not enabled while challenge enforcement is required. Please update the app and try again.",
+          );
+        }
+
+        if (
+          googleIdTokenFlow &&
+          googleChallengeEnforced &&
+          (!hasChallengeId || !hasChallengeNonce)
+        ) {
+          return sendError(
+            reply,
+            400,
+            "CHALLENGE_REQUIRED",
+            "Google Sign-In session expired. Please try again.",
+          );
+        }
+
+        let pendingGoogleChallenge = null;
+        if (googleIdTokenFlow && hasChallengeId && hasChallengeNonce) {
+          pendingGoogleChallenge =
+            await authRouteSocialChallengeRepository.findUsableChallenge({
+              id: challenge_id,
+              provider: "google",
+              nonceHash: socialChallengeHash(nonce),
+              now: new Date().toISOString(),
+            });
+          if (!pendingGoogleChallenge) {
+            return sendError(
+              reply,
+              401,
+              "INVALID_CHALLENGE",
+              "Google Sign-In session expired. Please try again.",
+            );
+          }
+        } else if (provider === "google" && !googleChallengeEnforced) {
+          request.log.warn(
+            { provider, hasAuthCode },
+            "Legacy Google social auth request without challenge",
           );
         }
 
@@ -1137,7 +1328,8 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
             verifiedToken = await verifyFacebookToken(resolvedAccessToken);
           } else {
             verifiedToken = await verifySocialToken(provider, resolvedIdToken, {
-              rawNonce: provider === "apple" ? nonce : undefined,
+              rawNonce:
+                provider === "apple" || pendingGoogleChallenge ? nonce : undefined,
             });
           }
         } catch (verifyError) {
@@ -1244,6 +1436,34 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           );
         }
 
+        let pendingGoogleChallengeConsumed = false;
+        async function consumePendingGoogleChallenge() {
+          if (!pendingGoogleChallenge || pendingGoogleChallengeConsumed) {
+            return null;
+          }
+          try {
+            await authRouteSocialChallengeRepository.consumeChallenge({
+              id: pendingGoogleChallenge.id,
+              provider: "google",
+              nonceHash: socialChallengeHash(nonce),
+              now: new Date().toISOString(),
+            });
+            pendingGoogleChallengeConsumed = true;
+            return null;
+          } catch (challengeError) {
+            console.error(
+              "[SocialAuth] Challenge consume failed:",
+              challengeError.message,
+            );
+            return sendError(
+              reply,
+              401,
+              "INVALID_CHALLENGE",
+              "Google Sign-In session expired. Please try again.",
+            );
+          }
+        }
+
         // Resolve user by identity via identity service
         let resolved = await identityService.resolveUserByIdentity(
           db,
@@ -1275,6 +1495,11 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           // Existing identity — sign in
           userId = resolved.userId;
           identityId = resolved.identity.id;
+
+          const challengeConsumeError = await consumePendingGoogleChallenge();
+          if (challengeConsumeError) {
+            return challengeConsumeError;
+          }
 
           // Record usage on this identity
           await identityService.recordIdentityUsage(db, identityId);
@@ -1337,6 +1562,11 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
               isNewUser = false;
               autoLinked = true;
             }
+          }
+
+          const challengeConsumeError = await consumePendingGoogleChallenge();
+          if (challengeConsumeError) {
+            return challengeConsumeError;
           }
 
           const now = new Date().toISOString();
@@ -1686,6 +1916,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           `forgot:${normalizedEmail}`,
           3,
           60 * 60 * 1000,
+          { failClosed: true },
         )
       ) {
         // Still return 200 to prevent enumeration
@@ -1747,36 +1978,10 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
       const clientIp = getClientIp(request);
 
       try {
-        // Verify token
-        const { userId, tokenId } =
-          await authService.verifyPasswordResetToken(token);
-
-        // Hash new password
         const passwordHash = await authService.hashPassword(new_password);
-
-        // Update password
-        await authRouteCredentialRepository.updatePasswordCredential(
-          userId,
+        const { userId } = await authService.completePasswordReset({
+          rawToken: token,
           passwordHash,
-        );
-
-        // Mark token as used
-        await authService.markPasswordResetTokenUsed(tokenId);
-
-        // Invalidate all other reset tokens
-        await authService.invalidateAllPasswordResetTokens(userId);
-
-        // SECURITY: Revoke all refresh tokens and mark families as compromised
-        // This forces re-authentication on all devices after password change
-        await authService.revokeAllRefreshTokensForUser(userId);
-        await authService.compromiseAllTokenFamiliesForUser(userId);
-
-        await authRouteSessionRepository.revokeActiveSessionsForUser(userId);
-
-        // Log event
-        await authService.logAuthEvent({
-          userId,
-          eventType: "password_reset_completed",
           ipAddress: clientIp,
         });
 
@@ -1820,33 +2025,8 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
       const { token } = request.body;
 
       try {
-        const {
-          userId,
-          tokenId,
-          email_normalized: emailNormalized,
-        } = await authService.verifyEmailVerificationToken(token);
-        const emailToVerify =
-          emailNormalized ||
-          (await authRouteProfileRepository.findUserEmail(userId))?.email;
-        if (emailToVerify) {
-          await identityService.verifyContact(
-            db,
-            userId,
-            "email",
-            emailToVerify,
-            "email_token",
-          );
-        }
-
-        // email_verified now synced via identity service mirror (syncUserContactMirrors)
-
-        // Mark token as used
-        await authService.markEmailVerificationTokenUsed(tokenId);
-
-        // Log event
-        await authService.logAuthEvent({
-          userId,
-          eventType: "email_verified",
+        await authService.completeEmailVerification({
+          rawToken: token,
           ipAddress: getClientIp(request),
         });
 
@@ -2397,6 +2577,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           `resend-verify:${request.userId}`,
           3,
           60 * 60 * 1000,
+          { failClosed: true },
         )
       ) {
         return sendError(
@@ -2472,7 +2653,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
         sessions: sessions.map((s) => ({
           id: s.id,
           device_name: s.deviceName,
-          ip_address: s.ipAddress,
+          ip_address_masked: maskIpAddress(s.ipAddress),
           last_active_at: s.lastActiveAt,
           created_at: s.createdAt,
         })),
@@ -2513,7 +2694,9 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
 
       // Rate limit: 5/hour per IP
       if (
-        await consumeAuthRateLimit(`phone-send:${clientIp}`, 5, 60 * 60 * 1000)
+        await consumeAuthRateLimit(`phone-send:${clientIp}`, 5, 60 * 60 * 1000, {
+          failClosed: true,
+        })
       ) {
         return sendError(
           reply,
@@ -2539,6 +2722,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           `sms:phone:${phone_number}`,
           5,
           60 * 60 * 1000,
+          { failClosed: true },
         )
       ) {
         return sendError(
@@ -2614,6 +2798,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           `phone-verify:${clientIp}`,
           10,
           60 * 60 * 1000,
+          { failClosed: true },
         )
       ) {
         return sendError(
@@ -2730,6 +2915,7 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
           `phone-register:${clientIp}`,
           5,
           60 * 60 * 1000,
+          { failClosed: true },
         )
       ) {
         return sendError(

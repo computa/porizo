@@ -128,17 +128,29 @@ class AuthViewModel @Inject constructor(
     }
 
     fun signInWithGoogle() {
+        if (googleAuthConfig.webClientId.isBlank()) {
+            _uiState.update {
+                it.copy(errorMessage = GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE)
+            }
+            return
+        }
         runAuthAction {
-            when (val token = googleSignInGateway.signIn(googleAuthConfig.webClientId)) {
+            val challenge = authRepository.createSocialAuthChallenge("google")
+            when (val token = googleSignInGateway.signIn(googleAuthConfig.webClientId, challenge.nonce)) {
                 is PlatformResult.Failure -> throw PorizoFailure.Unknown(token.message)
-                is PlatformResult.Success -> submitGoogleToken(token.value.idToken, confirmLink = false)
+                is PlatformResult.Success -> submitGoogleToken(
+                    idToken = token.value.idToken,
+                    confirmLink = false,
+                    challenge = challenge,
+                )
             }
         }
     }
 
     fun confirmGoogleLink(idToken: String) {
+        val challenge = (uiState.value.phase as? AuthPhase.LinkConfirmation)?.challenge
         runAuthAction {
-            submitGoogleToken(idToken, confirmLink = true)
+            submitGoogleToken(idToken, confirmLink = true, challenge = challenge)
         }
     }
 
@@ -150,12 +162,17 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    private suspend fun submitGoogleToken(idToken: String, confirmLink: Boolean) {
+    private suspend fun submitGoogleToken(
+        idToken: String,
+        confirmLink: Boolean,
+        challenge: com.porizo.core.model.SocialAuthChallenge?,
+    ) {
         val result = authRepository.socialLogin(
             provider = "google",
             idToken = idToken,
             name = null,
             confirmLink = confirmLink,
+            challenge = challenge,
         )
         if (result.requiresLinkConfirmation == true) {
             _uiState.update {
@@ -163,6 +180,7 @@ class AuthViewModel @Inject constructor(
                     phase = AuthPhase.LinkConfirmation(
                         idToken = idToken,
                         email = result.existingAccountEmail,
+                        challenge = challenge,
                     ),
                 )
             }

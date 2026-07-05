@@ -19,7 +19,7 @@ class GoogleSignInProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val activityHolder: ActivityHolder,
 ) : GoogleSignInGateway {
-    override suspend fun signIn(webClientId: String): PlatformResult<GoogleSignInToken> {
+    override suspend fun signIn(webClientId: String, nonce: String): PlatformResult<GoogleSignInToken> {
         if (webClientId.isBlank()) {
             return PlatformResult.Failure("Google sign-in is not configured.")
         }
@@ -30,6 +30,7 @@ class GoogleSignInProvider @Inject constructor(
             val option = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
                 .setServerClientId(webClientId)
+                .setNonce(nonce)
                 .setAutoSelectEnabled(false)
                 .build()
             val request = GetCredentialRequest.Builder()

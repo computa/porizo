@@ -24,6 +24,9 @@ interface PorizoApiService {
     @POST("auth/phone/register")
     suspend fun registerPhoneAccount(@Body body: PhoneRegisterRequestDto): PhoneRegisterDto
 
+    @POST("auth/social/challenge")
+    suspend fun createSocialAuthChallenge(@Body body: SocialAuthChallengeRequestDto): SocialAuthChallengeDto
+
     @POST("auth/social")
     suspend fun socialLogin(@Body body: SocialLoginRequestDto): SocialAuthDto
 

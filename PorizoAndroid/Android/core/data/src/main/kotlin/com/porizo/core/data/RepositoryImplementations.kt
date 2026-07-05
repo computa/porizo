@@ -42,6 +42,7 @@ import com.porizo.core.model.SendPhoneCodeResult
 import com.porizo.core.model.ShareClaimResult
 import com.porizo.core.model.ShareInfo
 import com.porizo.core.model.ShareStreamResult
+import com.porizo.core.model.SocialAuthChallenge
 import com.porizo.core.model.SocialAuthResult
 import com.porizo.core.model.StoryGuidance
 import com.porizo.core.model.StoryLyrics
@@ -75,6 +76,7 @@ import com.porizo.core.network.PorizoNetworkClient
 import com.porizo.core.network.ReceiverClaimRequestDto
 import com.porizo.core.network.RefreshRequestDto
 import com.porizo.core.network.SendPhoneCodeRequestDto
+import com.porizo.core.network.SocialAuthChallengeRequestDto
 import com.porizo.core.network.SocialLoginRequestDto
 import com.porizo.core.network.StartStoryRequestDto
 import com.porizo.core.network.StoryGuidanceDto
@@ -175,10 +177,18 @@ class DefaultAuthRepository(
         idToken: String,
         name: String?,
         confirmLink: Boolean,
+        challenge: SocialAuthChallenge?,
     ): SocialAuthResult =
         networkCall(errorMapper) {
             service.socialLogin(
-                SocialLoginRequestDto(provider, idToken, name, confirmLink.takeIf { it }),
+                SocialLoginRequestDto(
+                    provider = provider,
+                    idToken = idToken,
+                    name = name,
+                    confirmLink = confirmLink.takeIf { it },
+                    challengeId = challenge?.challengeId,
+                    nonce = challenge?.nonce,
+                ),
             ).toModel().also { result ->
                 val userId = result.userId
                 val access = result.accessToken
@@ -188,6 +198,11 @@ class DefaultAuthRepository(
                     sessionStore.clearDeviceToken()
                 }
             }
+        }
+
+    override suspend fun createSocialAuthChallenge(provider: String): SocialAuthChallenge =
+        networkCall(errorMapper) {
+            service.createSocialAuthChallenge(SocialAuthChallengeRequestDto(provider)).toModel()
         }
 
     override suspend fun refresh(refreshToken: String): RefreshTokenResult =

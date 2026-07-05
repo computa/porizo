@@ -32,6 +32,7 @@ import com.porizo.core.model.ShareClaimResult
 import com.porizo.core.model.ShareInfo
 import com.porizo.core.model.ShareStreamResult
 import com.porizo.core.model.ShareTrackInfo
+import com.porizo.core.model.SocialAuthChallenge
 import com.porizo.core.model.SocialAuthResult
 import com.porizo.core.model.StoryGuidance
 import com.porizo.core.model.StoryLyrics
@@ -107,6 +108,12 @@ fun SocialAuthDto.toModel() = SocialAuthResult(
     requiresLinkConfirmation = requiresLinkConfirmation,
     existingAccountEmail = existingAccountEmail,
     provider = provider,
+)
+
+fun SocialAuthChallengeDto.toModel() = SocialAuthChallenge(
+    challengeId = challengeId,
+    nonce = nonce,
+    expiresAt = expiresAt,
 )
 
 fun RefreshDto.toModel() = RefreshTokenResult(accessToken, refreshToken, expiresIn)

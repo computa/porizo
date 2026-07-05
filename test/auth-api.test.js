@@ -15,6 +15,7 @@ const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const { clearRateLimits } = require("../src/routes/auth");
 const authService = require("../src/services/auth-service");
+const identityService = require("../src/services/identity-service");
 
 describe("Auth API Endpoints", () => {
   let app;
@@ -28,6 +29,8 @@ describe("Auth API Endpoints", () => {
     // Configure social auth for test mode (no external JWKS calls).
     process.env.APPLE_CLIENT_ID =
       process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
+    process.env.GOOGLE_CLIENT_ID =
+      process.env.GOOGLE_CLIENT_ID || "google-web-client.test";
     process.env.ALLOW_MOCK_SOCIAL_AUTH = "true";
 
     // Create temp directories
@@ -649,6 +652,16 @@ describe("Auth API Endpoints", () => {
         body.sessions.length >= 1,
         "should have at least one session from signup",
       );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(body.sessions[0], "ip_address"),
+        false,
+      );
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(
+          body.sessions[0],
+          "ip_address_masked",
+        ),
+      );
     });
   });
 
@@ -757,6 +770,40 @@ describe("Auth API Endpoints", () => {
   });
 
   describe("POST /auth/social", () => {
+    const originalGoogleChallengeRequired =
+      process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED;
+
+    beforeEach(() => {
+      delete process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED;
+    });
+
+    after(() => {
+      if (originalGoogleChallengeRequired === undefined) {
+        delete process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED;
+      } else {
+        process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED =
+          originalGoogleChallengeRequired;
+      }
+    });
+
+    function googleMockToken({ sub, email, aud, nonce } = {}) {
+      const header = Buffer.from(
+        JSON.stringify({ alg: "RS256", typ: "JWT" }),
+      ).toString("base64url");
+      const payload = Buffer.from(
+        JSON.stringify({
+          sub: sub || `google-user-${crypto.randomBytes(8).toString("hex")}`,
+          email: email || uniqueEmail(),
+          email_verified: true,
+          iss: "https://accounts.google.com",
+          aud: aud || process.env.GOOGLE_CLIENT_ID,
+          ...(nonce ? { nonce } : {}),
+        }),
+      ).toString("base64url");
+      const signature = Buffer.from("mock-signature").toString("base64url");
+      return `${header}.${payload}.${signature}`;
+    }
+
     it("should reject invalid token format", async () => {
       const response = await app.inject({
         method: "POST",
@@ -808,6 +855,192 @@ describe("Auth API Endpoints", () => {
       assert.ok(body.user_id);
       assert.ok(body.access_token);
       assert.strictEqual(body.is_new_user, true);
+    });
+
+    it("issues and accepts a Google social auth challenge", async () => {
+      process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED = "true";
+      const challengeResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social/challenge",
+        payload: { provider: "google" },
+      });
+      assert.strictEqual(challengeResponse.statusCode, 200);
+      const challenge = JSON.parse(challengeResponse.body);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: googleMockToken({ nonce: challenge.nonce }),
+          challenge_id: challenge.challenge_id,
+          nonce: challenge.nonce,
+          name: "Google User",
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 201);
+      const body = JSON.parse(response.body);
+      assert.ok(body.user_id);
+      assert.ok(body.access_token);
+    });
+
+    it("preserves a Google challenge across explicit link confirmation", async () => {
+      process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED = "true";
+      const email = uniqueEmail();
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email,
+          password: "SecurePassword123",
+          name: "Existing User",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const existingUser = JSON.parse(signupResponse.body);
+      await identityService.verifyContact(
+        db,
+        existingUser.user_id,
+        "email",
+        email,
+        "test_seed",
+      );
+
+      const challengeResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social/challenge",
+        payload: { provider: "google" },
+      });
+      assert.strictEqual(challengeResponse.statusCode, 200);
+      const challenge = JSON.parse(challengeResponse.body);
+      const idToken = googleMockToken({
+        sub: `google-link-${crypto.randomBytes(8).toString("hex")}`,
+        email,
+        nonce: challenge.nonce,
+      });
+
+      const linkPromptResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: idToken,
+          challenge_id: challenge.challenge_id,
+          nonce: challenge.nonce,
+        },
+      });
+      assert.strictEqual(linkPromptResponse.statusCode, 200);
+      assert.strictEqual(
+        JSON.parse(linkPromptResponse.body).requires_link_confirmation,
+        true,
+      );
+
+      const confirmedResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: idToken,
+          challenge_id: challenge.challenge_id,
+          nonce: challenge.nonce,
+          confirm_link: true,
+        },
+      });
+      assert.strictEqual(confirmedResponse.statusCode, 200);
+      const confirmed = JSON.parse(confirmedResponse.body);
+      assert.strictEqual(confirmed.user_id, existingUser.user_id);
+      assert.ok(confirmed.access_token);
+      assert.strictEqual(confirmed.is_new_user, false);
+
+      const replayResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: idToken,
+          challenge_id: challenge.challenge_id,
+          nonce: challenge.nonce,
+          confirm_link: true,
+        },
+      });
+      assert.strictEqual(replayResponse.statusCode, 401);
+    });
+
+    it("does not consume a Google challenge when token verification fails", async () => {
+      process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED = "true";
+      const challengeResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social/challenge",
+        payload: { provider: "google" },
+      });
+      const challenge = JSON.parse(challengeResponse.body);
+
+      const badResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: "not-a-jwt",
+          challenge_id: challenge.challenge_id,
+          nonce: challenge.nonce,
+        },
+      });
+      assert.strictEqual(badResponse.statusCode, 400);
+
+      const goodResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: googleMockToken({ nonce: challenge.nonce }),
+          challenge_id: challenge.challenge_id,
+          nonce: challenge.nonce,
+        },
+      });
+      assert.strictEqual(goodResponse.statusCode, 201);
+    });
+
+    it("rejects reused Google social auth challenges when enforcement is enabled", async () => {
+      process.env.GOOGLE_SOCIAL_CHALLENGE_REQUIRED = "true";
+      const challengeResponse = await app.inject({
+        method: "POST",
+        url: "/auth/social/challenge",
+        payload: { provider: "google" },
+      });
+      const challenge = JSON.parse(challengeResponse.body);
+
+      const payload = {
+        provider: "google",
+        id_token: googleMockToken({ nonce: challenge.nonce }),
+        challenge_id: challenge.challenge_id,
+        nonce: challenge.nonce,
+      };
+
+      assert.strictEqual(
+        (await app.inject({ method: "POST", url: "/auth/social", payload }))
+          .statusCode,
+        201,
+      );
+      assert.strictEqual(
+        (await app.inject({ method: "POST", url: "/auth/social", payload }))
+          .statusCode,
+        401,
+      );
+    });
+
+    it("keeps legacy Google ID-token auth compatible while enforcement is disabled", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/social",
+        payload: {
+          provider: "google",
+          id_token: googleMockToken(),
+          name: "Legacy Google User",
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 201);
     });
   });
 

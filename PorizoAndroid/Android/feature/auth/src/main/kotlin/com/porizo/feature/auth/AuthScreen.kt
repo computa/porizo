@@ -76,6 +76,7 @@ fun AuthScreen(
             AuthPhase.SignedOut -> SignInOptions(
                 isWorking = state.isWorking,
                 isGoogleSignInConfigured = state.isGoogleSignInConfigured,
+                googleSignInUnavailableMessage = state.googleSignInUnavailableMessage,
                 onGoogle = onGoogle,
                 onBeginPhone = onBeginPhone,
                 onCancel = onCancel,
@@ -148,6 +149,7 @@ fun AuthScreen(
 private fun SignInOptions(
     isWorking: Boolean,
     isGoogleSignInConfigured: Boolean,
+    googleSignInUnavailableMessage: String?,
     onGoogle: () -> Unit,
     onBeginPhone: () -> Unit,
     onCancel: () -> Unit,
@@ -159,6 +161,13 @@ private fun SignInOptions(
             enabled = !isWorking && isGoogleSignInConfigured,
             icon = Icons.Filled.VerifiedUser,
         )
+        googleSignInUnavailableMessage?.let { message ->
+            Text(
+                text = message,
+                color = PorizoColors.TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         PorizoPrimaryButton(
             text = "Continue with phone",
             onClick = onBeginPhone,

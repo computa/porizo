@@ -28,6 +28,7 @@ import com.porizo.core.model.GoogleSubscriptionSummary
 import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.RefreshTokenResult
 import com.porizo.core.model.SendPhoneCodeResult
+import com.porizo.core.model.SocialAuthChallenge
 import com.porizo.core.model.SocialAuthResult
 import com.porizo.core.model.SubscriptionPlan
 import com.porizo.core.model.SubscriptionStatus
@@ -169,7 +170,14 @@ private class FakeAuthRepository : AuthRepository {
     override suspend fun sendPhoneVerificationCode(phoneNumber: String): SendPhoneCodeResult = error("unused")
     override suspend fun verifyPhoneCode(phoneNumber: String, code: String): VerifyPhoneCodeResult = error("unused")
     override suspend fun registerPhoneAccount(registrationToken: String, phoneNumber: String): PhoneRegisterResult = error("unused")
-    override suspend fun socialLogin(provider: String, idToken: String, name: String?, confirmLink: Boolean): SocialAuthResult = error("unused")
+    override suspend fun socialLogin(
+        provider: String,
+        idToken: String,
+        name: String?,
+        confirmLink: Boolean,
+        challenge: SocialAuthChallenge?,
+    ): SocialAuthResult = error("unused")
+    override suspend fun createSocialAuthChallenge(provider: String): SocialAuthChallenge = error("unused")
     override suspend fun refresh(refreshToken: String): RefreshTokenResult = error("unused")
     override suspend fun logout() = Unit
     override suspend fun registerDevice(): DeviceRegistration = error("unused")

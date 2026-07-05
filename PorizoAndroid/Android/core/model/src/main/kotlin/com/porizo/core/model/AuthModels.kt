@@ -53,6 +53,12 @@ data class SocialAuthResult(
     val provider: String?,
 )
 
+data class SocialAuthChallenge(
+    val challengeId: String,
+    val nonce: String,
+    val expiresAt: String?,
+)
+
 data class RefreshTokenResult(
     val accessToken: String,
     val refreshToken: String,

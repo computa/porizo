@@ -10,7 +10,7 @@ data class GoogleSignInToken(
 )
 
 interface GoogleSignInGateway {
-    suspend fun signIn(webClientId: String): PlatformResult<GoogleSignInToken>
+    suspend fun signIn(webClientId: String, nonce: String): PlatformResult<GoogleSignInToken>
 }
 
 data class PlayProductSummary(

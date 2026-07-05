@@ -111,6 +111,58 @@ describe("AuthOneTimeTokenRepository", () => {
     );
   });
 
+  test("consumeOneTimeToken rejects expired tokens without marking used", async () => {
+    await seedUser();
+    const tokenHash = hashToken("expired-token");
+
+    await repository.insertPasswordResetToken({
+      id: "prt_expired",
+      userId: "user_one_time_token",
+      tokenHash,
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    });
+
+    await assert.rejects(
+      () =>
+        repository.consumeOneTimeToken({
+          tokenType: "password_reset",
+          tokenHash,
+        }),
+      /expired/i,
+    );
+
+    const row = await db
+      .prepare("SELECT used_at FROM password_reset_tokens WHERE id = ?")
+      .get("prt_expired");
+    assert.equal(row.used_at, null);
+  });
+
+  test("consumeOneTimeToken losing update rejects even when token exists", async () => {
+    await seedUser();
+    const tokenHash = hashToken("race-token");
+
+    await repository.insertPasswordResetToken({
+      id: "prt_race",
+      userId: "user_one_time_token",
+      tokenHash,
+      expiresAt: "2999-01-01T00:00:00.000Z",
+    });
+
+    await repository.consumeOneTimeToken({
+      tokenType: "password_reset",
+      tokenHash,
+    });
+
+    await assert.rejects(
+      () =>
+        repository.consumeOneTimeToken({
+          tokenType: "password_reset",
+          tokenHash,
+        }),
+      /already been used/i,
+    );
+  });
+
   test("invalidateActiveTokensForUser marks only active tokens for that user", async () => {
     await seedUser();
     await seedUser({ userId: "other_one_time_user" });

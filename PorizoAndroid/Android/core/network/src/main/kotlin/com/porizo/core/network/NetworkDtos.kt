@@ -31,10 +31,22 @@ data class SocialLoginRequestDto(
     @Json(name = "id_token") val idToken: String,
     val name: String?,
     @Json(name = "confirm_link") val confirmLink: Boolean?,
+    @Json(name = "challenge_id") val challengeId: String?,
+    val nonce: String?,
 )
 
 @JsonClass(generateAdapter = true)
 data class RefreshRequestDto(@Json(name = "refresh_token") val refreshToken: String)
+
+@JsonClass(generateAdapter = true)
+data class SocialAuthChallengeRequestDto(val provider: String)
+
+@JsonClass(generateAdapter = true)
+data class SocialAuthChallengeDto(
+    @Json(name = "challenge_id") val challengeId: String,
+    val nonce: String,
+    @Json(name = "expires_at") val expiresAt: String?,
+)
 
 @JsonClass(generateAdapter = true)
 data class DeviceRegisterRequestDto(

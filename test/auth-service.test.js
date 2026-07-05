@@ -875,7 +875,7 @@ describe("Auth Service", () => {
       );
     });
 
-    it("should roll back account deletion when storage artifact cleanup fails", async () => {
+    it("should tombstone account deletion and leave retryable cleanup when storage artifact cleanup fails", async () => {
       const userId = uniqueUserId("user-delete-storage-failure");
       const email = `${userId}@example.com`;
       const deletedKeys = [];
@@ -897,10 +897,7 @@ describe("Auth Service", () => {
         "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
       ).run(userId, email);
 
-      await assert.rejects(
-        () => authService.deleteUserAccount(userId, { storageProvider }),
-        /simulated storage delete failure/,
-      );
+      await authService.deleteUserAccount(userId, { storageProvider });
 
       assert.deepStrictEqual(deletedKeys, [
         `tracks/${userId}/track_1/v1/preview.m4a`,
@@ -909,17 +906,35 @@ describe("Auth Service", () => {
       const user = db
         .prepare("SELECT email, display_name, deleted_at FROM users WHERE id = ?")
         .get(userId);
-      assert.ok(user, "user row should remain after rollback");
-      assert.strictEqual(user.email, email);
-      assert.strictEqual(user.display_name, null);
-      assert.strictEqual(user.deleted_at, null);
+      assert.ok(user, "user row should remain as a tombstone");
+      assert.notStrictEqual(user.email, email);
+      assert.strictEqual(user.display_name, "Deleted User");
+      assert.ok(user.deleted_at, "user should be tombstoned");
 
       const deletedEvent = db
         .prepare(
           "SELECT COUNT(*) AS count FROM auth_events WHERE user_id = ? AND event_type = 'account_deleted'",
         )
         .get(userId);
-      assert.strictEqual(deletedEvent.count, 0);
+      assert.strictEqual(deletedEvent.count, 1);
+
+      const cleanupJob = db
+        .prepare(
+          `SELECT status, attempts, last_error, storage_prefixes_json
+           FROM account_deletion_storage_cleanup_jobs
+           WHERE user_id = ?`,
+        )
+        .get(userId);
+      assert.strictEqual(cleanupJob.status, "failed");
+      assert.strictEqual(cleanupJob.attempts, 1);
+      assert.match(cleanupJob.last_error, /simulated storage delete failure/);
+      assert.deepStrictEqual(JSON.parse(cleanupJob.storage_prefixes_json), [
+        `tracks/${userId}/`,
+        `poems/${userId}/`,
+        `enrollment/raw/${userId}/`,
+        `enrollment/clean/${userId}/`,
+        `voice_profiles/${userId}/`,
+      ]);
     });
   });
 

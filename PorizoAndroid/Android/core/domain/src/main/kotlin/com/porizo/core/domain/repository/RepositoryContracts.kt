@@ -27,6 +27,7 @@ import com.porizo.core.model.SendPhoneCodeResult
 import com.porizo.core.model.ShareClaimResult
 import com.porizo.core.model.ShareInfo
 import com.porizo.core.model.ShareStreamResult
+import com.porizo.core.model.SocialAuthChallenge
 import com.porizo.core.model.SocialAuthResult
 import com.porizo.core.model.StoryGuidance
 import com.porizo.core.model.StoryLyrics
@@ -54,7 +55,9 @@ interface AuthRepository {
         idToken: String,
         name: String?,
         confirmLink: Boolean,
+        challenge: SocialAuthChallenge? = null,
     ): SocialAuthResult
+    suspend fun createSocialAuthChallenge(provider: String): SocialAuthChallenge
     suspend fun refresh(refreshToken: String): RefreshTokenResult
     suspend fun logout()
     suspend fun registerDevice(): DeviceRegistration

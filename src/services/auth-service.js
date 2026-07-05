@@ -13,6 +13,15 @@ const {
   createAccountDeletionRepository,
 } = require("../database/account-deletion-repository");
 const {
+  createAccountDeletionCleanupRepository,
+} = require("../database/account-deletion-cleanup-repository");
+const {
+  createAuthCredentialRepository,
+} = require("../database/auth-credential-repository");
+const {
+  createAuthProfileRepository,
+} = require("../database/auth-profile-repository");
+const {
   createAuthSessionRepository,
 } = require("../database/auth-session-repository");
 const {
@@ -28,10 +37,12 @@ const {
   createGdprDataExportRepository,
 } = require("../database/gdpr-data-export-repository");
 const { createGdprAuditRepository } = require("../database/gdpr-audit-repository");
+const { createPreparedDbFromQuery } = require("../utils/db-adapter");
 const {
   revokeAllEnrollmentSessionTokensForUser,
 } = require("./enrollment-session-service");
 const {
+  buildAccountDeletionStoragePrefixes,
   deleteAccountStorageArtifacts,
 } = require("./account-deletion-storage-service");
 const {
@@ -39,7 +50,12 @@ const {
   listProviderProfilesForUser,
   softDeleteProviderProfilesForUser,
 } = require("./voice-provider-profile-service");
-const { identityHash } = require("./identity-service");
+const identityService = require("./identity-service");
+const { identityHash } = identityService;
+
+function changeCount(result) {
+  return Number(result?.changes ?? result?.rowCount ?? 0);
+}
 
 // Validate required environment variables
 function getJwtSecret() {
@@ -165,6 +181,16 @@ function getGdprDataExportRepository() {
     gdprDataExportRepository = createGdprDataExportRepository(db);
   }
   return gdprDataExportRepository;
+}
+
+async function runAuthAccountTransaction(callback) {
+  if (!db || typeof db.transaction !== "function") {
+    throw new Error("Auth account mutation requires database transaction support");
+  }
+  return db.transaction(async (query) => {
+    const txDb = createPreparedDbFromQuery(query, db);
+    return callback(txDb);
+  });
 }
 
 // ==================== PASSWORD HASHING ====================
@@ -696,6 +722,51 @@ async function invalidateAllPasswordResetTokens(userId) {
   });
 }
 
+async function completePasswordReset({
+  rawToken,
+  passwordHash,
+  ipAddress = null,
+}) {
+  const tokenHash = hashToken(rawToken);
+
+  return runAuthAccountTransaction(async (txDb) => {
+    const oneTimeTokenRepository = createAuthOneTimeTokenRepository(txDb);
+    const credentialRepository = createAuthCredentialRepository(txDb);
+    const refreshTokenRepository = createAuthRefreshTokenRepository(txDb);
+    const sessionRepository = createAuthSessionRepository(txDb);
+    const securityRepository = createAuthSecurityRepository(txDb);
+
+    const token = await oneTimeTokenRepository.consumeOneTimeToken({
+      tokenType: "password_reset",
+      tokenHash,
+    });
+    const userId = token.user_id;
+
+    const credentialUpdate = await credentialRepository.updatePasswordCredential(
+      userId,
+      passwordHash,
+    );
+    if (changeCount(credentialUpdate) !== 1) {
+      throw new Error("Password credential not found for reset token user");
+    }
+    await oneTimeTokenRepository.invalidateActiveTokensForUser({
+      tokenType: "password_reset",
+      userId,
+    });
+    await refreshTokenRepository.revokeActiveTokensForUser(userId);
+    await refreshTokenRepository.compromiseActiveTokenFamiliesForUser(userId);
+    await sessionRepository.revokeActiveSessionsForUser(userId);
+    await securityRepository.insertAuthEvent({
+      id: generateId("evt"),
+      userId,
+      eventType: "password_reset_completed",
+      ipAddress,
+    });
+
+    return { userId };
+  });
+}
+
 // ==================== EMAIL VERIFICATION TOKENS ====================
 
 /**
@@ -753,6 +824,47 @@ async function markEmailVerificationTokenUsed(tokenId) {
   await getAuthOneTimeTokenRepository().markTokenUsed({
     tokenType: "email_verification",
     tokenId,
+  });
+}
+
+async function completeEmailVerification({
+  rawToken,
+  ipAddress = null,
+}) {
+  const tokenHash = hashToken(rawToken);
+
+  return runAuthAccountTransaction(async (txDb) => {
+    const oneTimeTokenRepository = createAuthOneTimeTokenRepository(txDb);
+    const profileRepository = createAuthProfileRepository(txDb);
+    const securityRepository = createAuthSecurityRepository(txDb);
+
+    const token = await oneTimeTokenRepository.consumeOneTimeToken({
+      tokenType: "email_verification",
+      tokenHash,
+    });
+    const userId = token.user_id;
+    const emailToVerify =
+      token.email_normalized ||
+      (await profileRepository.findUserEmail(userId))?.email;
+
+    if (emailToVerify) {
+      await identityService.verifyContact(
+        txDb,
+        userId,
+        "email",
+        emailToVerify,
+        "email_token",
+      );
+    }
+
+    await securityRepository.insertAuthEvent({
+      id: generateId("evt"),
+      userId,
+      eventType: "email_verified",
+      ipAddress,
+    });
+
+    return { userId, email: emailToVerify || null };
   });
 }
 
@@ -903,6 +1015,88 @@ async function resetFailedLoginCount(userId) {
 
 // ==================== ACCOUNT DELETION (GDPR Article 17) ====================
 
+function parseCleanupPrefixes(row) {
+  try {
+    const prefixes = JSON.parse(row.storage_prefixes_json || "[]");
+    return Array.isArray(prefixes) ? prefixes.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function nextCleanupAttemptAt(attempts, now = new Date()) {
+  const delayMinutes = Math.min(60, Math.max(1, Math.pow(2, attempts - 1)));
+  return new Date(now.getTime() + delayMinutes * 60 * 1000).toISOString();
+}
+
+async function processAccountDeletionStorageCleanupJob(
+  job,
+  { storageProvider = null, cleanupRepository = null } = {},
+) {
+  const repository =
+    cleanupRepository || createAccountDeletionCleanupRepository(db);
+  const now = new Date().toISOString();
+  const claimed = await repository.claimJob({ jobId: job.id, now });
+  if (!claimed) {
+    return { processed: false, status: "not_claimed" };
+  }
+
+  const claimedJob = (await repository.findById(job.id)) || job;
+  try {
+    if (!storageProvider) {
+      throw new Error("Storage provider unavailable for account deletion cleanup");
+    }
+    await deleteAccountStorageArtifacts({
+      storageProvider,
+      userId: claimedJob.user_id,
+      prefixes: parseCleanupPrefixes(claimedJob),
+      logger: authLogger,
+    });
+    await repository.markCompleted({
+      jobId: claimedJob.id,
+      now: new Date().toISOString(),
+    });
+    return { processed: true, status: "completed" };
+  } catch (error) {
+    const failedAt = new Date();
+    await repository.markFailed({
+      jobId: claimedJob.id,
+      errorMessage: error.message,
+      nextAttemptAt: nextCleanupAttemptAt(
+        Number(claimedJob.attempts || 0) + 1,
+        failedAt,
+      ),
+      now: failedAt.toISOString(),
+    });
+    return { processed: true, status: "failed", error };
+  }
+}
+
+async function processDueAccountDeletionStorageCleanupJobs({
+  storageProvider = null,
+  limit = 10,
+} = {}) {
+  const repository = createAccountDeletionCleanupRepository(db);
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  await repository.recoverStaleRunning({
+    staleBefore,
+    now: new Date().toISOString(),
+  });
+  const jobs = await repository.listDueJobs({
+    now: new Date().toISOString(),
+    limit,
+  });
+  const results = [];
+  for (const job of jobs) {
+    const result = await processAccountDeletionStorageCleanupJob(job, {
+      storageProvider,
+      cleanupRepository: repository,
+    });
+    results.push(result);
+  }
+  return results;
+}
+
 /**
  * Delete user account and all associated data
  * Performs cascading deletion in dependency order, then soft-deletes the user.
@@ -914,10 +1108,13 @@ async function deleteUserAccount(
   { accountDeletionAuditLog = null, storageProvider = null } = {},
 ) {
   const accountDeletionRepository = createAccountDeletionRepository(db);
+  const cleanupRepository = createAccountDeletionCleanupRepository(db);
   const now = new Date().toISOString();
+  let cleanupJobId = null;
 
   await accountDeletionRepository.transaction(async (accountDeletionTx, txDb) => {
     const gdprAuditRepository = createGdprAuditRepository(txDb);
+    const txCleanupRepository = createAccountDeletionCleanupRepository(txDb);
 
     await accountDeletionTx.lockUserScopedTablesForAccountDeletion();
     const user = await accountDeletionTx.findActiveUser(userId);
@@ -997,15 +1194,36 @@ async function deleteUserAccount(
       userId,
     });
 
-    // External object deletion is irreversible, so keep it after every DB write
-    // that can fail. A storage failure still rolls back the DB transaction; a
-    // successful storage cleanup has no later DB work that can invalidate it.
-    await deleteAccountStorageArtifacts({
-      storageProvider,
+    cleanupJobId = generateId("acdsc");
+    await txCleanupRepository.insertCleanupJob({
+      id: cleanupJobId,
       userId,
-      logger: authLogger,
+      storagePrefixesJson: JSON.stringify(
+        buildAccountDeletionStoragePrefixes(userId),
+      ),
+      now,
     });
   });
+
+  if (cleanupJobId) {
+    const cleanupJob = await cleanupRepository.findById(cleanupJobId);
+    if (cleanupJob) {
+      const result = await processAccountDeletionStorageCleanupJob(cleanupJob, {
+        storageProvider,
+        cleanupRepository,
+      });
+      if (result.status === "failed") {
+        authLogger.warn(
+          {
+            userId,
+            cleanupJobId,
+            error: result.error?.message,
+          },
+          "[AccountDeletion] Storage cleanup deferred for retry",
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -1105,12 +1323,14 @@ module.exports = {
   // Password reset
   createPasswordResetToken,
   verifyPasswordResetToken,
+  completePasswordReset,
   markPasswordResetTokenUsed,
   invalidateAllPasswordResetTokens,
 
   // Email verification
   createEmailVerificationToken,
   verifyEmailVerificationToken,
+  completeEmailVerification,
   markEmailVerificationTokenUsed,
   invalidateEmailVerificationTokens,
 
@@ -1132,6 +1352,7 @@ module.exports = {
 
   // Account deletion
   deleteUserAccount,
+  processDueAccountDeletionStorageCleanupJobs,
 
   // GDPR data export (Article 20)
   exportUserData,

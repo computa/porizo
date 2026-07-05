@@ -9,11 +9,15 @@ class AuthUiStateTest {
     @Test
     fun googleSignInConfigurationDefaultsToUnavailable() {
         assertFalse(AuthUiState().isGoogleSignInConfigured)
+        assertEquals(GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE, AuthUiState().googleSignInUnavailableMessage)
     }
 
     @Test
     fun googleSignInConfigurationCanBeMadeAvailable() {
-        assertTrue(AuthUiState(isGoogleSignInConfigured = true).isGoogleSignInConfigured)
+        val state = AuthUiState(isGoogleSignInConfigured = true)
+
+        assertTrue(state.isGoogleSignInConfigured)
+        assertEquals(null, state.googleSignInUnavailableMessage)
     }
 
     @Test

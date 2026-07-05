@@ -1,13 +1,22 @@
 package com.porizo.feature.auth
 
+import com.porizo.core.model.SocialAuthChallenge
+
 sealed interface AuthPhase {
     data object SignedOut : AuthPhase
     data object PhoneEntry : AuthPhase
     data class PhoneVerify(val phoneNumber: String) : AuthPhase
     data class ProfileCompletion(val registrationToken: String, val phoneNumber: String) : AuthPhase
-    data class LinkConfirmation(val idToken: String, val email: String?) : AuthPhase
+    data class LinkConfirmation(
+        val idToken: String,
+        val email: String?,
+        val challenge: SocialAuthChallenge?,
+    ) : AuthPhase
     data class Authenticated(val userId: String) : AuthPhase
 }
+
+internal const val GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE =
+    "Google sign-in is unavailable in this build. Use phone sign-in for now."
 
 data class AuthUiState(
     val phase: AuthPhase = AuthPhase.SignedOut,
@@ -24,4 +33,11 @@ data class AuthUiState(
 
     val canSendPhoneCode: Boolean
         get() = normalizedPhoneNumber != null && !isWorking
+
+    val googleSignInUnavailableMessage: String?
+        get() = if (isGoogleSignInConfigured) {
+            null
+        } else {
+            GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE
+        }
 }
