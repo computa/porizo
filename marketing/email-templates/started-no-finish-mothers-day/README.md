@@ -41,7 +41,7 @@ GROUP BY u.id, u.email, u.display_name;
 **Subject:** `Your song is two taps away`
 **Preview:** `You started a song. Mother's Day is tomorrow. Two taps to finish.`
 **CTA:** `Finish your song`
-**CTA URL:** `https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028`
+**CTA URL:** `https://porizo.co/download?intent=create_song&utm_source=email-template&utm_medium=email&utm_campaign=legacy_template`
 
 **Send window:** 2026-05-09 afternoon/evening US time
 **Sender:** `Ambrose from Porizo <support@porizo.co>`

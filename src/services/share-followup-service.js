@@ -31,7 +31,10 @@ const FOLLOWUP_STAGES = Object.freeze([
     headline: "How did the song land?",
     body: "If it hit, the easiest way to keep the moment going is another one — a thank-you back, a sibling, a friend who hasn't heard theirs yet. The first preview is free.",
     cta: "Make another song",
-    ctaPath: "/",
+    ctaIntent: Object.freeze({
+      intent: "create_song",
+      utmContent: "make_another_song_cta",
+    }),
   }),
   Object.freeze({
     stage: "sender_72h",
@@ -49,7 +52,10 @@ const FOLLOWUP_STAGES = Object.freeze([
     headline: "One person you haven't sent one to yet.",
     body: "There is always one more — the parent who got skipped, the sibling who would actually cry, the friend whose birthday is in two weeks. Start with their name.",
     cta: "Start a song",
-    ctaPath: "/",
+    ctaIntent: Object.freeze({
+      intent: "create_song",
+      utmContent: "start_song_cta",
+    }),
   }),
 ]);
 
@@ -62,7 +68,7 @@ const STAGE_LOOKUP = Object.freeze(
  *
  * @param {Date|string|number} shareCreatedAt
  * @param {{ skipStages?: string[] }} [options]
- * @returns {Array<{ stage: string, sendAt: Date, subject: string, headline: string, body: string, cta: string, ctaPath: string }>}
+ * @returns {Array<{ stage: string, sendAt: Date, subject: string, headline: string, body: string, cta: string, ctaPath?: string, ctaIntent?: object }>}
  */
 function computeFollowupSchedule(shareCreatedAt, options = {}) {
   const baseTime = toEpochMs(shareCreatedAt);
@@ -80,6 +86,7 @@ function computeFollowupSchedule(shareCreatedAt, options = {}) {
     body: s.body,
     cta: s.cta,
     ctaPath: s.ctaPath,
+    ctaIntent: s.ctaIntent,
   }));
 }
 
@@ -100,7 +107,7 @@ function pickDueFollowups(scheduled, now = Date.now()) {
  * layer to render the template body).
  *
  * @param {string} stage
- * @returns {{ subject: string, headline: string, body: string, cta: string, ctaPath: string } | null}
+ * @returns {{ subject: string, headline: string, body: string, cta: string, ctaPath?: string, ctaIntent?: object } | null}
  */
 function getStageCopy(stage) {
   const found = STAGE_LOOKUP[stage];
@@ -111,6 +118,7 @@ function getStageCopy(stage) {
     body: found.body,
     cta: found.cta,
     ctaPath: found.ctaPath,
+    ctaIntent: found.ctaIntent,
   };
 }
 

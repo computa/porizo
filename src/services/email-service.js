@@ -7,6 +7,11 @@
 
 const { Resend } = require("resend");
 const { getStageCopy } = require("./share-followup-service");
+const {
+  APP_LINK_INTENTS,
+  buildAppOpenUrl,
+  buildOpenShareUrlFromShareUrl,
+} = require("../utils/email-app-links");
 const { buildUnsubscribeUrl } = require("../utils/unsubscribe-token");
 
 // Configuration
@@ -25,6 +30,38 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function buildCreateSongEmailUrl({ campaign, content }) {
+  return buildAppOpenUrl({
+    publicBaseUrl: config.publicBaseUrl,
+    intent: APP_LINK_INTENTS.CREATE_SONG,
+    utm: {
+      utm_source: "transactional_email",
+      utm_medium: "email",
+      utm_campaign: campaign,
+      utm_content: content,
+    },
+  });
+}
+
+function buildFollowupCtaHref(copy, stage) {
+  if (copy.ctaIntent?.intent) {
+    return buildAppOpenUrl({
+      publicBaseUrl: config.publicBaseUrl,
+      intent: copy.ctaIntent.intent,
+      utm: {
+        utm_source: "share_followup",
+        utm_medium: "email",
+        utm_campaign: stage,
+        utm_content: copy.ctaIntent.utmContent || "primary_cta",
+      },
+    });
+  }
+  if (/^https?:\/\//i.test(copy.ctaPath || "")) {
+    return copy.ctaPath;
+  }
+  return `${config.publicBaseUrl}${copy.ctaPath || "/"}`;
 }
 
 // Resend client (lazy-initialized)
@@ -374,6 +411,10 @@ ${verifyUrl}
  */
 async function sendWelcomeEmail(email, name) {
   const displayName = escapeHtml(name || "there");
+  const getStartedUrl = buildCreateSongEmailUrl({
+    campaign: "welcome",
+    content: "get_started_cta",
+  });
 
   const { data, error } = await getClient().emails.send({
     from: config.fromEmail,
@@ -404,7 +445,7 @@ async function sendWelcomeEmail(email, name) {
   </ul>
 
   <div style="text-align: center; margin: 30px 0;">
-    <a href="${config.publicBaseUrl}"
+    <a href="${escapeHtml(getStartedUrl)}"
        style="display: inline-block; background-color: #7c3aed; color: white; text-decoration: none;
               padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">
       Get Started
@@ -433,7 +474,7 @@ Here's what you can do:
 - Create a song – Tell us who it's for and what occasion
 - Share the magic – Send your personalized song to someone special
 
-Get started: ${config.publicBaseUrl}
+Get started: ${getStartedUrl}
 
 Questions? Just reply to this email – we're happy to help!
 
@@ -562,6 +603,18 @@ async function sendGiftDeliveryEmail(payload) {
 
   const noun = contentType === "poem" ? "poem" : "song";
   const ctaLabel = contentType === "poem" ? "Read Your Poem" : "Listen Now";
+  const giftCtaUrl =
+    buildOpenShareUrlFromShareUrl({
+      publicBaseUrl: config.publicBaseUrl,
+      shareUrl,
+      contentKind: contentType,
+      utm: {
+        utm_source: "gift_email",
+        utm_medium: "email",
+        utm_campaign: contentType === "poem" ? "gift_poem_delivery" : "gift_song_delivery",
+        utm_content: "primary_cta",
+      },
+    }) || shareUrl;
   const contentIcon = contentType === "poem" ? "&#128214;" : "&#9835;";
   const safeSender = senderName || "A friend";
   const safeRecipient =
@@ -658,7 +711,7 @@ async function sendGiftDeliveryEmail(payload) {
   </td></tr>
 
   <tr><td align="center" style="padding: 0 40px 16px;">
-    <a href="${escapeHtml(shareUrl)}" style="display: inline-block; background: #B0763F; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-size: 17px; font-weight: 600; letter-spacing: 0.3px;">
+    <a href="${escapeHtml(giftCtaUrl)}" style="display: inline-block; background: #B0763F; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-size: 17px; font-weight: 600; letter-spacing: 0.3px;">
       ${ctaLabel}
     </a>
   </td></tr>
@@ -691,7 +744,7 @@ async function sendGiftDeliveryEmail(payload) {
 ${safeSender} made you a ${noun} on ${config.appName}.
 ${safeMessage ? `\n"${safeMessage}"\n` : ""}
 Claim PIN: ${claimPin}
-Open your gift: ${shareUrl}
+Open your gift: ${giftCtaUrl}
 
 You'll need the PIN to unlock your gift in the ${config.appName} app.
     `.trim(),
@@ -746,9 +799,20 @@ async function sendShareFollowupEmail(payload) {
       ? trackTitle.trim()
       : "";
 
-  const ctaHref = /^https?:\/\//i.test(copy.ctaPath)
-    ? copy.ctaPath
-    : `${config.publicBaseUrl}${copy.ctaPath}`;
+  const ctaHref = buildFollowupCtaHref(copy, stage);
+  const shareHref = shareUrl
+    ? buildOpenShareUrlFromShareUrl({
+        publicBaseUrl: config.publicBaseUrl,
+        shareUrl,
+        contentKind: "song",
+        utm: {
+          utm_source: "share_followup",
+          utm_medium: "email",
+          utm_campaign: stage,
+          utm_content: "open_share_link",
+        },
+      }) || shareUrl
+    : "";
 
   const greeting = safeSender ? `Hi ${escapeHtml(safeSender)},` : "Hi,";
   const contextLine =
@@ -800,8 +864,8 @@ async function sendShareFollowupEmail(payload) {
     <a href="${escapeHtml(ctaHref)}" style="display:inline-block; padding:14px 28px; background:#B0763F; color:#FFFAF5; text-decoration:none; border-radius:999px; font-size:15px; font-weight:500;">${escapeHtml(copy.cta)}</a>
   </td></tr>
   ${
-    shareUrl
-      ? `<tr><td align="center" style="padding: 0 40px 24px;"><a href="${escapeHtml(shareUrl)}" style="font-size:13px; color:#888; text-decoration:underline;">Open the share link</a></td></tr>`
+    shareHref
+      ? `<tr><td align="center" style="padding: 0 40px 24px;"><a href="${escapeHtml(shareHref)}" style="font-size:13px; color:#888; text-decoration:underline;">Open the share link</a></td></tr>`
       : ""
   }
   <tr><td align="center" style="padding: 0 40px 28px; border-top:1px solid #EFE6DC;">

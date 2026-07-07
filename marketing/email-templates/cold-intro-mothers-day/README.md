@@ -24,7 +24,7 @@ Always export to `/tmp/cold-intro-mothers-day-2026-05-09.json` and dedupe agains
 **Subject:** `The card she'll keep forever`
 **Preview:** `A 21-second song, made from one memory of her. Free for Mother's Day.`
 **CTA:** `Make her song free`
-**CTA URL:** `https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028`
+**CTA URL:** `https://porizo.co/download?intent=create_song&utm_source=email-template&utm_medium=email&utm_campaign=legacy_template`
 
 **Send window:** 2026-05-09 afternoon/evening US time
 **Sender:** `Ambrose from Porizo <support@porizo.co>`

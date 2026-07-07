@@ -85,7 +85,15 @@ describe("share follow-up service", () => {
     assert.ok(copy);
     assert.ok(copy.subject.length > 0);
     assert.ok(copy.cta.length > 0);
-    assert.ok(copy.ctaPath.length > 0);
+    assert.equal(copy.ctaIntent.intent, "create_song");
+  });
+
+  test("reactivation stages use app-open create intents instead of website-root paths", () => {
+    assert.equal(getStageCopy("sender_24h").ctaPath, undefined);
+    assert.equal(getStageCopy("sender_24h").ctaIntent.intent, "create_song");
+    assert.equal(getStageCopy("sender_7d").ctaPath, undefined);
+    assert.equal(getStageCopy("sender_7d").ctaIntent.intent, "create_song");
+    assert.match(getStageCopy("sender_72h").ctaPath, /^https:\/\/apps\.apple\.com\//);
   });
 
   test("getStageCopy returns null for an unknown stage", () => {

@@ -1,6 +1,7 @@
 process.env.NODE_ENV = "test";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const os = require("node:os");
 const { afterEach, test } = require("node:test");
 
@@ -65,6 +66,19 @@ test("HTTP bootstrap serves Apple App Site Association as JSON", async () => {
   assert.equal(response.statusCode, 200);
   assert.match(response.headers["content-type"], /application\/json/);
   assert.equal(response.json().applinks.details[0].appID, "5VCH6937XM.com.porizo.PorizoApp");
+  assert.deepEqual(response.json().applinks.details[0].paths, [
+    "/play/*",
+    "/s/*",
+    "/poem/*",
+    "/create*",
+    "/verify-email*",
+  ]);
+  assert.deepEqual(
+    response.json(),
+    JSON.parse(
+      fs.readFileSync("public/.well-known/apple-app-site-association", "utf8"),
+    ),
+  );
 });
 
 test("HTTP bootstrap applies CORS and Helmet headers", async () => {

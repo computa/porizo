@@ -4,7 +4,7 @@
     "details": [
       {
         "appID": "5VCH6937XM.com.porizo.PorizoApp",
-        "paths": ["/play/*", "/s/*", "/poem/*"]
+        "paths": ["/play/*", "/s/*", "/poem/*", "/create*", "/verify-email*"]
       }
     ]
   }

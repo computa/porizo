@@ -277,6 +277,67 @@ test("/download appends an App Store campaign token and logs the install-intent 
   assert.equal(row.receiver_session_id, null);
 });
 
+test("/download maps create intents to the app-open bridge", async (t) => {
+  const { app, db } = await makeApp(t);
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/download?intent=create_song&utm_source=share_followup&utm_medium=email&utm_campaign=sender_7d&utm_content=start_song_cta",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  assert.match(response.headers["content-type"], /text\/html/);
+  assert.match(response.body, /porizo:\/\/create\?type=song/);
+  assert.match(response.body, /the create flow opens automatically/);
+
+  const row = db
+    .prepare(
+      "SELECT utm_source, utm_campaign, utm_content FROM download_events ORDER BY created_at DESC LIMIT 1",
+    )
+    .get();
+  assert.equal(row.utm_source, "share_followup");
+  assert.equal(row.utm_campaign, "sender_7d");
+  assert.equal(row.utm_content, "start_song_cta");
+});
+
+test("/download app-open bridge uses Play Store fallback for Android recipients", async (t) => {
+  const { app } = await makeApp(t);
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/download?intent=create_song&utm_source=share_followup&utm_medium=email&utm_campaign=sender_7d&utm_content=start_song_cta",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36",
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  assert.match(response.body, /porizo:\/\/create\?type=song/);
+  assert.match(
+    response.body,
+    /https:\/\/play\.google\.com\/store\/apps\/details\?id=com\.porizo\.app/,
+  );
+});
+
+test("/download maps open-share intents to specific native share routes", async (t) => {
+  const { app } = await makeApp(t);
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/download?intent=open_share&share_id=share_abc123&content_kind=poem",
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  assert.match(response.body, /porizo:\/\/\/poem\/share_abc123/);
+  assert.match(response.body, /Listen in browser instead/);
+  assert.match(response.body, /\/poem\/share_abc123\?web=1/);
+});
+
 test("/download redirects bots without logging install intent", async (t) => {
   const { app, db } = await makeApp(t);
 

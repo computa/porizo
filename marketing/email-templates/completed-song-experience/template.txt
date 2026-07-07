@@ -1,7 +1,7 @@
 Hi {{first_name}},
 
 You recently downloaded and tested the Porizo app, and we would love to learn about your experience.
-Porizo app: https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028
+Porizo app: https://porizo.co/download?intent=create_song&utm_source=email-template&utm_medium=email&utm_campaign=legacy_template
 
 If you created a song gift, we would really appreciate your feedback:
 
@@ -11,11 +11,11 @@ If you created a song gift, we would really appreciate your feedback:
 
 Your feedback will help us make Porizo better for the next people creating meaningful song gifts.
 
-Open Porizo: https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028
+Open Porizo: https://porizo.co/download?intent=create_song&utm_source=email-template&utm_medium=email&utm_campaign=legacy_template
 
 You can reply to this email if anything felt confusing or broken.
 
 Ambrose
 Porizo
-https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028
+https://porizo.co/download?intent=create_song&utm_source=email-template&utm_medium=email&utm_campaign=legacy_template
 Support: support@porizo.co

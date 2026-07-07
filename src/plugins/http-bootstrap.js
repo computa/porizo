@@ -1,5 +1,8 @@
 const path = require("path");
 const fastify = require("fastify");
+const {
+  APPLE_APP_SITE_ASSOCIATION,
+} = require("../utils/apple-app-site-association");
 
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 
@@ -81,17 +84,7 @@ function registerStaticFileServing(app, { enableDebugRoutes }) {
 
 function registerAppleAppSiteAssociation(app) {
   // Apple App Site Association for universal links (explicit route for correct MIME type)
-  const aasaJson = JSON.stringify({
-    applinks: {
-      apps: [],
-      details: [
-        {
-          appID: "5VCH6937XM.com.porizo.PorizoApp",
-          paths: ["/play/*", "/s/*", "/poem/*"],
-        },
-      ],
-    },
-  });
+  const aasaJson = JSON.stringify(APPLE_APP_SITE_ASSOCIATION);
   app.get("/.well-known/apple-app-site-association", async (request, reply) => {
     return reply.type("application/json").send(aasaJson);
   });

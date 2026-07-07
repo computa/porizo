@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
 const {
+  buildShareUrl,
   listDueFollowups,
   processFollowupRow,
 } = require("../src/jobs/share-followups-daily");
@@ -34,6 +35,25 @@ function makeMockDb() {
 }
 
 describe("share-followups job db integration", () => {
+  test("buildShareUrl uses the canonical song share path, not the poem alias", () => {
+    const previousPublicBaseUrl = process.env.PUBLIC_BASE_URL;
+    const previousSharePublicBaseUrl = process.env.SHARE_PUBLIC_BASE_URL;
+    const previousShareCoverVersion = process.env.SHARE_COVER_VERSION;
+    process.env.PUBLIC_BASE_URL = "https://api.porizo.co";
+    delete process.env.SHARE_PUBLIC_BASE_URL;
+    delete process.env.SHARE_COVER_VERSION;
+    try {
+      assert.equal(buildShareUrl("share_123"), "https://porizo.co/play/share_123");
+    } finally {
+      if (previousPublicBaseUrl === undefined) delete process.env.PUBLIC_BASE_URL;
+      else process.env.PUBLIC_BASE_URL = previousPublicBaseUrl;
+      if (previousSharePublicBaseUrl === undefined) delete process.env.SHARE_PUBLIC_BASE_URL;
+      else process.env.SHARE_PUBLIC_BASE_URL = previousSharePublicBaseUrl;
+      if (previousShareCoverVersion === undefined) delete process.env.SHARE_COVER_VERSION;
+      else process.env.SHARE_COVER_VERSION = previousShareCoverVersion;
+    }
+  });
+
   test("listDueFollowups uses prepare().all with spread params", async () => {
     const db = makeMockDb();
     const rows = await listDueFollowups(

@@ -494,7 +494,6 @@ function giftDeliveryPlugin(app, options) {
     receiptStatus,
     receiptEventAt,
     receiptPayload = {},
-    incidentSummary = null,
   }) {
     if (!providerMessageId) {
       // No provider_message_id means this webhook event can't correspond to any

@@ -13,6 +13,10 @@
 
 const emailService = require("../services/email-service");
 const { createShareFollowupRepository } = require("../database/share-followup-repository");
+const {
+  buildPlayShareUrl,
+  deriveSharePublicBaseUrl,
+} = require("../utils/share-urls");
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_BATCH_SIZE = 100;
@@ -119,8 +123,16 @@ async function processFollowupRow(db, row, options = {}) {
 }
 
 function buildShareUrl(shareTokenId) {
-  const base = process.env.PUBLIC_BASE_URL || "https://porizo.co";
-  return `${base}/p/${shareTokenId}`;
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || "https://porizo.co";
+  const sharePublicBaseUrl =
+    process.env.SHARE_PUBLIC_BASE_URL || deriveSharePublicBaseUrl(publicBaseUrl);
+  return buildPlayShareUrl(
+    {
+      sharePublicBaseUrl,
+      shareCoverVersion: process.env.SHARE_COVER_VERSION || "",
+    },
+    shareTokenId,
+  );
 }
 
 async function markSent(db, id, resendEmailId, options = {}) {

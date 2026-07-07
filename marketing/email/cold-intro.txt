@@ -17,7 +17,7 @@ Three steps:
 2. Pick how it should sound.
 3. Send a song they can play, even without the app.
 
-Make your first song free: https://porizo.co/download?utm_source=cold-email&utm_medium=email&utm_campaign={{campaign}}&utm_content=cold-intro-cta
+Make your first song free: https://porizo.co/download?intent=create_song&utm_source=cold-email&utm_medium=email&utm_campaign={{campaign}}&utm_content=cold-intro-cta
 
 free · no credit card needed
 

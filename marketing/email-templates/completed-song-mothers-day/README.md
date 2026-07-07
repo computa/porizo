@@ -35,7 +35,7 @@ GROUP BY u.id, u.email, u.display_name;
 **Subject:** `Make her one too`
 **Preview:** `You already know how a Porizo song lands. Mother's Day is tomorrow.`
 **CTA:** `Make her one too`
-**CTA URL:** `https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028`
+**CTA URL:** `https://porizo.co/download?intent=create_song&utm_source=email-template&utm_medium=email&utm_campaign=legacy_template`
 
 **Send window:** 2026-05-09 afternoon/evening US time
 **Sender:** `Ambrose from Porizo <support@porizo.co>`

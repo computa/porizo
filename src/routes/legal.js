@@ -6,6 +6,7 @@ const {
   createUserEmailPreferencesRepository,
 } = require("../database/user-email-preferences-repository");
 const { generatePrefixedId } = require("../utils/ids");
+const { buildDeepLinkFromDownloadIntent } = require("../utils/email-app-links");
 const { loadPublicFile } = require("../utils/public-files");
 const { verifyUnsubscribeToken } = require("../utils/unsubscribe-token");
 
@@ -245,10 +246,12 @@ function decodeMaybe(value, log) {
 
 function resolveDeepLink(request) {
   const rawDeepLink = request.query?.deep_link;
-  if (typeof rawDeepLink !== "string" || rawDeepLink.trim() === "") {
-    return null;
-  }
-  const deepLink = decodeMaybe(rawDeepLink.trim(), request.log);
+  const deepLink =
+    typeof rawDeepLink === "string" && rawDeepLink.trim() !== ""
+      ? decodeMaybe(rawDeepLink.trim(), request.log)
+      : buildDeepLinkFromDownloadIntent(request.query);
+  if (!deepLink) return null;
+
   try {
     const parsed = new URL(deepLink);
     if (parsed.protocol !== "porizo:") {
@@ -367,7 +370,11 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
   }
 
   const contentLabel = contentKind === "poem" ? "poem" : "song";
-  const statusText = `If Porizo is installed, this ${contentLabel} opens automatically. Otherwise we will take you to install.`;
+  const statusText = deepLink.includes("://create")
+    ? "If Porizo is installed, the create flow opens automatically. Otherwise we will take you to install."
+    : deepLink.includes("://verify-email")
+      ? "If Porizo is installed, email verification opens automatically."
+      : `If Porizo is installed, this ${contentLabel} opens automatically. Otherwise we will take you to install.`;
   const webFallbackHtml = webFallbackUrl
     ? `\n      <a href="${escapeHtml(webFallbackUrl)}" style="color: #8A8A8A; font-size: 13px; margin-top: 16px; display: inline-block;">Listen in browser instead</a>`
     : "";
