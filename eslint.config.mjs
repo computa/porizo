@@ -15,6 +15,7 @@ export default [
       "data/",
       "test-output/",
       "public/admin/assets/",
+      "marketing/archive/",
       "marketing/appstore/screenshots/**/dist/",
     ],
   },
@@ -39,28 +40,6 @@ export default [
       sourceType: "module",
       globals: {
         ...globals.node,
-        ...globals.es2022,
-      },
-    },
-  },
-  {
-    files: ["marketing/scripts/**/*.js"],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "module",
-      globals: {
-        ...globals.node,
-        ...globals.es2022,
-      },
-    },
-  },
-  {
-    files: ["marketing/emails/**/*.js"],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "script",
-      globals: {
-        ...globals.browser,
         ...globals.es2022,
       },
     },

@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Porizo Cold Outreach — Email Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #e5e5e5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #333;
+      padding: 32px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+    }
+    header p {
+      font-size: 14px;
+      color: #666;
+    }
+    .badge {
+      display: inline-block;
+      background: #fff;
+      border: 1px solid #d0d0d0;
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 13px;
+      color: #555;
+      margin-top: 12px;
+    }
+
+    .grid {
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .email-card {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+    .email-card .label {
+      padding: 16px 20px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .email-card .label h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+    .email-card .label span {
+      font-size: 12px;
+      color: #888;
+    }
+    .email-card .label .subject {
+      font-size: 13px;
+      color: #666;
+      font-weight: 400;
+      margin-top: 2px;
+    }
+    .iframe-wrap {
+      position: relative;
+      cursor: pointer;
+    }
+    .iframe-wrap iframe {
+      width: 100%;
+      height: 700px;
+      border: none;
+      display: block;
+      pointer-events: none;
+    }
+    .iframe-wrap:hover::after {
+      content: 'Click to expand';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 1000;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+      overflow-y: auto;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      width: 100%;
+      max-width: 600px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid #eee;
+      background: #fafafa;
+    }
+    .modal-header span {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: #eee;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      color: #666;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .modal-close:hover { background: #ddd; }
+    .modal iframe {
+      width: 100%;
+      height: 80vh;
+      border: none;
+      display: block;
+    }
+
+    @media (max-width: 680px) {
+      body { padding: 16px; }
+      .iframe-wrap iframe { height: 500px; }
+    }
+
+    @media print {
+      .modal-overlay { display: none !important; }
+      body { background: #fff; }
+      .email-card { box-shadow: none; border: 1px solid #ccc; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Porizo Cold Outreach Emails</h1>
+  <p>Design A — Intimate Letter</p>
+  <div class="badge">3 emails &middot; Dark burgundy &middot; Georgia serif &middot; Centered</div>
+</header>
+
+<div class="grid">
+
+  <div class="email-card">
+    <div class="label">
+      <div>
+        <h2>Email 1 &mdash; Introduction</h2>
+        <div class="subject">Subject: What if your favorite memory became a song?</div>
+      </div>
+      <span>Day 1</span>
+    </div>
+    <div class="iframe-wrap" onclick="openModal('email-1-introduction.html', 'Email 1 — Introduction')">
+      <iframe src="email-1-introduction.html" loading="lazy" sandbox="allow-same-origin" title="Email 1 Introduction"></iframe>
+    </div>
+  </div>
+
+  <div class="email-card">
+    <div class="label">
+      <div>
+        <h2>Email 2 &mdash; Social Proof</h2>
+        <div class="subject">Subject: Re: The gift no one expects</div>
+      </div>
+      <span>Day 3</span>
+    </div>
+    <div class="iframe-wrap" onclick="openModal('email-2-social-proof.html', 'Email 2 — Social Proof')">
+      <iframe src="email-2-social-proof.html" loading="lazy" sandbox="allow-same-origin" title="Email 2 Social Proof"></iframe>
+    </div>
+  </div>
+
+  <div class="email-card">
+    <div class="label">
+      <div>
+        <h2>Email 3 &mdash; Final Nudge</h2>
+        <div class="subject">Subject: Someone's birthday is coming up</div>
+      </div>
+      <span>Day 7</span>
+    </div>
+    <div class="iframe-wrap" onclick="openModal('email-3-final-nudge.html', 'Email 3 — Final Nudge')">
+      <iframe src="email-3-final-nudge.html" loading="lazy" sandbox="allow-same-origin" title="Email 3 Final Nudge"></iframe>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modal-title"></span>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <iframe id="modal-iframe" src="" title="Email preview"></iframe>
+  </div>
+</div>
+
+<script>
+  function openModal(src, title) {
+    document.getElementById('modal-iframe').src = src;
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal').classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('active');
+    document.getElementById('modal-iframe').src = '';
+    document.body.style.overflow = '';
+  }
+
+  document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+  });
+</script>
+
+</body>
+</html>

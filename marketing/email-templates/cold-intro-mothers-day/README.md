@@ -15,7 +15,7 @@
 
 **SQL definition:** N/A — list comes from outside production DB. Likely from:
 
-- `marketing/emails/email-addresses/` directory
+- A private, consent-audited source outside Git. The historical CSV is local-only archive data and is not an approved send list.
 - A Google Sheet of early-list signups
 - A CSV from a prior outreach campaign
 
@@ -38,4 +38,4 @@ Always export to `/tmp/cold-intro-mothers-day-2026-05-09.json` and dedupe agains
 4. Review Resend deliverability insights — pay extra attention to spam-trigger phrases since these recipients may not recognize the sender.
 5. **Pilot first:** Send to a 50-recipient batch, watch open/spam rates for 30 minutes before sending the rest.
 6. After pilot looks clean, batch-send the remainder.
-7. Capture batch ID, monitor delivery for 2 hours, log to `marketing/emails/sent/2026-05-09-cold-intro.log`.
+7. Capture batch ID, monitor delivery for 2 hours, log to `marketing/email/.state/sent/2026-05-09-cold-intro.log`.

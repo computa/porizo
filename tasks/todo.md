@@ -1,3 +1,41 @@
+# Marketing Factory Streamlining (2026-07-10) — ACTIVE
+
+**Goal:** Consolidate scattered marketing efforts into 6 clear pipelines + production loops. Doc → pressure-test → adversarial review → execute archival cleanup. Full plan: `~/.claude/plans/we-have-made-a-generic-squirrel.md`.
+
+- [x] Explore inventory (marketing/ assets, scripts/docs/backend, skills/agents) — 3 parallel agents
+- [x] Design 6-pipeline architecture (Plan agent)
+- [x] B1 ASO pressure test — `rank-track.mjs` runs live (US birthday-song-gift #1, AU #1, NZ weak) ✓
+- [x] B2 Meta ads — `scripts/ads/run.mjs` full run OK (recommend-only); **Meta MCP WORKS** (acct 29474028) — contradicts old "MCP can't OAuth" memory ✓
+- [x] B3 Video — Remotion bundles + renders still (Ad-FathersDay-Product-Vertical, 2.9MB) ✓; real comp IDs differ from design names
+- [x] B4 TikTok pipeline — modules load standalone, argparse wired, stdlib+ffmpeg only ✓ (unblocks tiktok-trial archival)
+- [x] B5 Blog ingestion investigation — DB-authored backend confirmed; tracked production publisher already implements create/review/repair/publish and has focused tests. No production article was published as part of this safe review.
+- [x] B6 Housekeeping — pressure test originally found 3 launchd agents; the follow-up review found none of the three loaded. Most archive payloads are local-only; only non-personal email artifacts and the manifest remain tracked.
+- [x] A Authored `docs/marketing/PIPELINES.md` (6 pipelines + 3 loops + build-status/credential/skip-impact tables)
+- [x] C Adversarial review (3 critics: CMO, solo-ops, premortem) — all findings folded in
+- [x] D Created tracked marketing router (`.agents/skills/marketing/SKILL.md`) plus a tracked, non-duplicating Claude compatibility shim.
+- [x] E Cleanup executed — archived 5 dead dirs (~509 MB) to `marketing/archive/2026-07-consolidation/` + manifest; heavy/generated payloads and recipient data are explicitly local-only.
+
+**Adversarial-review corrections applied to the doc:**
+
+- Added **Pipeline 1 (recipient conversion / viral loop)** as TOP priority — the diagnosed failure had no pipeline.
+- **Meta ads → DORMANT** (5× CPI on non-converting funnel); **TikTok ads folded into it** (not standalone).
+- Reordered around distribution (ASO/blog/social ahead of paid); added Reddit/App Store editorial/creator-seeding bets.
+- **90-min Monday block was fiction** → 15-min minimum-week floor + graceful degradation + skip-impact table.
+- Build-status + credential-recovery tables; Friday status as the forcing function; staleness tripwire.
+
+**Cleanup review corrected the original gate (the ENOENT lesson):** literal grep missed the dynamically assembled `marketing/emails/` runtime path, so the moved nurture templates were restored and covered by a focused route test. The reviewed keep set also includes `marketing/email/` (admin route + audio-probe logs), `ads-analytics/` (analyzer output), `product demo`/`audio hooks`/`campaigns` (tiktok-pipeline input pools), and `gtm/` (gtm-daily skill data). The follow-up `launchctl list` showed no matching Porizo agents loaded.
+
+**Committed for review:** `673166cb`. Follow-up review removed personal recipient data from tracking, made the router portable, reconciled pipeline numbering/order, and corrected the already-built blog publishing path. Because the recipient CSV entered the unpushed commit, that commit must be amended or otherwise rewritten before push; a later deletion commit would not remove the data from history.
+
+**Key corrections found during pressure tests:**
+
+1. Meta MCP is live in-session → demote `meta` CLI to fallback (update memory note).
+2. Two legacy plists were retirement candidates during the pressure test; neither corresponding agent was loaded at follow-up.
+3. Real Remotion comp IDs: `Ad-FathersDay-Product-Vertical`, `Ad-DriveHome-V5`, `Video3-ThatSummer-V3` (not the design's assumed names).
+4. Cleanup is mostly untracked local clutter — the git commit will be tiny.
+
+---
+
 # Android → iOS parity (pure-native Kotlin) — superseded the Skip spike
 
 **Status:** the Android app is now **pure-native Kotlin + Jetpack Compose** (no Skip).

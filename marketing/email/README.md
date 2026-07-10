@@ -119,4 +119,4 @@ External list — not from production DB. Source TBD (early-list signups, prior 
 
 ## After-send tracking
 
-Capture for each cohort: Resend batch ID, recipient count, scheduled start/end, 24h open/click/reply rates, 7d unsubscribe count. Log to `marketing/emails/sent/2026-05-09-<cohort>.log`.
+Capture for each cohort: Resend batch ID, recipient count, scheduled start/end, 24h open/click/reply rates, 7d unsubscribe count. Log to `marketing/email/.state/sent/2026-05-09-<cohort>.log`.

@@ -6,6 +6,28 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-07-10 — Literal path grep is not enough before moving runtime assets
+
+**Trigger:** The marketing consolidation reported zero references for `marketing/emails/` and archived its three HTML files. The admin route actually built that path with `path.join(process.cwd(), "marketing", "emails")`, so the literal grep could not see it and template previews silently returned `File not found`.
+
+**Rule:** Before moving a directory, combine three checks: search both the full path and its final path component; inspect runtime path construction (`path.join`, URL/file maps, config); and run the narrow consumer smoke test after the move. A zero-result literal grep is evidence, not proof that a directory is dead.
+
+### 2026-07-10 — Grep for live path references BEFORE archiving any marketing dir (the ENOENT lesson, applied)
+
+**Trigger:** Consolidating `marketing/` — the plan (and the design agent) listed `marketing/email/` and `marketing/ads-analytics/` as archive targets because "cold email is paused" and "ads-analytics is gitignored output."
+
+**Mistake (prevented):** Both are load-bearing. A mandatory pre-move `grep -rn "marketing/<target>" scripts/ src/ package.json` caught: `src/routes/admin/marketing.js:282` reads `marketing/email/` templates; `co.porizo.audio-probe` (the plist we KEEP) logs into `marketing/email/.state/`; `scripts/ads/store.mjs`+`dashboard.mjs` write `marketing/ads-analytics/` every run. Archiving either would have reproduced the exact 3-day cold-email ENOENT outage this repo already suffered.
+
+**Rule:** "Paused channel" ≠ "dead directory." Before archiving ANY path, grep scripts/ + src/ + package.json + launchd plists for references; paste the result into the archive manifest. A dir can be referenced by a kept process's log path, not just its own code.
+
+### 2026-07-10 — Meta Ads MCP DOES work from Claude Code now (supersedes the 2026-05-29 note)
+
+**Trigger:** Marketing pipeline pressure test. `mcp__claude_ai_Meta_Ads__ads_get_ad_accounts` returned live account `29474028` (Acuoos Pty Ltd, mcp-enabled + queryable) directly from this Claude Code session.
+
+**Mistake (corrected):** The 2026-05-29 lesson said "Meta official Ads MCP can't OAuth via Claude Code CLI → use Graph API." That was true for the loopback-OAuth flow then; a Meta Ads MCP is now connected in-session and works for reads (and likely writes).
+
+**Rule:** Prefer the Meta Ads MCP as the primary read/publish path; keep the `meta` CLI (`~/meta-ads/.env`) + Graph API as fallback. The `scripts/ads/run.mjs` analyzer still reads `.env` directly, so measurement is independent of MCP auth.
+
 ### 2026-05-29 — iOS 14+ SKAN campaigns need `promoted_object` at the CAMPAIGN level (and the Meta MCP can't auth via Claude Code CLI)
 
 **Trigger:** Relaunching the Father's Day install campaign via Marketing API. Every ad-set creation under a SKAN campaign (`is_skadnetwork_attribution=true`) failed with `Invalid campaign attribution for non-iOS14+ campaign` (subcode 3955009) — even with valid iOS 15+ `user_os` targeting, the SKAdNetwork 4.0 toggle ON, and the iPad Store ID added. I spent most of a session assuming it was Meta-side propagation lag and waited ~12h; it persisted.
@@ -501,7 +523,7 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 
 **Trigger:** Building the U11 onboarding view (Android/Skip Fuse). Taps on the graph options registered (no crash) but the screen never advanced to the next question.
 
-**Mistake:** The `@Observable AndroidOnboardingModel` held a plain (non-observable) `OnboardingGraphEngine` and exposed `currentNode`/`currentQuestion` as computed properties that delegated straight to the engine. Mutating engine state (even while bumping an unrelated `step: Int`) did NOT re-render the view. On iOS whole-object invalidation often masks this; Skip→Compose is stricter — it only recomposes when `body` reads a property whose *stored* backing changed.
+**Mistake:** The `@Observable AndroidOnboardingModel` held a plain (non-observable) `OnboardingGraphEngine` and exposed `currentNode`/`currentQuestion` as computed properties that delegated straight to the engine. Mutating engine state (even while bumping an unrelated `step: Int`) did NOT re-render the view. On iOS whole-object invalidation often masks this; Skip→Compose is stricter — it only recomposes when `body` reads a property whose _stored_ backing changed.
 
 **Rule:** For a Skip `@Observable` model, the state that drives the UI must be a **stored** property on the model itself, and `body` must **read** it. Two-part fix: (1) store the observed state directly (`private(set) var currentNodeId: String`, reassigned on every mutation via a `sync()`), and (2) make any computed passthrough read that stored property first (`_ = currentNodeId`) so SwiftUI/Skip records the dependency. A computed property that only reads a hidden non-observable object is invisible to the recomposition tracker. Verify on the emulator, not just the host build — this class of bug compiles and passes host unit tests cleanly (the pure engine was 8/8 green) and only surfaces as a dead UI on device.
 
@@ -512,6 +534,7 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Trigger:** Wiring poem-share deep links (`porizo://poem-share/<id>`) to a claim sheet on Android/Skip.
 
 **Mistakes & fixes:**
+
 1. **Parser host coverage.** The custom-scheme branch only matched `porizo://receiver-handoff`; `porizo://poem-share` fell through to `.unknown` and was silently ignored — even though the `am start` intent "succeeded". **Rule:** when adding a deep-link route, update ALL THREE: the parser (route by host), the `AndroidManifest.xml` intent-filters (both the custom `porizo://<host>` and the `https` pathPrefix), and the router switch. A resolved intent that reaches `onOpenURL` can still no-op if the parser doesn't recognize the host. Add a parser regression test.
 2. **Warm-while-active delivery has no scenePhase transition.** A link arriving via `onNewIntent` while the app is already foregrounded doesn't fire `scenePhase→.active`, so a `.onChange(of: scenePhase)` pull never runs. Cold + warm-from-background work via `.task`/scenePhase; warm-while-active does not.
 3. **Skip @Observable observation is narrow.** Neither `.onChange(of:)` on a nested `@Observable`'s property, NOR a foreign singleton assigned to `@State var x = Singleton.shared`, reliably fires the observer on Skip. (Confirmed on-device: `onOpenURL` bumped the signal but the view's `.onChange` never ran.) **Rule:** for a cross-boundary (AppDelegate→view) notification, register a **direct main-actor callback** the view owns (`AndroidDeepLinkInbox.onLink = { consume() }`) and invoke it from `onOpenURL` — don't rely on @Observable signal propagation across instances. This composes with lesson-#5 (Skip recomposes only on reads of the model's own stored props): observation is per-instance and per-stored-property; anything crossing an instance or lifecycle boundary needs an explicit callback, not a reactive signal.

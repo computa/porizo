@@ -75,6 +75,13 @@ out/
 /marketing/archive/campaign-packs/mother-s-day-early-assets/
 !/marketing/archive/campaign-packs/mothers-day-2026-plan-pack/
 !/marketing/archive/campaign-packs/mothers-day-2026-plan-pack/**
+# Local consolidation payloads are intentionally not Git artifacts. In particular,
+# never commit historical recipient lists or regenerated media/node_modules.
+/marketing/archive/2026-07-consolidation/emails-superseded/email-addresses/
+/marketing/archive/2026-07-consolidation/reelfarm/
+/marketing/archive/2026-07-consolidation/screenshot-generations/
+/marketing/archive/2026-07-consolidation/scripts-2026-03/
+/marketing/archive/2026-07-consolidation/tiktok-trial/
 !/marketing/channels/
 !/marketing/channels/**/*.md
 !/marketing/channels/creators/creator-outreach.csv
@@ -104,9 +111,21 @@ out/
 !/marketing/email-templates/**
 !/marketing/blog/
 !/marketing/blog/**
+!/marketing/briefs/
+!/marketing/briefs/**/*.md
+!/marketing/social/
+/marketing/social/*
+!/marketing/social/README.md
+!/marketing/social/metrics.csv
+!/marketing/social/queue/
+!/marketing/social/queue/.gitkeep
+!/marketing/social/posted/
+!/marketing/social/posted/.gitkeep
 !/marketing/email/
 !/marketing/email/*.html
 !/marketing/email/*.txt
+!/marketing/emails/
+!/marketing/emails/*.html
 !/marketing/email/README.md
 marketing/email/*.py
 marketing/email/launchd/
@@ -142,6 +161,16 @@ venv/
 !.agents/skills/porizo-organic-demand-discovery/**
 !.agents/skills/porizo-swiftui-release-workflow/
 !.agents/skills/porizo-swiftui-release-workflow/**
+!.agents/skills/marketing/
+!.agents/skills/marketing/**
+# Track only the thin /marketing compatibility router. Keep every other
+# Claude Code file local to the machine.
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/marketing/
+!.claude/skills/marketing/**
 .codex/
 .cursor/
 .droid/

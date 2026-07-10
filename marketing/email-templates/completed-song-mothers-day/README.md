@@ -48,4 +48,4 @@ GROUP BY u.id, u.email, u.display_name;
 3. Send one test to `abcobimma@gmail.com` first.
 4. Review Resend deliverability insights — verify audio embed renders cleanly in test.
 5. After explicit approval, batch-send via Resend MCP/CLI.
-6. Capture batch ID, log to `marketing/emails/sent/2026-05-09-completed-song.log`.
+6. Capture batch ID, log to `marketing/email/.state/sent/2026-05-09-completed-song.log`.

@@ -54,4 +54,4 @@ GROUP BY u.id, u.email, u.display_name;
 3. Send one test to `abcobimma@gmail.com` first — verify rendering, link clicks resolve, plain-text fallback present.
 4. Review Resend deliverability insights. Resolve all `Needs attention` items.
 5. After explicit approval, batch-send via `resend emails batch --file ...` or Resend MCP.
-6. Capture batch ID, monitor delivery rate for 2 hours, log to `marketing/emails/sent/2026-05-09-started-no-finish.log`.
+6. Capture batch ID, monitor delivery rate for 2 hours, log to `marketing/email/.state/sent/2026-05-09-started-no-finish.log`.

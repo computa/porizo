@@ -229,6 +229,22 @@ describe("admin marketing routes", () => {
     assert.equal(custom.file, "custom-route.html");
   });
 
+  test("loads every allowlisted nurture template from the runtime directory", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/marketing/email-templates",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const templates = response.json().templates;
+    assert.deepEqual(
+      templates.map((template) => template.id),
+      ["email-1-introduction", "email-2-social-proof", "email-3-final-nudge"],
+    );
+    assert.ok(templates.every((template) => template.html && !template.error));
+  });
+
   test("lists all cold-email campaigns while preserving active pending_count behavior", async () => {
     await seedColdEmailCampaign(db, {
       id: "cold-active",
