@@ -3,9 +3,12 @@
     "apps": [],
     "details": [
       {
-        "appID": "5VCH6937XM.com.porizo.PorizoApp",
+        "appID": "5VCH6937XM.porizo.ios.app.PorizoApp",
         "paths": ["/play/*", "/s/*", "/poem/*", "/create*", "/verify-email*"]
       }
     ]
+  },
+  "appclips": {
+    "apps": ["5VCH6937XM.porizo.ios.app.PorizoApp.Clip"]
   }
 }

@@ -5,7 +5,7 @@ const APPLE_APP_SITE_ASSOCIATION = Object.freeze({
     apps: [],
     details: [
       {
-        appID: "5VCH6937XM.com.porizo.PorizoApp",
+        appID: "5VCH6937XM.porizo.ios.app.PorizoApp",
         paths: [
           "/play/*",
           "/s/*",
@@ -15,6 +15,9 @@ const APPLE_APP_SITE_ASSOCIATION = Object.freeze({
         ],
       },
     ],
+  },
+  appclips: {
+    apps: ["5VCH6937XM.porizo.ios.app.PorizoApp.Clip"],
   },
 });
 

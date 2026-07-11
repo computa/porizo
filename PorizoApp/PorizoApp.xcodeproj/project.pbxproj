@@ -8,9 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2091207008B919635E18D36A /* PorizoAppTests.swift */; };
+		45E6FCC7A6D68B9DB42A4E50 /* PorizoAppClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = CB2EEDF2B5604757C0575A68 /* PorizoAppClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, CodeSignOnCopy, ); }; };
 		47A444B550C8A4E76FB4B8B8 /* WarmCanvasFlowRobustnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0CD6A49851A32FDCBA08D8 /* WarmCanvasFlowRobustnessTests.swift */; };
 		48F2C3B4A596877665544332 /* PhoneNumberFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F2C3B4A596877665544331 /* PhoneNumberFormattingTests.swift */; };
 		5B7D92A10C4E48F4A9C74236 /* AppUpdatePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */; };
+		76FA28ED9B6C2452C0C16E50 /* PorizoNotificationServiceExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2A3B4C5D6E7F8 /* PorizoNotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, CodeSignOnCopy, ); }; };
 		7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26659D1834DD6EF1AEE67805 /* Foundation.framework */; };
 		8D4E6F70123456789ABCDEF1 /* APIContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4E6F70123456789ABCDEF0 /* APIContractTests.swift */; };
 		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
@@ -20,14 +22,18 @@
 		A1B2C3D4E5F6A7B8C9D0E1FA /* PhoneNumberNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F3 /* PhoneNumberNormalizerTests.swift */; };
 		A34F0489F3E9AD9E69473B62 /* FacebookCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8CBBA884DAF16B77F3B24AFC /* FacebookCore */; };
 		A560F92B3AC8AF9CB7FB056B /* AdServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C21605D8656A2E544391B0FD /* AdServices.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
+		A855260E0DE0F1130CE69256 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26659D1834DD6EF1AEE67805 /* Foundation.framework */; };
 		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
+		BBD9AB927B0EC373A31EB95B /* AppClipReceiverModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6F4B82FC933A53E2FCF609F /* AppClipReceiverModel.swift */; };
 		C111E1F02FE8009300CFB084 /* PhoneNumberKit in Frameworks */ = {isa = PBXBuildFile; productRef = C111E1EF2FE8009300CFB084 /* PhoneNumberKit */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
 		C173AAB22F24754C00DAC87B /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAB12F24754C00DAC87B /* FirebaseAnalyticsCore */; };
 		C1E21D1B2FB1620A005FB997 /* AppsFlyerLib in Frameworks */ = {isa = PBXBuildFile; productRef = C1E21D1A2FB1620A005FB997 /* AppsFlyerLib */; };
 		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
 		C3D4E5F6A7B8C9D0E1F2A3B4 /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* OneSignalExtension */; };
+		C9227903D8F100F2177E3C1F /* PorizoAppClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07D478345F34D2EB1BD2082 /* PorizoAppClipApp.swift */; };
 		D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */; };
+		D80CEA9E35D1FD63539513A1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 56A7923F180739E040474757 /* Assets.xcassets */; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* NotificationService.swift */; };
 		E6F7A8B9C0D12E3F4A5B6C7D /* PushNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */; };
 		E9F14A2F5D7E8B9012345678 /* TikTokOpenSDKCore in Frameworks */ = {isa = PBXBuildFile; productRef = E9F14A2D5D7E8B9012345678 /* TikTokOpenSDKCore */; };
@@ -49,6 +55,13 @@
 			remoteGlobalIDString = C125A4862F05F57600120F9A;
 			remoteInfo = PorizoApp;
 		};
+		9D1EAC10908AF66C0FB7956B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C125A47F2F05F57600120F9A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E3D5C3B58BF5030764EAE45;
+			remoteInfo = PorizoAppClip;
+		};
 		F2A3B4C5D6E7F8A9B0C1D2E3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C125A47F2F05F57600120F9A /* Project object */;
@@ -58,18 +71,49 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		36139E2240707B3BB6278ABD /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				76FA28ED9B6C2452C0C16E50 /* PorizoNotificationServiceExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		81843ACD4E71FDE947D89E36 /* Embed App Clips */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/AppClips";
+			dstSubfolderSpec = 16;
+			files = (
+				45E6FCC7A6D68B9DB42A4E50 /* PorizoAppClip.app in Embed App Clips */,
+			);
+			name = "Embed App Clips";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		20334338BC96B731FCB0496B /* PorizoAppClip.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = PorizoAppClip.entitlements; sourceTree = "<group>"; };
 		2091207008B919635E18D36A /* PorizoAppTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PorizoAppTests.swift; path = PorizoAppTests/PorizoAppTests.swift; sourceTree = "<group>"; };
 		26659D1834DD6EF1AEE67805 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		48F2C3B4A596877665544331 /* PhoneNumberFormattingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhoneNumberFormattingTests.swift; path = PorizoAppTests/PhoneNumberFormattingTests.swift; sourceTree = "<group>"; };
+		56A7923F180739E040474757 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppUpdatePolicyTests.swift; path = PorizoAppTests/AppUpdatePolicyTests.swift; sourceTree = "<group>"; };
 		8D4E6F70123456789ABCDEF0 /* APIContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = APIContractTests.swift; path = PorizoAppTests/APIContractTests.swift; sourceTree = "<group>"; };
+		976B76170509A730FC16033E /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F6A7B8C9D0E1F3 /* PhoneNumberNormalizerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhoneNumberNormalizerTests.swift; path = PorizoAppTests/PhoneNumberNormalizerTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6A7B8C9D0E1F5 /* RecipientMessageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RecipientMessageTests.swift; path = PorizoAppTests/RecipientMessageTests.swift; sourceTree = "<group>"; };
 		A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundURLSessionManagerTests.swift; path = PorizoAppTests/BackgroundURLSessionManagerTests.swift; sourceTree = "<group>"; };
 		A7B8C9D0E1F2A3B4C5D6E7F8 /* PorizoNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PorizoNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B07D478345F34D2EB1BD2082 /* PorizoAppClipApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PorizoAppClipApp.swift; sourceTree = "<group>"; };
+		B6F4B82FC933A53E2FCF609F /* AppClipReceiverModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppClipReceiverModel.swift; sourceTree = "<group>"; };
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C21605D8656A2E544391B0FD /* AdServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AdServices.framework; path = System/Library/Frameworks/AdServices.framework; sourceTree = SDKROOT; };
+		CB2EEDF2B5604757C0575A68 /* PorizoAppClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoAppClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WAVWriterTests.swift; path = PorizoAppTests/WAVWriterTests.swift; sourceTree = "<group>"; };
 		D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundTaskManagerTests.swift; path = PorizoAppTests/BackgroundTaskManagerTests.swift; sourceTree = "<group>"; };
 		E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RenderPollingServiceTests.swift; path = PorizoAppTests/RenderPollingServiceTests.swift; sourceTree = "<group>"; };
@@ -89,6 +133,8 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C125A4892F05F57600120F9A /* PorizoApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = PorizoApp;
 			sourceTree = "<group>";
 		};
@@ -100,6 +146,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7708D87B7DAD6E8DDF8E0A5F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A855260E0DE0F1130CE69256 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +193,19 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+		5B0530A869F37A06C8C8D6D5 /* PorizoAppClip */ = {
+			isa = PBXGroup;
+			children = (
+				B07D478345F34D2EB1BD2082 /* PorizoAppClipApp.swift */,
+				B6F4B82FC933A53E2FCF609F /* AppClipReceiverModel.swift */,
+				976B76170509A730FC16033E /* Info.plist */,
+				20334338BC96B731FCB0496B /* PorizoAppClip.entitlements */,
+				56A7923F180739E040474757 /* Assets.xcassets */,
+			);
+			name = PorizoAppClip;
+			path = PorizoAppClip;
+			sourceTree = "<group>";
+		};
 		B8C9D0E1F2A3B4C5D6E7F8A9 /* PorizoNotificationServiceExtension */ = {
 			isa = PBXGroup;
 			children = (
@@ -165,6 +232,7 @@
 				F42E208BD3CA9F975502FE9C /* Frameworks */,
 				D3E9CCFCBDA2A9CA3FCA6EBB /* PorizoAppTests */,
 				C111F5002FE8516500CFB084 /* Recovered References */,
+				5B0530A869F37A06C8C8D6D5 /* PorizoAppClip */,
 			);
 			sourceTree = "<group>";
 		};
@@ -174,6 +242,7 @@
 				C125A4872F05F57600120F9A /* PorizoApp.app */,
 				FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */,
 				A7B8C9D0E1F2A3B4C5D6E7F8 /* PorizoNotificationServiceExtension.appex */,
+				CB2EEDF2B5604757C0575A68 /* PorizoAppClip.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -214,6 +283,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		5E3D5C3B58BF5030764EAE45 /* PorizoAppClip */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7E9800A4420618FCC33629D6 /* Build configuration list for PBXNativeTarget "PorizoAppClip" */;
+			buildPhases = (
+				B83EC0FE32F0437628BA01DB /* Sources */,
+				7708D87B7DAD6E8DDF8E0A5F /* Frameworks */,
+				6316B95539B012F09D676B22 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PorizoAppClip;
+			productName = PorizoAppClip;
+			productReference = CB2EEDF2B5604757C0575A68 /* PorizoAppClip.app */;
+			productType = "com.apple.product-type.application.on-demand-install-capable";
+		};
 		A3B4C5D6E7F8A9B0C1D2E3F4 /* PorizoNotificationServiceExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B4C5D6E7F8A9B0C1D2E3F4A5 /* Build configuration list for PBXNativeTarget "PorizoNotificationServiceExtension" */;
@@ -238,6 +324,8 @@
 				C125A4832F05F57600120F9A /* Sources */,
 				C125A4842F05F57600120F9A /* Frameworks */,
 				C125A4852F05F57600120F9A /* Resources */,
+				81843ACD4E71FDE947D89E36 /* Embed App Clips */,
+				36139E2240707B3BB6278ABD /* Embed App Extensions */,
 				C173AAB32F247B0000DAC87C /* Ensure Firebase dSYMs */,
 				C173AAB12F247A0000DAC87A /* Firebase Crashlytics */,
 			);
@@ -245,6 +333,7 @@
 			);
 			dependencies = (
 				C5D6E7F8A9B0C1D2E3F4A5B6 /* PBXTargetDependency */,
+				2E9272FEF3BEAA7FAF8F6FC7 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				C125A4892F05F57600120F9A /* PorizoApp */,
@@ -287,6 +376,10 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					5E3D5C3B58BF5030764EAE45 = {
+						CreatedOnToolsVersion = 26.0;
+						ProvisioningStyle = Automatic;
+					};
 					A3B4C5D6E7F8A9B0C1D2E3F4 = {
 						CreatedOnToolsVersion = 26.0;
 					};
@@ -321,11 +414,20 @@
 				C125A4862F05F57600120F9A /* PorizoApp */,
 				F2177A4E3D37EAF8674921DA /* PorizoAppTests */,
 				A3B4C5D6E7F8A9B0C1D2E3F4 /* PorizoNotificationServiceExtension */,
+				5E3D5C3B58BF5030764EAE45 /* PorizoAppClip */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		6316B95539B012F09D676B22 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D80CEA9E35D1FD63539513A1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C125A4852F05F57600120F9A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -425,6 +527,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B83EC0FE32F0437628BA01DB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C9227903D8F100F2177E3C1F /* PorizoAppClipApp.swift in Sources */,
+				BBD9AB927B0EC373A31EB95B /* AppClipReceiverModel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C125A4832F05F57600120F9A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -443,6 +554,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		2E9272FEF3BEAA7FAF8F6FC7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = PorizoAppClip;
+			target = 5E3D5C3B58BF5030764EAE45 /* PorizoAppClip */;
+			targetProxy = 9D1EAC10908AF66C0FB7956B /* PBXContainerItemProxy */;
+		};
 		5D702CCFA1A2369A225586B4 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = PorizoApp;
@@ -458,6 +575,57 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		07379275BF486A95C0DAE11F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = PorizoAppClip/PorizoAppClip.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 148;
+				DEVELOPMENT_TEAM = 5VCH6937XM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PorizoAppClip/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.5.27;
+				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.Clip;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Porizo App Clip Development";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		37069A9BF0BA7AB754098C5E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = PorizoAppClip/PorizoAppClip.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 148;
+				DEVELOPMENT_TEAM = 5VCH6937XM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PorizoAppClip/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.5.27;
+				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.Clip;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Porizo App Clip Development";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		C125A4902F05F57800120F9A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -601,8 +769,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 148;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -619,7 +788,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5.26;
+				MARKETING_VERSION = 1.5.27;
 				PORIZO_FACEBOOK_ADS_APP_ID = 1984455025792561;
 				PORIZO_FACEBOOK_CLIENT_TOKEN = 5f5ef71af5f6f046f514bccf946c7c0f;
 				PORIZO_TIKTOK_BUSINESS_ACCESS_TOKEN = "";
@@ -628,6 +797,7 @@
 				PORIZO_TIKTOK_REDIRECT_URI = "https://porizo.co/tiktok/share-callback";
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Porizo Development App Clip 20260711";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -645,8 +815,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 148;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -663,7 +834,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5.26;
+				MARKETING_VERSION = 1.5.27;
 				PORIZO_FACEBOOK_ADS_APP_ID = 1984455025792561;
 				PORIZO_FACEBOOK_CLIENT_TOKEN = 5f5ef71af5f6f046f514bccf946c7c0f;
 				PORIZO_TIKTOK_BUSINESS_ACCESS_TOKEN = "";
@@ -672,6 +843,7 @@
 				PORIZO_TIKTOK_REDIRECT_URI = "https://porizo.co/tiktok/share-callback";
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Porizo Development App Clip 20260711";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -702,7 +874,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PorizoNotificationServiceExtension/PorizoNotificationServiceExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CURRENT_PROJECT_VERSION = 148;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
@@ -714,7 +886,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5.26;
+				MARKETING_VERSION = 1.5.27;
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.NotificationServiceExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -746,7 +918,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PorizoNotificationServiceExtension/PorizoNotificationServiceExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CURRENT_PROJECT_VERSION = 148;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
@@ -758,7 +930,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5.26;
+				MARKETING_VERSION = 1.5.27;
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.NotificationServiceExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -776,6 +948,15 @@
 			buildConfigurations = (
 				F2177BE9D7B0CCC777DBB038 /* Release */,
 				D64D734517A111905134636D /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7E9800A4420618FCC33629D6 /* Build configuration list for PBXNativeTarget "PorizoAppClip" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				07379275BF486A95C0DAE11F /* Release */,
+				37069A9BF0BA7AB754098C5E /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

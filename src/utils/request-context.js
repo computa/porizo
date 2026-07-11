@@ -10,9 +10,13 @@
  */
 function isAppContext(request) {
   const headers = (request && request.headers) || {};
+  const ua = headers["user-agent"] || "";
+  // App Clips are acquisition surfaces, not claimed-device playback clients.
+  // They must remain behind the install-and-claim wall even though they send
+  // ephemeral device metadata for receiver-session attribution.
+  if (ua.startsWith("PorizoAppClip/")) return false;
   if (headers["x-device-token"]) return true;
   if (headers["x-device-id"] && headers["x-platform"]) return true;
-  const ua = headers["user-agent"] || "";
   return ua.startsWith("PorizoApp/");
 }
 

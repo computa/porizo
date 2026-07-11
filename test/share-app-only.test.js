@@ -186,6 +186,24 @@ describe("GET /share/:id app_only flag", () => {
     );
     assert.ok(body.web_stream_url.includes("/audio"));
   });
+
+  it("keeps App Clip recipients inside the install-and-claim funnel", async () => {
+    const id = await seedShare();
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${id}`,
+      headers: {
+        "user-agent": "PorizoAppClip/1",
+        "x-device-id": "ephemeral-app-clip-device",
+        "x-platform": "ios",
+      },
+    });
+    const body = JSON.parse(res.body);
+    assert.equal(body.app_only, true);
+    assert.equal(body.web_stream_url, null);
+    assert.ok(body.track, "Clip still receives personalized gift context");
+    assert.ok(body.app_download_url, "Clip retains the full-app fallback");
+  });
 });
 
 describe("share.mp4 + download.mp4 are teaser-only and ungated for crawlers", () => {

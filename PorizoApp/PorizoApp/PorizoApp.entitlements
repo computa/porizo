@@ -18,5 +18,9 @@
 		<string>applinks:*.porizo.co</string>
 		<string>applinks:porizo.onelink.me</string>
 	</array>
+	<key>com.apple.developer.associated-appclip-app-identifiers</key>
+	<array>
+		<string>$(AppIdentifierPrefix)porizo.ios.app.PorizoApp.Clip</string>
+	</array>
 </dict>
 </plist>

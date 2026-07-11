@@ -16,9 +16,11 @@
     <string>Apple Distribution: Acuoos Pty Ltd (5VCH6937XM)</string>
     <key>provisioningProfiles</key>
     <dict>
-        <key>porizo.ios.app.PorizoApp</key>
-        <string>Porizo App Store 20260605</string>
-        <key>porizo.ios.app.PorizoApp.NotificationServiceExtension</key>
+		<key>porizo.ios.app.PorizoApp</key>
+		<string>Porizo App Store App Clip 20260711</string>
+		<key>porizo.ios.app.PorizoApp.Clip</key>
+		<string>Porizo App Clip App Store</string>
+		<key>porizo.ios.app.PorizoApp.NotificationServiceExtension</key>
         <string>Porizo NSE App Store 20260605</string>
     </dict>
 </dict>
