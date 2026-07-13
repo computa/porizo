@@ -588,7 +588,7 @@
 				CODE_SIGN_ENTITLEMENTS = PorizoAppClip/PorizoAppClip.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 151;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PorizoAppClip/Info.plist;
@@ -614,7 +614,7 @@
 				CODE_SIGN_ENTITLEMENTS = PorizoAppClip/PorizoAppClip.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 151;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PorizoAppClip/Info.plist;
@@ -775,7 +775,7 @@
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 151;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -821,7 +821,7 @@
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 151;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -878,7 +878,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PorizoNotificationServiceExtension/PorizoNotificationServiceExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 151;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
@@ -922,7 +922,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PorizoNotificationServiceExtension/PorizoNotificationServiceExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 151;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
