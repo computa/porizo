@@ -55,6 +55,21 @@ struct AuthView: View {
                             .padding(.horizontal, DesignTokens.spacing20)
                             .padding(.bottom, DesignTokens.spacing32)
                     }
+                } else if isMagicFlowResolving {
+                    // A magic flow is mid-resolution (opening/exchanging, or a
+                    // recovery/success just resolved) but the presentation has
+                    // momentarily gone nil during the appState transition. Show
+                    // a neutral progress placeholder rather than briefly
+                    // flashing the email-entry screen underneath the completing
+                    // login.
+                    VStack(spacing: DesignTokens.spacing16) {
+                        Spacer(minLength: 120)
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(DesignTokens.gold)
+                        Spacer(minLength: 120)
+                    }
+                    .frame(maxWidth: .infinity)
                 } else {
                     VStack(spacing: 0) {
                         Spacer(minLength: 24)
@@ -215,6 +230,19 @@ struct AuthView: View {
     private var loginPresentation: MagicLoginPresentation? {
         guard authManager.pendingMagicLoginPresentation?.purpose == .login else { return nil }
         return authManager.pendingMagicLoginPresentation
+    }
+
+    /// True while a magic-login flow is actively resolving. Used to suppress
+    /// the email-entry default during the brief window where the presentation
+    /// is nil but the flow is completing (post-recovery appState transition),
+    /// preventing the login screen from flashing before login finishes.
+    private var isMagicFlowResolving: Bool {
+        switch authManager.magicLoginState {
+        case .opening, .exchanging, .submitting, .legacyRecovery, .success:
+            return true
+        default:
+            return false
+        }
     }
 
     private func resendMagicLink(to email: String) {

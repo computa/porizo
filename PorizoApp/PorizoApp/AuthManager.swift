@@ -482,14 +482,17 @@ class AuthManager {
     @discardableResult
     func handleMagicLoginURL(_ url: URL) async -> Bool {
         guard let link = MagicLoginLink.parse(url) else { return false }
+        // A scene-phase status poll is frequently in flight when the link is
+        // tapped. Cancel it and drain it so it cannot mutate state underneath
+        // us — but NEVER let its result short-circuit this handler. The link
+        // secret is the authoritative sign-in signal, so an opened URL must
+        // always proceed to the direct exchange below. (Previously a poll that
+        // happened to resolve "terminal" made the FIRST tap return early
+        // without exchanging, so the user had to tap twice.)
         if let magicStatusTask {
             magicStatusTask.cancel()
-            let reachedTerminalState = await magicStatusTask.value
+            _ = await magicStatusTask.value
             self.magicStatusTask = nil
-            if reachedTerminalState,
-               pendingMagicLoginPresentation?.transactionId != link.transactionId {
-                return true
-            }
         }
         guard !isDirectMagicExchangeInFlight else { return true }
         isDirectMagicExchangeInFlight = true
