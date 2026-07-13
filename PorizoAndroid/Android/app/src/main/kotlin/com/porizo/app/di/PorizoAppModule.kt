@@ -3,6 +3,7 @@ package com.porizo.app.di
 import android.content.Context
 import com.porizo.app.BuildConfig
 import com.porizo.core.data.PorizoDataGraph
+import com.porizo.core.domain.repository.PendingMagicLoginStore
 import com.porizo.core.domain.platform.GoogleSignInGateway
 import com.porizo.core.domain.platform.DeviceTrustGateway
 import com.porizo.core.domain.platform.PlayBillingGateway
@@ -67,6 +68,11 @@ object PorizoAppModule {
     @Provides
     fun provideAuthRepository(dataGraph: PorizoDataGraph): AuthRepository =
         dataGraph.authRepository
+
+    @Provides
+    @Singleton
+    fun providePendingMagicLoginStore(dataGraph: PorizoDataGraph): PendingMagicLoginStore =
+        dataGraph.pendingMagicLoginStore
 
     @Provides
     fun provideCreateRepository(dataGraph: PorizoDataGraph): CreateRepository =

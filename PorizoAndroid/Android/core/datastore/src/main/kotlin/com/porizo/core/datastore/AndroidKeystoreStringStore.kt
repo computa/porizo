@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.porizo.core.domain.repository.PendingMagicLoginStore
+import com.porizo.core.model.PendingMagicLogin
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -16,6 +18,68 @@ interface SecureStringStore {
     fun getString(key: String): String?
     fun putString(key: String, value: String)
     fun removeString(key: String)
+}
+
+class AndroidPendingMagicLoginStore(
+    context: Context,
+    private val secureStore: SecureStringStore = AndroidKeystoreStringStore(
+        context = context,
+        keyAlias = "porizo_android_magic_login_key",
+        preferencesName = PREFERENCES_NAME,
+    ),
+) : PendingMagicLoginStore {
+    override fun save(pending: PendingMagicLogin, requestSecret: String) {
+        require(pending.transactionId.isNotBlank() && pending.email.isNotBlank() && requestSecret.isNotBlank())
+        val candidates = ids().filterNot { it == pending.transactionId }.plus(pending.transactionId)
+        val ids = candidates.takeLast(MAX_PENDING)
+        candidates.dropLast(MAX_PENDING).forEach { evictedId ->
+            secureStore.removeString(secretKey(evictedId))
+        }
+        secureStore.putString(secretKey(pending.transactionId), requestSecret)
+        secureStore.putString(INDEX_KEY, ids.joinToString("\n"))
+        secureStore.putString(
+            PRESENTATION_KEY,
+            listOf(
+                pending.transactionId,
+                pending.email,
+                pending.expiresAt,
+                pending.resendAvailableAtEpochSeconds.toString(),
+            ).joinToString("\n"),
+        )
+    }
+
+    override fun getPending(): PendingMagicLogin? {
+        val parts = secureStore.getString(PRESENTATION_KEY)?.split("\n") ?: return null
+        if (parts.size != 4) return null
+        return PendingMagicLogin(
+            transactionId = parts[0].takeIf(String::isNotBlank) ?: return null,
+            email = parts[1].takeIf(String::isNotBlank) ?: return null,
+            expiresAt = parts[2].takeIf(String::isNotBlank) ?: return null,
+            resendAvailableAtEpochSeconds = parts[3].toLongOrNull() ?: return null,
+        )
+    }
+
+    override fun getRequestSecret(transactionId: String): String? = secureStore.getString(secretKey(transactionId))
+
+    override fun remove(transactionId: String) {
+        secureStore.removeString(secretKey(transactionId))
+        secureStore.putString(INDEX_KEY, ids().filterNot { it == transactionId }.joinToString("\n"))
+        if (getPending()?.transactionId == transactionId) {
+            secureStore.removeString(PRESENTATION_KEY)
+        }
+    }
+
+    private fun ids(): List<String> = secureStore.getString(INDEX_KEY)
+        .orEmpty().lineSequence().filter { it.isNotBlank() }.toList()
+
+    private fun secretKey(transactionId: String) = "magic_request_secret_$transactionId"
+
+    companion object {
+        const val PREFERENCES_NAME = "porizo_magic_login_secure_store"
+        private const val INDEX_KEY = "magic_transaction_index"
+        private const val PRESENTATION_KEY = "magic_pending_presentation"
+        private const val MAX_PENDING = 8
+    }
 }
 
 class AndroidKeystoreStringStore(

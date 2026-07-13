@@ -2,9 +2,58 @@ package com.porizo.core.domain.deeplink
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class DeepLinkParserTest {
     private val parser = DeepLinkParser()
+
+    @Test
+    fun exactAndroidMagicLinkParsesBothLinkValues() {
+        assertEquals(
+            DeepLinkRoute.AndroidMagicLogin("tx_123", "link-secret"),
+            parser.parse("https://auth.porizo.co/auth/magic/android?transaction_id=tx_123#secret=link-secret"),
+        )
+    }
+
+    @Test
+    fun magicLinkRejectsWrongSurfaceAndAmbiguousValues() {
+        val rejected = listOf(
+            "http://auth.porizo.co/auth/magic/android?transaction_id=tx#secret=s",
+            "porizo://auth/magic/android?transaction_id=tx#secret=s",
+            "https://auth.porizo.co.evil.test/auth/magic/android?transaction_id=tx#secret=s",
+            "https://auth.porizo.co/auth/magic/ios?transaction_id=tx#secret=s",
+            "https://auth.porizo.co/auth/magic/android/extra?transaction_id=tx#secret=s",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=tx&transaction_id=other#secret=s",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=tx#secret=s&secret=other",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=#secret=s",
+            "https://auth.porizo.co:443/auth/magic/android?transaction_id=tx#secret=s",
+            "https://user@auth.porizo.co/auth/magic/android?transaction_id=tx#secret=s",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=tx&extra=x#secret=s",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=tx&secret=s",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=tx#secret=s&extra=x",
+        )
+        assertTrue(rejected.all { parser.parse(it) is DeepLinkRoute.Unknown })
+    }
+
+    @Test
+    fun customSchemeMagicResumeCarriesOnlyTransactionId() {
+        assertEquals(
+            DeepLinkRoute.MagicLoginResume("tx_123"),
+            parser.parse("porizo://auth/magic/resume?transaction_id=tx_123"),
+        )
+
+        val rejected = listOf(
+            "porizo://auth/magic/resume",
+            "porizo://auth/magic/resume?transaction_id=tx&request_secret=secret",
+            "porizo://auth/magic/resume?transaction_id=tx&link_secret=secret",
+            "porizo://auth/magic/resume?transaction_id=tx#secret=secret",
+            "porizo://auth/magic/resume?transaction_id=tx&transaction_id=other",
+            "porizo://user@auth/magic/resume?transaction_id=tx",
+            "porizo://auth:123/magic/resume?transaction_id=tx",
+            "porizo://auth/magic/resume/extra?transaction_id=tx",
+        )
+        assertTrue(rejected.all { parser.parse(it) is DeepLinkRoute.Unknown })
+    }
 
     @Test
     fun customSchemeRoutes() {

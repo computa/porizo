@@ -29,6 +29,10 @@ import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
 import com.porizo.core.model.JobStatus
 import com.porizo.core.model.LyricsDocument
+import com.porizo.core.model.MagicLoginRequest
+import com.porizo.core.model.MagicLoginSession
+import com.porizo.core.model.MagicLoginStatus
+import com.porizo.core.model.MagicLoginTransactionStatus
 import com.porizo.core.model.PendingRender
 import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.PoemBody
@@ -69,6 +73,10 @@ import com.porizo.core.network.ErrorEnvelopeDto
 import com.porizo.core.network.GoogleConsumableReceiptRequestDto
 import com.porizo.core.network.GoogleReceiptRequestDto
 import com.porizo.core.network.LyricsWrapperDto
+import com.porizo.core.network.MagicLoginExchangeRequestDto
+import com.porizo.core.network.MagicLoginExchangeResponseDto
+import com.porizo.core.network.MagicLoginNativeRequestDto
+import com.porizo.core.network.MagicLoginRequestDto
 import com.porizo.core.network.NetworkErrorMapper
 import com.porizo.core.network.PhoneRegisterRequestDto
 import com.porizo.core.network.PorizoApiService
@@ -112,6 +120,65 @@ class DefaultAuthRepository(
     private val appVersion: String,
     private val errorMapper: NetworkErrorMapper = NetworkErrorMapper(),
 ) : AuthRepository {
+    override suspend fun requestMagicLogin(email: String, purpose: String, requesterKey: String): MagicLoginRequest =
+        networkCall(errorMapper) {
+            service.requestMagicLogin(MagicLoginRequestDto(email, "android", purpose, requesterKey)).let {
+                MagicLoginRequest(it.transactionId, it.requestSecret, it.expiresAt)
+            }
+        }
+
+    override suspend fun exchangeMagicLogin(
+        transactionId: String,
+        linkSecret: String,
+        requestSecret: String,
+    ): MagicLoginSession = networkCall(errorMapper) {
+        service.exchangeMagicLogin(
+            MagicLoginExchangeRequestDto(transactionId, linkSecret, requestSecret, "android"),
+        ).let(::saveMagicLoginSession)
+    }
+
+    override suspend fun getMagicLoginStatus(
+        transactionId: String,
+        requestSecret: String,
+    ): MagicLoginStatus = networkCall(errorMapper) {
+        service.getMagicLoginStatus(MagicLoginNativeRequestDto(transactionId, requestSecret, "android")).let {
+            MagicLoginStatus(
+                status = when (it.status.lowercase()) {
+                    "pending" -> MagicLoginTransactionStatus.Pending
+                    "approved" -> MagicLoginTransactionStatus.Approved
+                    "expired" -> MagicLoginTransactionStatus.Expired
+                    "locked" -> MagicLoginTransactionStatus.Locked
+                    "consumed" -> MagicLoginTransactionStatus.Consumed
+                    "conflict" -> MagicLoginTransactionStatus.Conflict
+                    else -> throw PorizoFailure.Unknown("Unsupported magic login status.")
+                },
+                expiresAt = it.expiresAt,
+            )
+        }
+    }
+
+    override suspend fun completeMagicLogin(
+        transactionId: String,
+        requestSecret: String,
+    ): MagicLoginSession = networkCall(errorMapper) {
+        service.completeMagicLogin(MagicLoginNativeRequestDto(transactionId, requestSecret, "android"))
+            .let(::saveMagicLoginSession)
+    }
+
+    private fun saveMagicLoginSession(response: MagicLoginExchangeResponseDto): MagicLoginSession {
+        val session = MagicLoginSession(
+            response.userId,
+            response.accessToken,
+            response.refreshToken,
+            response.expiresIn ?: DEFAULT_EXPIRES_IN,
+        )
+        sessionStore.saveAuthSession(
+            AuthSession(session.userId, session.accessToken, session.refreshToken, session.expiresInSeconds),
+        )
+        sessionStore.clearDeviceToken()
+        return session
+    }
+
     override suspend fun restoreSession(): AuthSession? = sessionStore.loadAuthSession()
 
     override suspend fun saveSession(session: AuthSession) {

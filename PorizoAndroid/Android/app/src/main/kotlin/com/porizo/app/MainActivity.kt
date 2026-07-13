@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         activityHolder.set(this)
         resumeSignal.value += 1
+        authViewModel.refreshMagicLoginStatus()
     }
 
     override fun onPause() {
@@ -76,9 +77,16 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         val rawUrl = intent?.data?.toString() ?: return
+        // The direct link secret lives in the URL fragment. Remove it from the
+        // retained Activity intent before parsing so recreation cannot replay it.
+        intent.data = null
         val route = deepLinkParser.parse(rawUrl)
-        Log.i(TAG, "received app link: $rawUrl -> $route")
-        pendingDeepLink.value = route
+        Log.i(TAG, "received app link type=${route::class.simpleName}")
+        when (route) {
+            is DeepLinkRoute.AndroidMagicLogin -> authViewModel.consumeMagicLink(route)
+            is DeepLinkRoute.MagicLoginResume -> authViewModel.resumeMagicLogin(route)
+            else -> pendingDeepLink.value = route
+        }
     }
 
     /// DEBUG-only: `am start … --ez bypass_auth true` flips to an authed session

@@ -8,6 +8,13 @@ data class ErrorEnvelopeDto(
     val error: String?,
     val message: String?,
     val code: String?,
+    val details: ErrorDetailsDto? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class ErrorDetailsDto(
+    @Json(name = "masked_email") val maskedEmail: String? = null,
+    @Json(name = "auth_methods") val authMethods: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -37,6 +44,50 @@ data class SocialLoginRequestDto(
 
 @JsonClass(generateAdapter = true)
 data class RefreshRequestDto(@Json(name = "refresh_token") val refreshToken: String)
+
+@JsonClass(generateAdapter = true)
+data class MagicLoginRequestDto(
+    val email: String,
+    val platform: String,
+    val purpose: String,
+    @Json(name = "requester_key") val requesterKey: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class MagicLoginRequestResponseDto(
+    @Json(name = "transaction_id") val transactionId: String,
+    @Json(name = "request_secret") val requestSecret: String,
+    @Json(name = "expires_at") val expiresAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class MagicLoginExchangeRequestDto(
+    @Json(name = "transaction_id") val transactionId: String,
+    @Json(name = "link_secret") val linkSecret: String,
+    @Json(name = "request_secret") val requestSecret: String,
+    val platform: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class MagicLoginExchangeResponseDto(
+    @Json(name = "user_id") val userId: String,
+    @Json(name = "access_token") val accessToken: String,
+    @Json(name = "refresh_token") val refreshToken: String,
+    @Json(name = "expires_in") val expiresIn: Int?,
+)
+
+@JsonClass(generateAdapter = true)
+data class MagicLoginNativeRequestDto(
+    @Json(name = "transaction_id") val transactionId: String,
+    @Json(name = "request_secret") val requestSecret: String,
+    val platform: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class MagicLoginStatusResponseDto(
+    val status: String,
+    @Json(name = "expires_at") val expiresAt: String,
+)
 
 @JsonClass(generateAdapter = true)
 data class SocialAuthChallengeRequestDto(val provider: String)

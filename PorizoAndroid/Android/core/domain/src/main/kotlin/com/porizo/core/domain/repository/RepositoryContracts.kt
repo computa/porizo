@@ -14,6 +14,10 @@ import com.porizo.core.model.EnrollmentSession
 import com.porizo.core.model.GoogleReceiptResult
 import com.porizo.core.model.JobStatus
 import com.porizo.core.model.LyricsDocument
+import com.porizo.core.model.MagicLoginRequest
+import com.porizo.core.model.MagicLoginSession
+import com.porizo.core.model.MagicLoginStatus
+import com.porizo.core.model.PendingMagicLogin
 import com.porizo.core.model.PendingRender
 import com.porizo.core.model.PhoneRegisterResult
 import com.porizo.core.model.PoemBody
@@ -43,6 +47,17 @@ import com.porizo.core.model.VoiceProfile
 import com.porizo.core.model.VoiceProfileStatus
 
 interface AuthRepository {
+    suspend fun requestMagicLogin(email: String, purpose: String, requesterKey: String): MagicLoginRequest =
+        error("Magic login is not implemented by this repository.")
+    suspend fun exchangeMagicLogin(
+        transactionId: String,
+        linkSecret: String,
+        requestSecret: String,
+    ): MagicLoginSession = error("Magic login is not implemented by this repository.")
+    suspend fun getMagicLoginStatus(transactionId: String, requestSecret: String): MagicLoginStatus =
+        error("Magic login status is not implemented by this repository.")
+    suspend fun completeMagicLogin(transactionId: String, requestSecret: String): MagicLoginSession =
+        error("Magic login completion is not implemented by this repository.")
     suspend fun restoreSession(): AuthSession?
     suspend fun saveSession(session: AuthSession)
     suspend fun clearSession()
@@ -61,6 +76,13 @@ interface AuthRepository {
     suspend fun refresh(refreshToken: String): RefreshTokenResult
     suspend fun logout()
     suspend fun registerDevice(): DeviceRegistration
+}
+
+interface PendingMagicLoginStore {
+    fun save(pending: PendingMagicLogin, requestSecret: String)
+    fun getPending(): PendingMagicLogin?
+    fun getRequestSecret(transactionId: String): String?
+    fun remove(transactionId: String)
 }
 
 sealed interface ConfirmStoryResult {

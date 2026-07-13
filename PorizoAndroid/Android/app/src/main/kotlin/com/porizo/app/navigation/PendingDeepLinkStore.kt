@@ -25,6 +25,8 @@ class PendingDeepLinkStore(context: Context) {
             is DeepLinkRoute.ReceiverHandoff -> "receiver_handoff:$id"
             is DeepLinkRoute.Poem -> "poem:$id"
             is DeepLinkRoute.Unknown -> null
+            is DeepLinkRoute.AndroidMagicLogin -> null
+            is DeepLinkRoute.MagicLoginResume -> null
         }
 
     private fun String.decodeRoute(): DeepLinkRoute? {

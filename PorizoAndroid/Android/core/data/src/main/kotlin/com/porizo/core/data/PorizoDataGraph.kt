@@ -2,6 +2,8 @@ package com.porizo.core.data
 
 import android.content.Context
 import com.porizo.core.datastore.AndroidSessionStore
+import com.porizo.core.datastore.AndroidPendingMagicLoginStore
+import com.porizo.core.domain.repository.PendingMagicLoginStore
 import com.porizo.core.datastore.CreateDraftStore
 import com.porizo.core.datastore.RenderPollStore
 import com.porizo.core.network.AccessTokenProvider
@@ -12,6 +14,7 @@ class PorizoDataGraph private constructor(
     val sessionStore: AndroidSessionStore,
     val apiService: PorizoApiService,
     val authRepository: DefaultAuthRepository,
+    val pendingMagicLoginStore: PendingMagicLoginStore,
     val createRepository: DefaultCreateRepository,
     val renderRepository: DefaultRenderRepository,
     val libraryRepository: DefaultLibraryRepository,
@@ -66,6 +69,7 @@ class PorizoDataGraph private constructor(
                 sessionStore = sessionStore,
                 apiService = apiService,
                 authRepository = authRepository,
+                pendingMagicLoginStore = AndroidPendingMagicLoginStore(context),
                 createRepository = DefaultCreateRepository(
                     service = apiService,
                     draftStore = CreateDraftStore(context),

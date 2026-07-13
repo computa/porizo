@@ -3,6 +3,8 @@ package com.porizo.core.domain.deeplink
 import java.net.URI
 
 sealed interface DeepLinkRoute {
+    data class AndroidMagicLogin(val transactionId: String, val linkSecret: String) : DeepLinkRoute
+    data class MagicLoginResume(val transactionId: String) : DeepLinkRoute
     data class Share(val id: String) : DeepLinkRoute
     data class ReceiverHandoff(val id: String) : DeepLinkRoute
     data class Poem(val id: String) : DeepLinkRoute
@@ -19,6 +21,18 @@ class DeepLinkParser(
         if (uri.scheme == "porizo") {
             val query = parseQuery(uri.rawQuery)
             val pathParts = pathParts(uri.path)
+            if (uri.host == "auth" && uri.rawPath == "/magic/resume" && uri.rawFragment == null &&
+                uri.userInfo == null && uri.port == -1
+            ) {
+                val values = parseQueryValues(uri.rawQuery)
+                val transactionIds = values["transaction_id"].orEmpty()
+                if (values.keys == setOf("transaction_id") && transactionIds.size == 1 &&
+                    transactionIds.single().isNotBlank()
+                ) {
+                    return DeepLinkRoute.MagicLoginResume(decodeQueryValue(transactionIds.single()))
+                }
+                return DeepLinkRoute.Unknown(rawUrl)
+            }
             // Host-based (porizo://receiver-handoff/<id>): host = route, id = first path part.
             // Triple-slash (porizo:///receiver-handoff/<id>): route = first path part, id = second.
             val segment = if (uri.host.isNullOrBlank()) pathParts.getOrNull(0) else uri.host
@@ -42,6 +56,26 @@ class DeepLinkParser(
         }
 
         if (uri.scheme != "https") {
+            return DeepLinkRoute.Unknown(rawUrl)
+        }
+
+        if (uri.host.equals("auth.porizo.co", ignoreCase = true) &&
+            uri.port == -1 && uri.userInfo == null &&
+            uri.rawPath == "/auth/magic/android"
+        ) {
+            val query = parseQueryValues(uri.rawQuery)
+            val fragment = parseQueryValues(uri.rawFragment)
+            val transactionIds = query["transaction_id"].orEmpty()
+            val secrets = fragment["secret"].orEmpty()
+            if (query.keys == setOf("transaction_id") && fragment.keys == setOf("secret") &&
+                transactionIds.size == 1 && secrets.size == 1 &&
+                transactionIds.single().isNotBlank() && secrets.single().isNotBlank()
+            ) {
+                return DeepLinkRoute.AndroidMagicLogin(
+                    decodeQueryValue(transactionIds.single()),
+                    decodeQueryValue(secrets.single()),
+                )
+            }
             return DeepLinkRoute.Unknown(rawUrl)
         }
 
@@ -115,6 +149,17 @@ class DeepLinkParser(
                 key to parts.getOrElse(1) { "" }
             }
             .toMap()
+
+    private fun parseQueryValues(rawQuery: String?): Map<String, List<String>> =
+        rawQuery.orEmpty()
+            .split("&")
+            .filter { it.isNotBlank() }
+            .mapNotNull { pair ->
+                val parts = pair.split("=", limit = 2)
+                val key = parts.firstOrNull()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                key to parts.getOrElse(1) { "" }
+            }
+            .groupBy({ it.first }, { it.second })
 
     private fun pathParts(path: String?): List<String> =
         path.orEmpty().split("/").filter { it.isNotEmpty() }

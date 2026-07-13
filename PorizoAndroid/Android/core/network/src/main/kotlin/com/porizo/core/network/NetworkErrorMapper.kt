@@ -20,6 +20,16 @@ class NetworkErrorMapper(
             status = http.code(),
             code = envelope?.code ?: envelope?.error,
             message = envelope?.message ?: "Request failed with status ${http.code()}.",
+            details = envelope?.details?.let {
+                PorizoFailure.ServerDetails(
+                    maskedEmail = it.maskedEmail,
+                    authMethods = it.authMethods
+                        .orEmpty()
+                        .split(',')
+                        .map(String::trim)
+                        .filter(String::isNotEmpty),
+                )
+            },
         )
     }
 }

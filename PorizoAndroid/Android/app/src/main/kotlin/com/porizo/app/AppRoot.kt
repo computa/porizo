@@ -20,6 +20,7 @@ import com.porizo.core.domain.player.PlayerController
 import com.porizo.core.model.Occasion
 import com.porizo.core.ui.PorizoColors
 import com.porizo.core.ui.PorizoTheme
+import com.porizo.feature.auth.AuthPhase
 import com.porizo.feature.auth.AuthScreen
 import com.porizo.feature.auth.AuthViewModel
 import com.porizo.feature.claim.ClaimViewModel
@@ -54,6 +55,7 @@ fun AppRoot(
     var authPendingDeepLink by remember { mutableStateOf(pendingDeepLinkStore.load()) }
     var authRequested by rememberSaveable { mutableStateOf(false) }
     val authState by authViewModel.uiState.collectAsState()
+    val requiresMagicLoginPresentation = authState.phase.requiresMagicLoginPresentation()
 
     LaunchedEffect(authState.isAuthenticated, authPendingDeepLink) {
         if (authState.isAuthenticated && authPendingDeepLink != null) {
@@ -64,6 +66,13 @@ fun AppRoot(
     PorizoTheme {
         Surface(color = PorizoColors.Background) {
             when {
+                requiresMagicLoginPresentation && !authState.isAuthenticated -> {
+                    AuthScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        viewModel = authViewModel,
+                        onCancel = { authRequested = false },
+                    )
+                }
                 !onboardingCompleted -> {
                     val onboardingViewModel: OnboardingViewModel = viewModel()
                     OnboardingScreen(
@@ -131,6 +140,19 @@ fun AppRoot(
 private const val ONBOARDING_PREFS = "porizo_onboarding"
 private const val KEY_ONBOARDING_COMPLETED = "completed"
 private const val KEY_ONBOARDING_RECIPIENT = "recipient"
+
+private fun AuthPhase.requiresMagicLoginPresentation(): Boolean = when (this) {
+    AuthPhase.MagicEmailEntry,
+    AuthPhase.MagicLinkExchanging,
+    AuthPhase.MagicLinkWrongDevice,
+    is AuthPhase.MagicLinkSent,
+    is AuthPhase.MagicLinkExpired,
+    is AuthPhase.MagicLinkConflict,
+    is AuthPhase.MagicLinkLegacyRecovery,
+    is AuthPhase.MagicLinkLocked,
+    -> true
+    else -> false
+}
 
 private fun String?.toCreateOccasion(): Occasion =
     when (this) {

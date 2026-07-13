@@ -9,6 +9,8 @@
     <application
         android:name=".PorizoApplication"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="Porizo"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -49,6 +51,13 @@
                 <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/receiver-handoff/" />
             </intent-filter>
 
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="auth.porizo.co" android:path="/auth/magic/android" />
+            </intent-filter>
+
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -59,6 +68,13 @@
                 <data android:scheme="porizo" android:host="receiver-handoff" />
                 <data android:scheme="porizo" android:host="poem-share" />
                 <data android:scheme="porizo" android:host="poem" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="porizo" android:host="auth" android:path="/magic/resume" />
             </intent-filter>
         </activity>
     </application>

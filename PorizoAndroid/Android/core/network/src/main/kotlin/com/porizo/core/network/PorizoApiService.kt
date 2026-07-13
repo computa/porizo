@@ -15,6 +15,18 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface PorizoApiService {
+    @POST("auth/magic/request")
+    suspend fun requestMagicLogin(@Body body: MagicLoginRequestDto): MagicLoginRequestResponseDto
+
+    @POST("auth/magic/exchange")
+    suspend fun exchangeMagicLogin(@Body body: MagicLoginExchangeRequestDto): MagicLoginExchangeResponseDto
+
+    @POST("auth/magic/native/status")
+    suspend fun getMagicLoginStatus(@Body body: MagicLoginNativeRequestDto): MagicLoginStatusResponseDto
+
+    @POST("auth/magic/native/complete")
+    suspend fun completeMagicLogin(@Body body: MagicLoginNativeRequestDto): MagicLoginExchangeResponseDto
+
     @POST("auth/phone/send-code")
     suspend fun sendPhoneVerificationCode(@Body body: SendPhoneCodeRequestDto): SendPhoneCodeDto
 

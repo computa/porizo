@@ -106,6 +106,8 @@ fun AppNavigationShell(
                 selectedTab = AppTab.Home
                 routeNotice = "This link is not supported yet."
             }
+            is DeepLinkRoute.AndroidMagicLogin -> Unit
+            is DeepLinkRoute.MagicLoginResume -> Unit
         }
         onDeepLinkConsumed()
     }
