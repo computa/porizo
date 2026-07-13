@@ -2,39 +2,52 @@
 //  ReviewManager.swift
 //  PorizoApp
 //
-//  Smart app review prompting - triggers at emotional high points.
-//  Apple allows max 3 prompts per 365-day period per device.
-//
-//  Flow:
-//    1. Trigger fires (successful play / share)
-//    2. ReviewManager posts .reviewShouldShowPrePrompt (filtered by Apple cap,
-//       min-days-between-prompts, and pre-prompt-decline suppression window)
-//    3. RootView shows ReviewPrePromptSheet ("Are you enjoying Porizo?")
-//    4. "Yes" → userSaidEnjoyingApp() → SKStoreReviewController.requestReview
-//       "Not really" → userSaidNotEnjoyingApp() → suppression window starts
+//  Policy-aligned App Store review prompting at verified success moments.
 //
 
 import StoreKit
 import UIKit
 
 extension Notification.Name {
-    /// Posted by ReviewManager when an in-app pre-prompt sheet should be shown.
-    /// Listeners present the survey; ReviewManager itself does not own UI.
-    static let reviewShouldShowPrePrompt = Notification.Name("reviewShouldShowPrePrompt")
-
     /// Posted when an APNs push tells us a share recipient finished playing
     /// the song. UserInfo: `trackId`, `trackTitle`, optionally `recipientName`.
     static let recipientPlayedShare = Notification.Name("recipientPlayedShare")
 }
 
-/// Manages when to prompt users for App Store reviews
+struct ReviewPromptPolicy {
+    struct State {
+        let requestCount: Int
+        let lastRequestDate: Date?
+    }
+
+    let minimumDaysBetweenRequests: Int
+    let maximumRequestsPerYear: Int
+
+    static let production = ReviewPromptPolicy(
+        minimumDaysBetweenRequests: 120,
+        maximumRequestsPerYear: 3
+    )
+
+    func shouldRequestReview(state: State, now: Date) -> Bool {
+        guard state.requestCount < maximumRequestsPerYear else { return false }
+        guard let lastRequestDate = state.lastRequestDate else { return true }
+
+        let elapsedDays = Calendar.current.dateComponents(
+            [.day],
+            from: lastRequestDate,
+            to: now
+        ).day ?? 0
+        return elapsedDays >= minimumDaysBetweenRequests
+    }
+}
+
 @MainActor
 final class ReviewManager {
     static let shared = ReviewManager()
 
     private let defaults = UserDefaults.standard
+    private let policy = ReviewPromptPolicy.production
 
-    // UserDefaults keys
     private enum Keys {
         static let successfulPlaysCount = "review_successful_plays"
         static let successfulSharesCount = "review_successful_shares"
@@ -42,178 +55,78 @@ final class ReviewManager {
         static let lastPromptDate = "review_last_prompt_date"
         static let promptCount = "review_prompt_count"
         static let promptCountResetDate = "review_prompt_reset_date"
-        static let prePromptDeclinedDate = "review_pre_prompt_declined_date"
     }
 
-    // Configuration
-    //
-    // Tuning rationale (post recipient-played-push landing):
-    //   - Recipient-played is now the primary success trigger; play/share
-    //     events are secondary. We can safely raise the play/share thresholds
-    //     to filter out users who haven't actually shipped a song to anyone.
-    //   - 5 plays = user has heard at least 2-3 of their own renders, more
-    //     likely a returning user than a one-shot tryout.
-    //   - 2 shares = at least one share landed AND the user came back to
-    //     share again, a much stronger positive-intent signal than 1.
-    private let playsBeforeFirstPrompt = 5
-    private let playsBetweenPrompts = 5
-    private let sharesBeforeFirstPrompt = 2
-    private let sharesBetweenPrompts = 3
-    private let minDaysBetweenPrompts = 30      // At least 30 days between prompts
-    private let maxPromptsPerYear = 3           // Apple's limit
-    private let prePromptSuppressionDays = 90   // If user said "not really", don't re-ask for this long
+    private enum Trigger: String {
+        case completedPlayback = "play_complete"
+        case completedShare = "share_complete"
+        case recipientPlayed = "recipient_played"
+    }
 
     private init() {}
 
-    // MARK: - Event Tracking
-
-    /// Call when a song finishes playing successfully (reached the end)
     func recordSuccessfulPlay() {
-        let count = defaults.integer(forKey: Keys.successfulPlaysCount) + 1
-        defaults.set(count, forKey: Keys.successfulPlaysCount)
-
-        checkAndPromptIfAppropriate(trigger: "play_complete", playCount: count)
+        increment(Keys.successfulPlaysCount)
+        requestReviewIfAllowed(trigger: .completedPlayback)
     }
 
-    /// Call when a full render completes successfully
     func recordFullRenderComplete() {
-        let currentCount = defaults.integer(forKey: Keys.fullRendersCount)
-        defaults.set(currentCount + 1, forKey: Keys.fullRendersCount)
+        increment(Keys.fullRendersCount)
     }
 
-    /// Call when an APNs push tells us a share recipient finished playing
-    /// the song. This is Porizo's strongest positive signal — the gift landed
-    /// — so we always attempt the pre-prompt (still gated by Apple's yearly
-    /// cap, min-days-between-prompts, and post-decline silence window).
     func recordRecipientPlayed() {
-        triggerPrePromptIfAllowed(trigger: "recipient_played")
+        requestReviewIfAllowed(trigger: .recipientPlayed)
     }
 
-    /// Call when the system share sheet reports a completed share.
     func recordSuccessfulShare() {
-        let count = defaults.integer(forKey: Keys.successfulSharesCount) + 1
-        defaults.set(count, forKey: Keys.successfulSharesCount)
-
-        if count == sharesBeforeFirstPrompt {
-            triggerPrePromptIfAllowed(trigger: "first_successful_share")
-            return
-        }
-
-        if count > sharesBeforeFirstPrompt {
-            let sharesSinceThreshold = count - sharesBeforeFirstPrompt
-            if sharesSinceThreshold % sharesBetweenPrompts == 0 {
-                triggerPrePromptIfAllowed(trigger: "successful_share")
-            }
-        }
+        increment(Keys.successfulSharesCount)
+        requestReviewIfAllowed(trigger: .completedShare)
     }
 
-    // MARK: - Pre-Prompt Survey Responses
-
-    /// Called by ReviewPrePromptSheet when the user taps "Yes, love it!".
-    /// Bypasses the pre-prompt path and goes straight to the native review request.
-    func userSaidEnjoyingApp() {
-        print("[ReviewManager] User said enjoying → request native review")
-        requestReview(trigger: "pre_prompt_yes")
+    private func increment(_ key: String) {
+        defaults.set(defaults.integer(forKey: key) + 1, forKey: key)
     }
 
-    /// Called by ReviewPrePromptSheet when the user taps "Not really".
-    /// Records the decline so we don't re-prompt for `prePromptSuppressionDays` days.
-    func userSaidNotEnjoyingApp() {
-        print("[ReviewManager] User said not enjoying → suppress for \(prePromptSuppressionDays) days")
-        defaults.set(Date.now, forKey: Keys.prePromptDeclinedDate)
-    }
-
-    // MARK: - Prompt Logic
-
-    private func checkAndPromptIfAppropriate(trigger: String, playCount: Int) {
-        // First prompt after N plays
-        if playCount == playsBeforeFirstPrompt {
-            triggerPrePromptIfAllowed(trigger: trigger)
-            return
-        }
-
-        // Subsequent prompts every M plays after the first threshold
-        if playCount > playsBeforeFirstPrompt {
-            let playsSinceThreshold = playCount - playsBeforeFirstPrompt
-            if playsSinceThreshold % playsBetweenPrompts == 0 {
-                triggerPrePromptIfAllowed(trigger: trigger)
-            }
-        }
-    }
-
-    /// Decides whether to ask "Are you enjoying Porizo?". Filters out users who
-    /// recently declined, users we've already prompted up to Apple's cap, and
-    /// anyone we prompted in the last `minDaysBetweenPrompts` days. Posts a
-    /// notification so the UI layer can present the survey sheet.
-    private func triggerPrePromptIfAllowed(trigger: String) {
-        // Honor Apple's yearly limit on the *native* prompt — we won't burn it
-        // by showing the pre-prompt either, since "yes" leads straight to it.
+    private func requestReviewIfAllowed(trigger: Trigger) {
         resetYearlyCountIfNeeded()
-        let promptCount = defaults.integer(forKey: Keys.promptCount)
-        guard promptCount < maxPromptsPerYear else {
-            print("[ReviewManager] Skipping pre-prompt - hit yearly limit (\(maxPromptsPerYear))")
+        let state = ReviewPromptPolicy.State(
+            requestCount: defaults.integer(forKey: Keys.promptCount),
+            lastRequestDate: defaults.object(forKey: Keys.lastPromptDate) as? Date
+        )
+        let now = Date.now
+
+        guard policy.shouldRequestReview(state: state, now: now) else {
+            print("[ReviewManager] Review request suppressed by cooldown (trigger: \(trigger.rawValue))")
             return
         }
 
-        // Respect minimum days between native prompts (pre-prompt is a precursor)
-        if let lastPrompt = defaults.object(forKey: Keys.lastPromptDate) as? Date {
-            let daysSinceLastPrompt = Calendar.current.dateComponents([.day], from: lastPrompt, to: Date.now).day ?? 0
-            guard daysSinceLastPrompt >= minDaysBetweenPrompts else {
-                print("[ReviewManager] Skipping pre-prompt - only \(daysSinceLastPrompt) days since last native prompt")
-                return
-            }
+        guard let scene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else {
+            print("[ReviewManager] No active window scene")
+            return
         }
 
-        // If user previously said "not really", give them quiet time
-        if let declined = defaults.object(forKey: Keys.prePromptDeclinedDate) as? Date {
-            let daysSinceDecline = Calendar.current.dateComponents([.day], from: declined, to: Date.now).day ?? 0
-            guard daysSinceDecline >= prePromptSuppressionDays else {
-                print("[ReviewManager] Skipping pre-prompt - declined \(daysSinceDecline) days ago, suppression window \(prePromptSuppressionDays)d")
-                return
-            }
-        }
-
-        print("[ReviewManager] Posting pre-prompt notification (trigger: \(trigger))")
-        NotificationCenter.default.post(
-            name: .reviewShouldShowPrePrompt,
-            object: nil,
-            userInfo: ["trigger": trigger]
-        )
-    }
-
-    private func requestReview(trigger: String) {
-        print("[ReviewManager] Requesting native review (trigger: \(trigger))")
-
-        DispatchQueue.main.async {
-            guard let scene = UIApplication.shared.connectedScenes
-                .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else {
-                print("[ReviewManager] No active window scene")
-                return
-            }
-
-            SKStoreReviewController.requestReview(in: scene)
-
-            // Record that we prompted
-            self.defaults.set(Date.now, forKey: Keys.lastPromptDate)
-            let newCount = self.defaults.integer(forKey: Keys.promptCount) + 1
-            self.defaults.set(newCount, forKey: Keys.promptCount)
-        }
+        print("[ReviewManager] Requesting native review (trigger: \(trigger.rawValue))")
+        SKStoreReviewController.requestReview(in: scene)
+        defaults.set(now, forKey: Keys.lastPromptDate)
+        defaults.set(state.requestCount + 1, forKey: Keys.promptCount)
     }
 
     private func resetYearlyCountIfNeeded() {
         if let resetDate = defaults.object(forKey: Keys.promptCountResetDate) as? Date {
-            let daysSinceReset = Calendar.current.dateComponents([.day], from: resetDate, to: Date.now).day ?? 0
-            if daysSinceReset >= 365 {
+            let elapsedDays = Calendar.current.dateComponents(
+                [.day],
+                from: resetDate,
+                to: Date.now
+            ).day ?? 0
+            if elapsedDays >= 365 {
                 defaults.set(0, forKey: Keys.promptCount)
                 defaults.set(Date.now, forKey: Keys.promptCountResetDate)
             }
         } else {
-            // First time - set the reset date
             defaults.set(Date.now, forKey: Keys.promptCountResetDate)
         }
     }
-
-    // MARK: - Debug/Testing
 
     #if DEBUG
     func resetAllTracking() {
@@ -223,7 +136,6 @@ final class ReviewManager {
         defaults.removeObject(forKey: Keys.lastPromptDate)
         defaults.removeObject(forKey: Keys.promptCount)
         defaults.removeObject(forKey: Keys.promptCountResetDate)
-        defaults.removeObject(forKey: Keys.prePromptDeclinedDate)
         print("[ReviewManager] Reset all tracking data")
     }
 
