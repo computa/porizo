@@ -1,6 +1,6 @@
 # App Store Review Audit — 2026-07-14
 
-**Scope:** TestFlight (internal testing) uploads of builds **1.5.27 (151)** and **1.5.27 (152)** from `main`.
+**Scope:** TestFlight (internal testing) uploads of builds **1.5.27 (151)**, **(152)**, and **(153)** from `main`.
 **Context:** Delta over build 150 (magic-link login state race + review-prompt policy refactor); build 152 adds one recovery-UI change. Backend magic-link account-takeover fix (`b81df270`) deployed to Railway prod and live-verified (build-151 on-device test confirmed the recovery flow: exchange → 409 → Apple recovery → session). This is an INTERNAL TestFlight build — NOT an App Store submission and NOT external TestFlight review.
 
 ## Build 152 additional delta (`605fbc75..9d683662`)
@@ -9,6 +9,15 @@
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `6a38244e` | fix(ios): legacy-recovery screen hides "Continue with phone" unless the account has no Apple factor (phone is legacy-recovery-only, not a registration method; 3 phone-only accounts in prod keep access). `.contains(where:)`→`.allSatisfy` on support fallback. | None — recovery-UI visibility logic; builds clean |
 | `9d683662` | chore: build 151 → 152                                                                                                                                                                                                                                            | None                                              |
+
+## Build 153 additional delta (`9d683662..277f73d8`)
+
+Both fixes traced from prod logs of the build-152 on-device test (two-tap sign-in + email-screen flash). No new capabilities, entitlements, or metadata.
+
+| Commit     | Change                                                                                                                                                                                                                                                                                                                   | Review surface                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `919fbe46` | fix(ios): (a) `handleMagicLoginURL` no longer lets an in-flight status poll short-circuit the exchange → first tap reliably signs in; (b) `AuthView` shows a progress placeholder while a magic flow resolves (`isMagicFlowResolving`) instead of flashing the email-entry screen. AuthManagerTests green; builds clean. | None — auth-flow state/UX timing |
+| `277f73d8` | chore: build 152 → 153                                                                                                                                                                                                                                                                                                   | None                             |
 
 ## Verdict: GO (TestFlight internal)
 
