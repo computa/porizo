@@ -294,9 +294,20 @@ final class AuthManagerTests: XCTestCase {
             createdAt: now
         ), now: now))
 
-        XCTAssertNil(PendingMagicLoginStore.load(
+        // Within the recovery grace window the record must survive: a link
+        // click shortly after nominal expiry still needs the request secret
+        // to resolve the flow (e.g. surface recovery) instead of a dead end.
+        XCTAssertNotNil(PendingMagicLoginStore.load(
             transactionId: "u6_expired",
             now: now.addingTimeInterval(2)
+        ))
+
+        // Past expiry + recoveryGraceInterval the record is removed on load.
+        XCTAssertNil(PendingMagicLoginStore.load(
+            transactionId: "u6_expired",
+            now: now.addingTimeInterval(
+                1 + MagicLoginPresentation.recoveryGraceInterval + 1
+            )
         ))
     }
 
@@ -313,5 +324,30 @@ final class AuthManagerTests: XCTestCase {
             purpose: .addEmail,
             isAuthenticated: true
         ))
+    }
+
+    func testLegacyRecoveryIsTerminalSoBackgroundRefreshCannotClobberIt() {
+        // Regression: a scene-phase `.active` refresh after the direct exchange
+        // returned LEGACY_ACCOUNT_RECOVERY_REQUIRED must NOT re-enter and
+        // downgrade the recovery screen to `.wrongDeviceOrPlatform`. The guard
+        // in performMagicLoginStatusRefresh keys on this predicate.
+        XCTAssertTrue(AuthManager.isTerminalMagicState(
+            .legacyRecovery(maskedEmail: "a•••@example.com", authMethods: ["apple", "phone"])
+        ))
+        for terminal: MagicLoginState in [
+            .success, .expired, .locked, .conflict,
+            .wrongDeviceOrPlatform, .cancelled, .superseded,
+        ] {
+            XCTAssertTrue(AuthManager.isTerminalMagicState(terminal))
+        }
+    }
+
+    func testInFlightMagicStatesAreNotTerminal() {
+        for nonTerminal: MagicLoginState in [
+            .idle, .submitting, .opening, .exchanging, .offline, .serverError,
+            .sent(email: "a@example.com"), .cooldown(email: "a@example.com"),
+        ] {
+            XCTAssertFalse(AuthManager.isTerminalMagicState(nonTerminal))
+        }
     }
 }

@@ -123,13 +123,7 @@ struct CheckEmailView: View {
     }
 
     private var isTerminal: Bool {
-        switch state {
-        case .success, .expired, .locked, .conflict, .legacyRecovery,
-             .wrongDeviceOrPlatform, .cancelled, .superseded:
-            true
-        default:
-            false
-        }
+        AuthManager.isTerminalMagicState(state)
     }
 
     private var statusMessage: String {

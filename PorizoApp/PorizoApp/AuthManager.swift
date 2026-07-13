@@ -542,6 +542,14 @@ class AuthManager {
     }
 
     private func performMagicLoginStatusRefresh(transactionId: String?) async -> Bool {
+        // Once a terminal recovery/error state has been reached (e.g. the direct
+        // exchange returned LEGACY_ACCOUNT_RECOVERY_REQUIRED), a racing refresh —
+        // typically the scene-phase `.active` trigger — must not re-enter or
+        // downgrade it. Without this guard the pending record is already consumed,
+        // so the `PendingMagicLoginStore.load` miss below would clear the
+        // presentation and flip the state to `.wrongDeviceOrPlatform`, collapsing
+        // the recovery screen back to email entry.
+        if Self.isTerminalMagicState(magicLoginState) { return true }
         guard let presentation = pendingMagicLoginPresentation,
               transactionId == nil || transactionId == presentation.transactionId else {
             if transactionId != nil { magicLoginState = .wrongDeviceOrPlatform }
@@ -698,6 +706,19 @@ class AuthManager {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    /// Terminal magic-login states: the flow has resolved (success or a
+    /// resolution the user must act on) and background refresh/exchange must not
+    /// re-enter or overwrite them.
+    nonisolated static func isTerminalMagicState(_ state: MagicLoginState) -> Bool {
+        switch state {
+        case .success, .expired, .locked, .conflict, .legacyRecovery,
+             .wrongDeviceOrPlatform, .cancelled, .superseded:
+            true
+        default:
+            false
+        }
     }
 
     private static func magicFailureState(for error: Error) -> MagicLoginState {
