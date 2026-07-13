@@ -2,6 +2,7 @@ import Foundation
 
 enum AuthError: Error, LocalizedError {
     case requiresLinkConfirmation(provider: String, maskedEmail: String)
+    case existingAccountRequiresAuthentication(maskedEmail: String, authMethods: [String])
     case networkError(String)
     case tokenExpired
     case notAuthenticated
@@ -14,6 +15,9 @@ enum AuthError: Error, LocalizedError {
         switch self {
         case .requiresLinkConfirmation(_, let maskedEmail):
             return "This sign-in matches an existing account (\(maskedEmail)). Confirm to link it."
+        case .existingAccountRequiresAuthentication(let maskedEmail, let authMethods):
+            let methods = authMethods.isEmpty ? "an existing sign-in method" : authMethods.joined(separator: ", ")
+            return "An account already uses \(maskedEmail). Sign in with \(methods), then add Apple from Account settings."
         case .networkError(let msg):
             return "Network error: \(msg)"
         case .tokenExpired:

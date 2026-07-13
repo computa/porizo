@@ -12,6 +12,7 @@ const APPLE_APP_SITE_ASSOCIATION = Object.freeze({
           "/poem/*",
           "/create*",
           "/verify-email*",
+          "/auth/magic/ios*",
         ],
       },
     ],

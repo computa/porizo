@@ -38,6 +38,7 @@ const {
   createStorageRuntimeConfig,
 } = require("./providers/provider-config");
 const { startCleanupJob } = require("./jobs/cleanup");
+const { startAccountCleanupJob } = require("./jobs/account-cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startColdEmailJob } = require("./jobs/cold-email-daily");
 const { startShareFollowupsJob } = require("./jobs/share-followups-daily");
@@ -2841,6 +2842,11 @@ async function start() {
     intervalMs: config.CLEANUP_INTERVAL_MS,
     retentionDays: 7,
   });
+  const accountCleanupJob = startAccountCleanupJob({
+    db,
+    storageProvider: storage,
+    logger: console,
+  });
   const cleanupTimer = setInterval(async () => {
     const now = nowIso();
     await db
@@ -3082,6 +3088,7 @@ async function start() {
     clearInterval(saveTimer);
     clearInterval(cleanupTimer);
     fileCleanupJob.stop();
+    accountCleanupJob.stop();
     subscriptionSyncJob.stop();
     giftDeliveryRuntime.stop();
     coldEmailJob.stop();

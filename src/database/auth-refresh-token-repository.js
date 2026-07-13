@@ -42,7 +42,10 @@ function createAuthRefreshTokenRepository(db) {
   async function findTokenForVerification(tokenHash) {
     return db
       .prepare(
-        `SELECT rt.*, tf.compromised_at as family_compromised, tf.session_id, us.revoked_at as session_revoked_at
+        `SELECT rt.*, tf.compromised_at as family_compromised, tf.session_id,
+                us.revoked_at as session_revoked_at,
+                us.idle_expires_at as session_idle_expires_at,
+                us.absolute_expires_at as session_absolute_expires_at
          FROM refresh_tokens rt
          JOIN token_families tf ON rt.token_family = tf.id
          LEFT JOIN user_sessions us ON tf.session_id = us.id
@@ -60,7 +63,9 @@ function createAuthRefreshTokenRepository(db) {
   async function findTokenFamilyWithSession(tokenFamily) {
     return db
       .prepare(
-        `SELECT tf.*, us.revoked_at as session_revoked_at
+        `SELECT tf.*, us.revoked_at as session_revoked_at,
+                us.idle_expires_at as session_idle_expires_at,
+                us.absolute_expires_at as session_absolute_expires_at
          FROM token_families tf
          LEFT JOIN user_sessions us ON tf.session_id = us.id
          WHERE tf.id = ?`,
@@ -129,6 +134,16 @@ function createAuthRefreshTokenRepository(db) {
       .run(tokenFamily);
   }
 
+  async function touchSession({ sessionId, lastActiveAt, idleExpiresAt, lastRotatedAt }) {
+    return db
+      .prepare(
+        `UPDATE user_sessions
+         SET last_active_at = ?, idle_expires_at = ?, last_rotated_at = ?
+         WHERE id = ? AND revoked_at IS NULL AND absolute_expires_at > ?`,
+      )
+      .run(lastActiveAt, idleExpiresAt, lastRotatedAt, sessionId, lastActiveAt);
+  }
+
   async function insertGraceUnrevokeAuditLog({
     id,
     userId,
@@ -175,6 +190,7 @@ function createAuthRefreshTokenRepository(db) {
     compromiseActiveTokenFamiliesForUser,
     compromiseTokenFamily,
     revokeTokensInFamily,
+    touchSession,
     insertGraceUnrevokeAuditLog,
   };
 }

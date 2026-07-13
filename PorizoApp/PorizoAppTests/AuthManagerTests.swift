@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import Security
 @testable import PorizoApp
 
 final class AuthManagerTests: XCTestCase {
@@ -144,5 +145,77 @@ final class AuthManagerTests: XCTestCase {
         XCTAssertNil(KeychainHelper.loadString(key: "porizo_pending_phone_link"))
         XCTAssertNil(KeychainHelper.loadString(key: "porizo_pending_phone_link_expiry"))
         XCTAssertNil(PendingSuggestionStore.loadIfActive())
+    }
+
+    func testMagicLoginLinkRequiresExactHTTPSHostAndIOSPath() throws {
+        let valid = try XCTUnwrap(URL(string: "https://auth.porizo.co/auth/magic/ios?transaction_id=tx_1#secret=link_1"))
+        XCTAssertEqual(
+            MagicLoginLink.parse(valid),
+            MagicLoginLink(transactionId: "tx_1", linkSecret: "link_1")
+        )
+
+        let rejected = [
+            "http://auth.porizo.co/auth/magic/ios?transaction_id=tx#secret=s",
+            "porizo://auth/magic/ios?transaction_id=tx#secret=s",
+            "https://evil.example/auth/magic/ios?transaction_id=tx#secret=s",
+            "https://auth.porizo.co.evil.example/auth/magic/ios?transaction_id=tx#secret=s",
+            "https://auth.porizo.co/auth/magic/android?transaction_id=tx#secret=s",
+            "https://auth.porizo.co/auth/magic/ios?transaction_id=tx&transaction_id=other#secret=s",
+            "https://auth.porizo.co/auth/magic/ios?transaction_id=tx&secret=s",
+            "https://auth.porizo.co/auth/magic/ios?transaction_id=tx&secret=query#secret=fragment",
+            "https://auth.porizo.co/auth/magic/ios?transaction_id=tx#secret=s&secret=other",
+        ]
+        for value in rejected {
+            XCTAssertNil(MagicLoginLink.parse(try XCTUnwrap(URL(string: value))), value)
+        }
+    }
+
+    func testPendingMagicRequestsAreBoundedAndSurviveReloadByTransactionId() {
+        PendingMagicLoginStore.removeAll()
+        defer { PendingMagicLoginStore.removeAll() }
+        let now = Date()
+
+        for index in 0...PendingMagicLoginStore.maximumEntries {
+            XCTAssertTrue(PendingMagicLoginStore.save(PendingMagicLogin(
+                transactionId: "u6_tx_\(index)",
+                requestSecret: "request_secret_\(index)",
+                requesterKey: "requester_key_\(index)",
+                email: "person\(index)@example.com",
+                purpose: .login,
+                expiresAt: now.addingTimeInterval(600),
+                createdAt: now.addingTimeInterval(TimeInterval(index))
+            ), now: now))
+        }
+
+        XCTAssertNil(PendingMagicLoginStore.load(transactionId: "u6_tx_0", now: now))
+        XCTAssertEqual(
+            PendingMagicLoginStore.load(transactionId: "u6_tx_5", now: now)?.requestSecret,
+            "request_secret_5"
+        )
+        let attributes = KeychainHelper.securityAttributes(
+            key: PendingMagicLoginStore.keyPrefix + "u6_tx_5"
+        )
+        XCTAssertEqual(attributes.accessible, kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+        XCTAssertNotEqual(attributes.synchronizable, true)
+    }
+
+    func testPendingMagicRequestExpiresAndIsRemoved() {
+        PendingMagicLoginStore.removeAll()
+        defer { PendingMagicLoginStore.removeAll() }
+        let now = Date()
+        XCTAssertTrue(PendingMagicLoginStore.save(PendingMagicLogin(
+            transactionId: "u6_expired",
+            requestSecret: "request_secret",
+            requesterKey: "requester_key_1234",
+            email: "person@example.com",
+            purpose: .addEmail,
+            expiresAt: now.addingTimeInterval(1),
+            createdAt: now
+        ), now: now))
+
+        XCTAssertNil(PendingMagicLoginStore.load(
+            transactionId: "u6_expired",
+            now: now.addingTimeInterval(2)
+        ))
     }
 }

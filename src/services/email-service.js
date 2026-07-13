@@ -66,6 +66,11 @@ function buildFollowupCtaHref(copy, stage) {
 
 // Resend client (lazy-initialized)
 let resend = null;
+let contactDeliveryPolicy = null;
+
+function configureContactDeliveryPolicy(service) {
+  contactDeliveryPolicy = service || null;
+}
 
 /**
  * Get Resend client (lazy initialization)
@@ -87,6 +92,44 @@ function isConfigured() {
   return Boolean(config.apiKey);
 }
 
+async function sendLifecyclePayload(email, payload) {
+  if (contactDeliveryPolicy) {
+    const decision = await contactDeliveryPolicy.canSendLifecycleEmail({ email });
+    if (!decision.allowed && decision.reason === "contact_suppressed") {
+      return { data: { id: null }, error: null };
+    }
+  }
+  return getClient().emails.send(payload);
+}
+
+async function sendLifecycleEmail({
+  contactDeliveryService,
+  userId,
+  contactId = null,
+  email,
+  send,
+}) {
+  if (!contactDeliveryService || typeof contactDeliveryService.canSendLifecycleEmail !== "function") {
+    throw new Error("CONTACT_DELIVERY_SERVICE_REQUIRED");
+  }
+  if (typeof send !== "function") throw new Error("LIFECYCLE_EMAIL_SEND_REQUIRED");
+
+  const decision = await contactDeliveryService.canSendLifecycleEmail({
+    contactId,
+    userId,
+    email,
+  });
+  if (!decision.allowed) {
+    return {
+      messageId: null,
+      skipped: true,
+      reason: decision.reason,
+      deliveryStatus: decision.contact?.deliveryStatus || null,
+    };
+  }
+  return send();
+}
+
 /**
  * Send password reset email
  * @param {string} email - Recipient email address
@@ -101,7 +144,7 @@ async function sendPasswordResetEmail(email, token, expiresAt) {
     Math.round((expiresDate - new Date()) / (1000 * 60)),
   );
 
-  const { data, error } = await getClient().emails.send({
+  const { data, error } = await sendLifecyclePayload(email, {
     from: config.fromEmail,
     to: email,
     subject: `Reset your ${config.appName} password`,
@@ -343,7 +386,7 @@ admin account may have been compromised.
 async function sendVerificationEmail(email, token) {
   const verifyUrl = `${config.publicBaseUrl}/verify-email?token=${encodeURIComponent(token)}`;
 
-  const { data, error } = await getClient().emails.send({
+  const { data, error } = await sendLifecyclePayload(email, {
     from: config.fromEmail,
     to: email,
     subject: `Verify your ${config.appName} email`,
@@ -405,6 +448,41 @@ ${verifyUrl}
 }
 
 /**
+ * Send a platform-bound magic sign-in link. The link secret is delivered only
+ * by email; the independent requester secret stays on the initiating device.
+ */
+async function sendMagicLoginEmail(email, { transactionId, platform, linkSecret, expiresAt }) {
+  const magicUrl = `https://auth.porizo.co/auth/magic/${encodeURIComponent(platform)}?transaction_id=${encodeURIComponent(transactionId)}#secret=${encodeURIComponent(linkSecret)}`;
+  const expiresDate = new Date(expiresAt);
+  const safeMinutes = Math.max(1, Math.ceil((expiresDate - new Date()) / 60_000));
+  const { data, error } = await sendLifecyclePayload(email, {
+    from: config.fromEmail,
+    to: email,
+    subject: `Log in to ${config.appName}`,
+    html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Log in to ${config.appName}</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px;">
+  <h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:normal;color:#B0763F;">${config.appName}</h1>
+  <h2>Tap to log in</h2>
+  <p>Open this email on the ${escapeHtml(platform)} device where you requested the link.</p>
+  <p style="text-align:center;margin:32px 0;"><a href="${escapeHtml(magicUrl)}" style="display:inline-block;background:#B0763F;color:#fff;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:600;">Log in to ${config.appName}</a></p>
+  <p style="color:#666;font-size:14px;">This link expires in ${safeMinutes} minutes and works only with the original request on that platform.</p>
+  <p style="color:#666;font-size:14px;">If you did not request this email, you can ignore it.</p>
+</body>
+</html>`.trim(),
+    text: `Log in to ${config.appName}\n\nOpen this link on the ${platform} device where you requested it:\n${magicUrl}\n\nThis link expires in ${safeMinutes} minutes.`,
+    tags: [
+      { name: "category", value: "magic_login" },
+      { name: "platform", value: platform },
+    ],
+  });
+  if (error) throw new Error(`Failed to send magic login email: ${error.message}`);
+  return { messageId: data.id };
+}
+
+/**
  * Send welcome email after successful registration
  * @param {string} email - Recipient email address
  * @param {string} name - User's display name
@@ -416,7 +494,7 @@ async function sendWelcomeEmail(email, name) {
     content: "get_started_cta",
   });
 
-  const { data, error } = await getClient().emails.send({
+  const { data, error } = await sendLifecyclePayload(email, {
     from: config.fromEmail,
     to: email,
     subject: `Welcome to ${config.appName}! 🎵`,
@@ -525,7 +603,7 @@ async function sendSecurityAlertEmail(email, options) {
       message = `A security-related event occurred on your account on ${time}.`;
   }
 
-  const { data, error } = await getClient().emails.send({
+  const { data, error } = await sendLifecyclePayload(email, {
     from: config.fromEmail,
     to: email,
     subject,
@@ -820,7 +898,7 @@ async function sendShareFollowupEmail(payload) {
       ? `<p style="margin:0 0 16px; color:#4a4a4a; font-size:14px;">About the song you made for ${escapeHtml(safeRecipient)}${safeTitle ? ` (&ldquo;${escapeHtml(safeTitle)}&rdquo;)` : ""}.</p>`
       : "";
 
-  const { data, error } = await getClient().emails.send({
+  const { data, error } = await sendLifecyclePayload(to, {
     from: config.fromEmail,
     to,
     subject: copy.subject,
@@ -889,10 +967,13 @@ async function sendShareFollowupEmail(payload) {
 
 module.exports = {
   isConfigured,
+  configureContactDeliveryPolicy,
+  sendLifecycleEmail,
   sendPasswordResetEmail,
   sendAdminPasswordResetEmail,
   sendAdminSecurityAlertEmail,
   sendVerificationEmail,
+  sendMagicLoginEmail,
   sendWelcomeEmail,
   sendSecurityAlertEmail,
   sendGiftDeliveryEmail,

@@ -71,6 +71,7 @@ function createClientConfigService({
         my_voice_enabled: myVoiceEnabled,
         gift_scheduling_enabled: giftSchedulingEnabled,
         gift_prepay_enforced: giftPrepayEnforced,
+        magic_login_enabled: process.env.MAGIC_LOGIN_ENABLED !== "false",
       },
       gift_bundles,
       onboarding,

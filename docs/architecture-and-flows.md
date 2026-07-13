@@ -1,5 +1,27 @@
 # Porizo Architecture & Flows
 
+## Canonical Account And Authentication Boundary
+
+`docs/identity-contract.md` is the canonical account contract. `users.id` owns
+entitlements, purchases, content, and sessions; authentication providers and
+contact addresses are independently linked records and never create parallel
+ownership.
+
+Email magic login uses `magic_login_transactions` with two independent hashed
+secrets and an explicit `ios`, `android`, or `web` platform binding. The email
+link carries its link secret in the URL fragment so HTTP servers and access
+logs never receive it. The initiating native device retains the requester
+secret in device-only secure storage. Exchange consumes both secrets and
+creates the account session in one database transaction.
+
+Native sessions use 15-minute access tokens and rotating refresh tokens. All
+sessions have a 90-day idle limit and 365-day absolute limit. Web uses an opaque
+`__Host-porizo_session` Secure/HttpOnly cookie, preceded by an Origin/CSRF-bound
+pre-auth cookie; native credentials are never serialized to browser storage.
+Account deletion commits its tombstone and durable cleanup job before external
+object deletion. The implementation and rollout gates are defined in
+`docs/plans/2026-07-11-002-feat-platform-bound-magic-login-plan.md`.
+
 ## Executive Summary
 
 Porizo is a personalized song generation platform where users record their voice and create custom songs (MVP: 45-60 seconds, Full: 45-90 seconds) that sound like them singing. This document captures both MVP and full-product architecture and flows.

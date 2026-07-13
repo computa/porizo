@@ -19,7 +19,19 @@ Generated artifacts are written under `storage/` by default. Set `STORAGE_DIR` t
 Migrations run automatically on startup.
 
 ## Auth Stub
-All authenticated routes require `x-user-id` in the request headers.
+Production-style authenticated routes require a session-bound bearer token.
+`x-user-id` is a development/test-only fallback and is rejected in production.
+
+Magic-login development variables:
+
+- `MAGIC_LOGIN_ENABLED=false` disables new requests without invalidating
+  established sessions.
+- `MAGIC_LOGIN_RECOVERY_KEY` encrypts short-lived recovery data; when omitted,
+  the service derives it from `JWT_SECRET`.
+- `MAGIC_LOGIN_WEB_ORIGIN` defaults to `https://auth.porizo.co` and must exactly
+  match web request, exchange, and logout Origin headers.
+- Links use `/auth/magic/{ios|android|web}?transaction_id=…#secret=…`. Never
+  move the secret into the query string or log complete callback URLs.
 
 ## Auth Providers (Google + Facebook)
 Google and Facebook sign-in are enabled when both the API and iOS app have the required env values.

@@ -7,7 +7,119 @@
 
 import Foundation
 
+enum MagicLoginPurpose: String, Codable, Sendable {
+    case login
+    case addEmail = "add_email"
+}
+
+struct MagicLoginRequestBody: Codable, Equatable, Sendable {
+    let email: String
+    let platform: String
+    let purpose: MagicLoginPurpose
+    let requesterKey: String
+
+    enum CodingKeys: String, CodingKey {
+        case email, platform, purpose
+        case requesterKey = "requester_key"
+    }
+}
+
+struct MagicLoginExchangeBody: Codable, Equatable, Sendable {
+    let transactionId: String
+    let platform: String
+    let linkSecret: String
+    let requestSecret: String
+
+    enum CodingKeys: String, CodingKey {
+        case transactionId = "transaction_id"
+        case platform
+        case linkSecret = "link_secret"
+        case requestSecret = "request_secret"
+    }
+}
+
+struct MagicLoginRequestResponse: Codable, Sendable {
+    let transactionId: String
+    let requestSecret: String
+    let expiresAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case transactionId = "transaction_id"
+        case requestSecret = "request_secret"
+        case expiresAt = "expires_at"
+    }
+}
+
+struct MagicLoginExchangeResponse: Codable, Sendable {
+    let accessToken: String?
+    let refreshToken: String?
+    let userId: String
+    let expiresIn: Int?
+    let contactVerified: Bool?
+    let isNewUser: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case userId = "user_id"
+        case expiresIn = "expires_in"
+        case contactVerified = "contact_verified"
+        case isNewUser = "is_new_user"
+    }
+}
+
 extension APIClient {
+
+    // MARK: - Platform-bound Magic Login
+
+    func requestMagicLogin(
+        email: String,
+        purpose: MagicLoginPurpose,
+        requesterKey: String,
+        bearerToken: String? = nil
+    ) async throws -> MagicLoginRequestResponse {
+        let path = purpose == .addEmail
+            ? "/auth/magic/add-email/request"
+            : "/auth/magic/request"
+        let url = URL(string: "\(baseURL)\(path)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        if let bearerToken { request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization") }
+        request.httpBody = try JSONEncoder().encode(MagicLoginRequestBody(
+            email: email,
+            platform: "ios",
+            purpose: purpose,
+            requesterKey: requesterKey
+        ))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+        return try Self.jsonDecoder.decode(MagicLoginRequestResponse.self, from: data)
+    }
+
+    func exchangeMagicLogin(
+        transactionId: String,
+        linkSecret: String,
+        requestSecret: String
+    ) async throws -> MagicLoginExchangeResponse {
+        let url = URL(string: "\(baseURL)/auth/magic/exchange")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONEncoder().encode(MagicLoginExchangeBody(
+            transactionId: transactionId,
+            platform: "ios",
+            linkSecret: linkSecret,
+            requestSecret: requestSecret
+        ))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+        return try Self.jsonDecoder.decode(MagicLoginExchangeResponse.self, from: data)
+    }
 
     // MARK: - Phone Auth
 

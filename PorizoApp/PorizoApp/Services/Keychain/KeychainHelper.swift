@@ -22,6 +22,19 @@ enum KeychainHelper: Sendable {
     /// - Still device-bound (no iCloud/backup migration) for security
     /// - Only requires device to have been unlocked once since boot
     nonisolated static func save(key: String, data: Data) -> Bool {
+        save(
+            key: key,
+            data: data,
+            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+    }
+
+    /// Save device-bound, non-synchronizable data with an explicit accessibility class.
+    nonisolated static func save(
+        key: String,
+        data: Data,
+        accessible: CFString
+    ) -> Bool {
         // Prefer update-over-delete to avoid credential loss if a write fails.
         // Deleting first can wipe tokens during transient keychain errors.
         let query: [String: Any] = [
@@ -32,7 +45,8 @@ enum KeychainHelper: Sendable {
 
         let updateAttributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            kSecAttrAccessible as String: accessible,
+            kSecAttrSynchronizable as String: false
         ]
 
         let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
@@ -50,7 +64,8 @@ enum KeychainHelper: Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            kSecAttrAccessible as String: accessible,
+            kSecAttrSynchronizable as String: false
         ]
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         if addStatus != errSecSuccess {
@@ -113,9 +128,31 @@ enum KeychainHelper: Sendable {
         return save(key: key, data: data)
     }
 
+    nonisolated static func saveDeviceOnlyString(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+        return save(key: key, data: data, accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+    }
+
     /// Load string from Keychain
     nonisolated static func loadString(key: String) -> String? {
         guard let data = load(key: key) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    nonisolated static func securityAttributes(key: String) -> (accessible: String?, synchronizable: Bool?) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let attributes = result as? [String: Any] else { return (nil, nil) }
+        return (
+            attributes[kSecAttrAccessible as String] as? String,
+            attributes[kSecAttrSynchronizable as String] as? Bool
+        )
     }
 }

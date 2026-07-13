@@ -458,7 +458,8 @@ describe("Auth Identity Model", () => {
         "email_token",
       );
 
-      // Attempt Apple sign-in with same email — should get link confirmation prompt
+      // Attempt Apple sign-in with same email — should require authentication
+      // through the existing account before linking.
       const appleSub = uniqueAppleSub();
       const nonce = `nonce-${crypto.randomBytes(8).toString("hex")}`;
       const token = buildMockAppleToken({
@@ -475,12 +476,25 @@ describe("Auth Identity Model", () => {
 
       const appleBody = JSON.parse(appleRes.body);
 
-      // The server should either prompt for link confirmation or auto-link.
-      // With confirm_link=false (default), it returns requires_link_confirmation.
+      assert.strictEqual(appleRes.statusCode, 200);
       assert.strictEqual(
-        appleBody.requires_link_confirmation,
+        appleBody.requires_existing_account_authentication,
         true,
-        "Should require explicit confirmation before linking to existing account",
+        "Apple sign-in must authenticate the existing account before linking",
+      );
+      assert.strictEqual(appleBody.account_exists, true);
+      assert.strictEqual(appleBody.access_token, undefined);
+
+      const linkedProvider = await db
+        .prepare(
+          `SELECT id FROM user_auth_providers
+            WHERE provider = 'apple' AND provider_user_id = ?`,
+        )
+        .get(appleSub);
+      assert.strictEqual(
+        linkedProvider,
+        undefined,
+        "Unauthenticated social sign-in must not link a provider identity",
       );
 
       // Verify no duplicate user was created
@@ -544,6 +558,38 @@ describe("Auth Identity Model", () => {
       );
     });
 
+    it("should recognize both Apple relay domains case-insensitively", () => {
+      assert.strictEqual(
+        identityService.isAppleRelay("USER@PRIVATERELAY.APPLEID.COM"),
+        true,
+      );
+      assert.strictEqual(
+        identityService.isAppleRelay(" USER@PRIVATE.ICLOUD.COM "),
+        true,
+      );
+      assert.strictEqual(identityService.isAppleRelay("user@icloud.com"), false);
+    });
+
+    it("should keep private.icloud.com users incomplete after phone verification", async () => {
+      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@private.icloud.com`;
+      const appleUser = await createAppleUser(app, { email: relayEmail });
+
+      const linkRes = await linkPhone(
+        app,
+        db,
+        appleUser.accessToken,
+        uniquePhone(),
+      );
+      assert.strictEqual(linkRes.statusCode, 200, "Phone link must succeed");
+
+      const me = await getMe(app, appleUser.accessToken);
+      assert.strictEqual(me.body.needs_profile_completion, true);
+      assert.ok(
+        me.body.missing_profile_requirements.includes("verified_email"),
+        "Verified phone must not satisfy the verified non-relay email requirement",
+      );
+    });
+
     it("should clear relay-based missing state after adding real verified email", async () => {
       const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
       const appleUser = await createAppleUser(app, { email: relayEmail });
@@ -579,14 +625,12 @@ describe("Auth Identity Model", () => {
     });
   });
 
-  // ==================== S5b: Collection-based completeness (policy v1) ====================
-  // Policy v1: profile is complete once a non-relay email OR a phone is on file.
-  // Verification is NOT required — the prompt is a marketing-signal collection,
-  // not an identity check. Prevents "Complete your profile" from re-appearing
-  // every launch for users who provided contact info but haven't clicked a verify link.
+  // ==================== S5b: Verification-based completeness (policy v1) ====================
+  // Verified email and phone are independent requirements. Neither an unverified
+  // contact nor one verified channel can substitute for the other.
 
-  describe("S5b: Collection-based completeness", () => {
-    it("should mark profile complete when phone is on file (even unverified)", async () => {
+  describe("S5b: Verification-based completeness", () => {
+    it("should remain incomplete when only phone is verified", async () => {
       const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
       const appleUser = await createAppleUser(app, { email: relayEmail });
 
@@ -604,12 +648,13 @@ describe("Auth Identity Model", () => {
       assert.strictEqual(me.statusCode, 200);
       assert.strictEqual(
         me.body.needs_profile_completion,
-        false,
-        "User with phone on file should NOT need profile completion under policy v1",
+        true,
+        "Verified phone must not substitute for verified non-relay email",
       );
+      assert.ok(me.body.missing_profile_requirements.includes("verified_email"));
     });
 
-    it("should mark profile complete when real email is on file — even unverified", async () => {
+    it("should remain incomplete when real email is on file but unverified", async () => {
       const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
       const appleUser = await createAppleUser(app, { email: relayEmail });
       const realEmail = uniqueEmail();
@@ -626,13 +671,12 @@ describe("Auth Identity Model", () => {
       assert.strictEqual(me.statusCode, 200);
       assert.strictEqual(
         me.body.needs_profile_completion,
-        false,
-        "Unverified real email on file should still mark profile complete",
+        true,
+        "Unverified real email must not satisfy profile completion",
       );
-      // verified_email stays in missing_profile_requirements as an informational nudge
       assert.ok(
         me.body.missing_profile_requirements.includes("verified_email"),
-        "missing_profile_requirements still reports unverified email for UI nudges",
+        "Unverified email must remain a missing requirement",
       );
     });
 

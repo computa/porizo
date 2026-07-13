@@ -805,7 +805,7 @@ describe("Auth Service", () => {
       assert.doesNotMatch(audit.metadata_json, /raw-user-voice/);
     });
 
-    it("should delete target-user durable storage artifacts during account deletion", async () => {
+    it("should queue durable storage cleanup without deleting artifacts inside account deletion", async () => {
       const userId = uniqueUserId("user-delete-storage");
       const otherUserId = uniqueUserId("other-storage");
       const storageRoot = fs.mkdtempSync(path.join(tmpDir, "account-storage-"));
@@ -844,11 +844,16 @@ describe("Auth Service", () => {
 
       await authService.deleteUserAccount(userId, { storageProvider });
 
+      const queued = db
+        .prepare("SELECT status FROM account_cleanup_jobs WHERE user_id = ?")
+        .get(userId);
+      assert.ok(queued, "durable cleanup job should be committed with the tombstone");
+
       for (const key of targetKeys) {
         assert.strictEqual(
           await storageProvider.objectExists({ key }),
-          false,
-          `${key} should be deleted`,
+          true,
+          `${key} must remain until the post-commit cleanup worker runs`,
         );
       }
       assert.strictEqual(
@@ -875,7 +880,7 @@ describe("Auth Service", () => {
       );
     });
 
-    it("should roll back account deletion when storage artifact cleanup fails", async () => {
+    it("should commit the account tombstone without invoking external storage inline", async () => {
       const userId = uniqueUserId("user-delete-storage-failure");
       const email = `${userId}@example.com`;
       const deletedKeys = [];
@@ -897,29 +902,29 @@ describe("Auth Service", () => {
         "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
       ).run(userId, email);
 
-      await assert.rejects(
-        () => authService.deleteUserAccount(userId, { storageProvider }),
-        /simulated storage delete failure/,
-      );
-
-      assert.deepStrictEqual(deletedKeys, [
-        `tracks/${userId}/track_1/v1/preview.m4a`,
-      ]);
+      await authService.deleteUserAccount(userId, { storageProvider });
+      assert.deepStrictEqual(deletedKeys, []);
 
       const user = db
         .prepare("SELECT email, display_name, deleted_at FROM users WHERE id = ?")
         .get(userId);
-      assert.ok(user, "user row should remain after rollback");
-      assert.strictEqual(user.email, email);
-      assert.strictEqual(user.display_name, null);
-      assert.strictEqual(user.deleted_at, null);
+      assert.ok(user, "tombstoned user row should remain for retained evidence");
+      assert.match(user.email, /^deleted_.+@deleted\.local$/);
+      assert.notStrictEqual(user.email, email);
+      assert.strictEqual(user.display_name, "Deleted User");
+      assert.ok(user.deleted_at);
 
       const deletedEvent = db
         .prepare(
           "SELECT COUNT(*) AS count FROM auth_events WHERE user_id = ? AND event_type = 'account_deleted'",
         )
         .get(userId);
-      assert.strictEqual(deletedEvent.count, 0);
+      assert.strictEqual(deletedEvent.count, 1);
+      const cleanupJob = db
+        .prepare("SELECT status, attempt_count FROM account_cleanup_jobs WHERE user_id = ?")
+        .get(userId);
+      assert.ok(["pending", "running", "completed"].includes(cleanupJob.status));
+      assert.ok(cleanupJob.attempt_count >= 0);
     });
   });
 

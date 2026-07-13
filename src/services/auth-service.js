@@ -32,8 +32,8 @@ const {
   revokeAllEnrollmentSessionTokensForUser,
 } = require("./enrollment-session-service");
 const {
-  deleteAccountStorageArtifacts,
-} = require("./account-deletion-storage-service");
+  createAccountCleanupRepository,
+} = require("../database/account-cleanup-repository");
 const {
   deleteVoiceProviderJobsForUser,
   listProviderProfilesForUser,
@@ -65,14 +65,14 @@ function getJwtSecret() {
 
 // Configuration with secure defaults
 // Token lifetimes optimized for mobile apps (Spotify-style persistent login)
-// - 60 minute access tokens: enough for typical sessions, less refresh overhead
+// - 15 minute access tokens: short-lived bearer credentials
 // - 90 day refresh tokens: keeps active users logged in long-term
 // NOTE: jwtSecret is intentionally lazy — getJwtSecret() is NOT called at module load time.
 // This prevents startup crashes when JWT_SECRET is injected after module import (e.g. in tests).
 // The secret is resolved on first use via the jwt* functions below.
 const config = {
   bcryptCost: 12,
-  accessTokenExpiry: "60m",
+  accessTokenExpiry: "15m",
   refreshTokenExpiryDays: 90,
   passwordResetExpiryMinutes: 30,
   emailVerificationExpiryDays: 7,
@@ -265,6 +265,13 @@ async function createRefreshToken(userId, options = {}) {
   } else {
     expiresAt.setDate(expiresAt.getDate() + expiresIn);
   }
+  if (sessionId) {
+    const session = await getAuthSessionRepository().findSessionLifetime(sessionId);
+    if (!session) throw new Error("Session not found or revoked");
+    const absoluteExpiry = new Date(session.absolute_expires_at);
+    if (absoluteExpiry <= new Date()) throw new Error("Session has expired");
+    if (expiresAt > absoluteExpiry) expiresAt.setTime(absoluteExpiry.getTime());
+  }
 
   await refreshTokenRepository.insertRefreshToken({
     id: tokenId,
@@ -311,6 +318,13 @@ async function verifyRefreshToken(rawToken) {
 
   if (token.session_revoked_at) {
     throw new Error("Session has been revoked");
+  }
+  const now = new Date();
+  if (
+    (token.session_idle_expires_at && new Date(token.session_idle_expires_at) <= now) ||
+    (token.session_absolute_expires_at && new Date(token.session_absolute_expires_at) <= now)
+  ) {
+    throw new Error("Session has expired");
   }
 
   // Check if revoked
@@ -386,7 +400,7 @@ async function rotateRefreshToken(oldRawToken) {
   const newRawToken = generateSecureToken();
   const newTokenHash = hashToken(newRawToken);
   const newTokenId = generateId("rt");
-  const expiresAt = new Date();
+  let expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.refreshTokenExpiryDays);
 
   const parseDbTimestamp = (value) => {
@@ -524,6 +538,17 @@ async function rotateRefreshToken(oldRawToken) {
         err.code = "SESSION_REVOKED";
         throw err;
       }
+      const rotatedAt = new Date();
+      if (
+        (family.session_idle_expires_at && new Date(family.session_idle_expires_at) <= rotatedAt) ||
+        (family.session_absolute_expires_at && new Date(family.session_absolute_expires_at) <= rotatedAt)
+      ) {
+        const err = new Error("Session has expired");
+        err.code = "SESSION_EXPIRED";
+        throw err;
+      }
+      const absoluteExpiry = new Date(family.session_absolute_expires_at);
+      if (expiresAt > absoluteExpiry) expiresAt = absoluteExpiry;
 
       // Revoke old token using optimistic locking to prevent TOCTOU race
       // The conditional WHERE revoked_at IS NULL ensures only ONE concurrent
@@ -570,6 +595,19 @@ async function rotateRefreshToken(oldRawToken) {
         tokenFamily: oldToken.token_family,
         generation: newGeneration,
         expiresAt: expiresAt.toISOString(),
+      });
+
+      const idleExpiry = new Date(
+        Math.min(
+          rotatedAt.getTime() + 90 * 24 * 60 * 60 * 1000,
+          absoluteExpiry.getTime(),
+        ),
+      );
+      await txRepository.touchSession({
+        sessionId: family.session_id,
+        lastActiveAt: rotatedAt.toISOString(),
+        idleExpiresAt: idleExpiry.toISOString(),
+        lastRotatedAt: rotatedAt.toISOString(),
       });
 
       return {
@@ -766,6 +804,14 @@ async function createSession(userId, sessionData = {}) {
     throw new Error("INVALID_USER_ID: userId is required to create session.");
   }
   const sessionId = generateId("sess");
+  const createdAt = new Date();
+  const authenticatedAt = sessionData.authenticatedAt || createdAt.toISOString();
+  const idleExpiresAt = new Date(
+    createdAt.getTime() + 90 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const absoluteExpiresAt = new Date(
+    createdAt.getTime() + 365 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   await getAuthSessionRepository().insertSession({
     id: sessionId,
@@ -773,6 +819,12 @@ async function createSession(userId, sessionData = {}) {
     deviceName: sessionData.deviceName || null,
     ipAddress: sessionData.ipAddress || null,
     userAgent: sessionData.userAgent || null,
+    authMethod: sessionData.authMethod || null,
+    platform: sessionData.platform || null,
+    authenticatedAt,
+    idleExpiresAt,
+    absoluteExpiresAt,
+    lastRotatedAt: createdAt.toISOString(),
   });
 
   return {
@@ -781,6 +833,73 @@ async function createSession(userId, sessionData = {}) {
     deviceName: sessionData.deviceName,
     ipAddress: sessionData.ipAddress,
     userAgent: sessionData.userAgent,
+    authMethod: sessionData.authMethod,
+    platform: sessionData.platform,
+    authenticatedAt,
+    idleExpiresAt,
+    absoluteExpiresAt,
+  };
+}
+
+/** Create a native session and its first refresh token on caller-owned repositories. */
+async function createSessionAndRefreshTokenInTransaction(
+  userId,
+  sessionData,
+  { sessionRepository, refreshTokenRepository },
+) {
+  if (!userId || !sessionRepository || !refreshTokenRepository) {
+    throw new Error("TRANSACTION_BOUND_SESSION_REPOSITORIES_REQUIRED");
+  }
+  const now = new Date();
+  const sessionId = generateId("sess");
+  const familyId = generateId("tf");
+  const tokenId = generateId("rt");
+  const rawToken = generateSecureToken();
+  const idleExpiresAt = new Date(
+    now.getTime() + 90 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const absoluteExpiresAt = new Date(
+    now.getTime() + 365 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const refreshExpiresAt = new Date(
+    Math.min(
+      now.getTime() + config.refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
+      Date.parse(absoluteExpiresAt),
+    ),
+  ).toISOString();
+
+  await sessionRepository.insertSession({
+    id: sessionId,
+    userId,
+    deviceName: sessionData.deviceName || null,
+    ipAddress: sessionData.ipAddress || null,
+    userAgent: sessionData.userAgent || null,
+    authMethod: sessionData.authMethod || "magic_email",
+    platform: sessionData.platform,
+    authenticatedAt: now.toISOString(),
+    idleExpiresAt,
+    absoluteExpiresAt,
+    lastRotatedAt: now.toISOString(),
+  });
+  await refreshTokenRepository.insertTokenFamily({
+    id: familyId,
+    userId,
+    sessionId,
+  });
+  await refreshTokenRepository.insertRefreshToken({
+    id: tokenId,
+    userId,
+    tokenHash: hashToken(rawToken),
+    tokenFamily: familyId,
+    generation: 1,
+    expiresAt: refreshExpiresAt,
+  });
+  return {
+    sessionId,
+    tokenFamily: familyId,
+    refreshToken: rawToken,
+    refreshExpiresAt,
+    absoluteExpiresAt,
   };
 }
 
@@ -804,6 +923,18 @@ async function verifyActiveSessionForUser({ userId, sessionId }) {
     sessionId,
   });
   return Boolean(session);
+}
+
+async function verifyRecentAuthentication({
+  userId,
+  sessionId,
+  maxAgeMs = 15 * 60 * 1000,
+}) {
+  const session = await getAuthSessionRepository().findSessionLifetime(sessionId);
+  if (!session || session.user_id !== userId || !session.authenticated_at) {
+    return false;
+  }
+  return Date.now() - Date.parse(session.authenticated_at) <= maxAgeMs;
 }
 
 /**
@@ -911,13 +1042,14 @@ async function resetFailedLoginCount(userId) {
  */
 async function deleteUserAccount(
   userId,
-  { accountDeletionAuditLog = null, storageProvider = null } = {},
+  { accountDeletionAuditLog = null } = {},
 ) {
   const accountDeletionRepository = createAccountDeletionRepository(db);
   const now = new Date().toISOString();
 
   await accountDeletionRepository.transaction(async (accountDeletionTx, txDb) => {
     const gdprAuditRepository = createGdprAuditRepository(txDb);
+    const accountCleanupRepository = createAccountCleanupRepository(txDb);
 
     await accountDeletionTx.lockUserScopedTablesForAccountDeletion();
     const user = await accountDeletionTx.findActiveUser(userId);
@@ -997,13 +1129,14 @@ async function deleteUserAccount(
       userId,
     });
 
-    // External object deletion is irreversible, so keep it after every DB write
-    // that can fail. A storage failure still rolls back the DB transaction; a
-    // successful storage cleanup has no later DB work that can invalidate it.
-    await deleteAccountStorageArtifacts({
-      storageProvider,
+    // Commit a durable cleanup request with the tombstone. External storage is
+    // irreversible and must only be touched after this transaction commits.
+    await accountCleanupRepository.enqueue({
+      id: generateId("acj"),
       userId,
-      logger: authLogger,
+      idempotencyKey: `account:${userId}`,
+      maxAttempts: 5,
+      now,
     });
   });
 }
@@ -1116,9 +1249,11 @@ module.exports = {
 
   // Sessions
   createSession,
+  createSessionAndRefreshTokenInTransaction,
   listSessions,
   verifyActiveUser,
   verifyActiveSessionForUser,
+  verifyRecentAuthentication,
   revokeSession,
   revokeAllSessionsExcept,
 

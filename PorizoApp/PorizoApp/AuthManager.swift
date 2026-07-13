@@ -12,6 +12,127 @@ import OneSignalFramework
 import Observation
 import UIKit    // For UIApplication.isProtectedDataAvailable
 
+struct MagicLoginLink: Equatable, Sendable {
+    let transactionId: String
+    let linkSecret: String
+
+    static func parse(_ url: URL) -> MagicLoginLink? {
+        guard url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "auth.porizo.co",
+              url.path == "/auth/magic/ios",
+              url.port == nil,
+              url.user == nil,
+              url.password == nil,
+              let fragment = url.fragment,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+
+        let queryItems = components.queryItems ?? []
+        let fragmentItems = URLComponents(string: "?\(fragment)")?.queryItems ?? []
+        let transactionValues = queryItems.filter { $0.name == "transaction_id" }.compactMap(\.value)
+        let secretValues = fragmentItems.filter { $0.name == "secret" }.compactMap(\.value)
+        guard transactionValues.count == 1,
+              secretValues.count == 1,
+              queryItems.count == 1,
+              fragmentItems.count == 1,
+              !transactionValues[0].isEmpty,
+              !secretValues[0].isEmpty else { return nil }
+        return MagicLoginLink(transactionId: transactionValues[0], linkSecret: secretValues[0])
+    }
+}
+
+struct PendingMagicLogin: Codable, Equatable, Sendable {
+    let transactionId: String
+    let requestSecret: String
+    let requesterKey: String
+    let email: String
+    let purpose: MagicLoginPurpose
+    let expiresAt: Date
+    let createdAt: Date
+}
+
+enum PendingMagicLoginStore {
+    static let maximumEntries = 5
+    static let keyPrefix = "porizo_magic_request_"
+    static let indexKey = "porizo_magic_request_index"
+
+    static func save(_ pending: PendingMagicLogin, now: Date = .now) -> Bool {
+        prune(now: now)
+        guard let data = try? JSONEncoder().encode(pending),
+              let value = String(data: data, encoding: .utf8),
+              KeychainHelper.saveDeviceOnlyString(key: keyPrefix + pending.transactionId, value: value) else {
+            return false
+        }
+        var ids = loadIndex().filter { $0 != pending.transactionId }
+        ids.append(pending.transactionId)
+        var evictedIds: [String] = []
+        while ids.count > maximumEntries {
+            evictedIds.append(ids.removeFirst())
+        }
+        guard saveIndex(ids) else {
+            KeychainHelper.delete(key: keyPrefix + pending.transactionId)
+            return false
+        }
+        evictedIds.forEach { KeychainHelper.delete(key: keyPrefix + $0) }
+        return true
+    }
+
+    static func load(transactionId: String, now: Date = .now) -> PendingMagicLogin? {
+        guard let value = KeychainHelper.loadString(key: keyPrefix + transactionId),
+              let data = value.data(using: .utf8),
+              let pending = try? JSONDecoder().decode(PendingMagicLogin.self, from: data) else { return nil }
+        guard pending.expiresAt > now else {
+            remove(transactionId: transactionId)
+            return nil
+        }
+        return pending
+    }
+
+    static func remove(transactionId: String) {
+        KeychainHelper.delete(key: keyPrefix + transactionId)
+        _ = saveIndex(loadIndex().filter { $0 != transactionId })
+    }
+
+    static func removeAll() {
+        loadIndex().forEach { KeychainHelper.delete(key: keyPrefix + $0) }
+        KeychainHelper.delete(key: indexKey)
+    }
+
+    static func prune(now: Date = .now) {
+        let retained = loadIndex().filter { load(transactionId: $0, now: now) != nil }
+        _ = saveIndex(Array(retained.suffix(maximumEntries)))
+    }
+
+    private static func loadIndex() -> [String] {
+        guard let value = KeychainHelper.loadString(key: indexKey),
+              let data = value.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    private static func saveIndex(_ ids: [String]) -> Bool {
+        guard let data = try? JSONEncoder().encode(ids),
+              let value = String(data: data, encoding: .utf8) else { return false }
+        return KeychainHelper.saveDeviceOnlyString(key: indexKey, value: value)
+    }
+}
+
+enum MagicLoginState: Equatable, Sendable {
+    case idle
+    case submitting
+    case sent(email: String)
+    case cooldown(email: String)
+    case opening
+    case exchanging
+    case success
+    case expired
+    case locked
+    case conflict
+    case wrongDeviceOrPlatform
+    case offline
+    case serverError
+    case cancelled
+    case superseded
+}
+
 // MARK: - AuthManager
 
 /// Manages authentication state and token lifecycle
@@ -32,6 +153,7 @@ class AuthManager {
     private(set) var isLoading: Bool = false
     private(set) var hasValidatedSession: Bool = false
     private(set) var needsProfileCompletion: Bool = false
+    private(set) var magicLoginState: MagicLoginState = .idle
 
     /// Phone authentication flow state
     private(set) var phoneAuthState: PhoneAuthState = .idle
@@ -86,6 +208,7 @@ class AuthManager {
 
     @ObservationIgnored private let baseURL: String
     @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private lazy var magicAPIClient = APIClient(baseURL: baseURL)
 
     // Keychain keys
     private static let accessTokenKey = "porizo_access_token"
@@ -202,6 +325,122 @@ class AuthManager {
         if let observer = protectedDataObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+    }
+
+    // MARK: - Platform-bound Magic Login
+
+    func requestMagicLogin(email: String, purpose: MagicLoginPurpose) async throws {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedEmail.contains("@") else {
+            magicLoginState = .serverError
+            throw AuthError.serverError("Enter a valid email address.")
+        }
+        magicLoginState = .submitting
+        let requesterKey = UUID().uuidString.lowercased()
+
+        do {
+            let bearer = purpose == .addEmail ? try await getAccessToken() : nil
+            let response = try await magicAPIClient.requestMagicLogin(
+                email: normalizedEmail,
+                purpose: purpose,
+                requesterKey: requesterKey,
+                bearerToken: bearer
+            )
+            guard let expiresAt = Self.parseServerDate(response.expiresAt) else {
+                throw AuthError.serverError("The sign-in link had an invalid expiry.")
+            }
+            let pending = PendingMagicLogin(
+                transactionId: response.transactionId,
+                requestSecret: response.requestSecret,
+                requesterKey: requesterKey,
+                email: normalizedEmail,
+                purpose: purpose,
+                expiresAt: expiresAt,
+                createdAt: .now
+            )
+            guard PendingMagicLoginStore.save(pending) else {
+                throw AuthError.keychainSaveFailed
+            }
+            magicLoginState = .sent(email: normalizedEmail)
+        } catch {
+            magicLoginState = Self.magicFailureState(for: error)
+            throw error
+        }
+    }
+
+    @discardableResult
+    func handleMagicLoginURL(_ url: URL) async -> Bool {
+        guard let link = MagicLoginLink.parse(url) else { return false }
+        magicLoginState = .opening
+        guard let pending = PendingMagicLoginStore.load(transactionId: link.transactionId) else {
+            magicLoginState = .wrongDeviceOrPlatform
+            return true
+        }
+
+        magicLoginState = .exchanging
+        do {
+            let response = try await magicAPIClient.exchangeMagicLogin(
+                transactionId: link.transactionId,
+                linkSecret: link.linkSecret,
+                requestSecret: pending.requestSecret
+            )
+            if pending.purpose == .addEmail {
+                guard response.contactVerified == true else {
+                    throw AuthError.serverError("The email could not be verified.")
+                }
+                PendingMagicLoginStore.remove(transactionId: link.transactionId)
+                try await fetchCurrentUser()
+                magicLoginState = .success
+                return true
+            }
+            guard let accessToken = response.accessToken,
+                  let refreshToken = response.refreshToken else {
+                throw AuthError.serverError("The sign-in response was incomplete.")
+            }
+            let authResponse = AuthResponse(
+                userId: response.userId,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                expiresIn: response.expiresIn ?? 15 * 60,
+                isNewUser: response.isNewUser ?? false
+            )
+            try saveTokens(authResponse)
+            PendingMagicLoginStore.remove(transactionId: link.transactionId)
+            if pending.purpose == .login {
+                setAuthProvider("email_magic")
+            }
+            isAuthenticated = true
+            try await fetchCurrentUser()
+            magicLoginState = .success
+        } catch {
+            magicLoginState = Self.magicFailureState(for: error)
+        }
+        return true
+    }
+
+    func resetMagicLoginState() {
+        magicLoginState = .idle
+    }
+
+    private static func parseServerDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func magicFailureState(for error: Error) -> MagicLoginState {
+        if let urlError = error as? URLError,
+           [.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost].contains(urlError.code) {
+            return .offline
+        }
+        if case APIClientError.httpError(let status, let body) = error {
+            let normalized = body.lowercased()
+            if status == 409 || normalized.contains("conflict") { return .conflict }
+            if status == 410 || normalized.contains("expired") { return .expired }
+            if status == 423 || normalized.contains("locked") { return .locked }
+            if normalized.contains("platform") || normalized.contains("requester") { return .wrongDeviceOrPlatform }
+        }
+        return .serverError
     }
 
     // MARK: - Auth State
@@ -654,6 +893,15 @@ class AuthManager {
 
         switch httpResponse.statusCode {
         case 200, 201:
+            if let existing = try? JSONDecoder().decode(SocialAccountExistsResponse.self, from: data),
+               existing.accountExists,
+               existing.requiresExistingAccountAuthentication {
+                pendingSocialLinkRequest = nil
+                throw AuthError.existingAccountRequiresAuthentication(
+                    maskedEmail: existing.maskedEmail ?? "this email",
+                    authMethods: existing.authMethods
+                )
+            }
             // Check if this is a link confirmation prompt (not a login response)
             if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
                linkResponse.requiresLinkConfirmation == true {
@@ -1175,6 +1423,7 @@ class AuthManager {
         KeychainHelper.delete(key: Self.authProviderKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
+        PendingMagicLoginStore.removeAll()
         PendingSuggestionStore.clear()
         tokenLock.withLock {
             cachedAccessToken = nil

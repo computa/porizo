@@ -11,7 +11,15 @@
 import SwiftUI
 
 struct ProfileCompletionView: View {
-    private static let appleRelayDomain = "@privaterelay.appleid.com"
+    private static let appleRelayDomains = [
+        "@privaterelay.appleid.com",
+        "@private.icloud.com"
+    ]
+
+    static func isAppleRelayEmail(_ email: String) -> Bool {
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return appleRelayDomains.contains { normalized.hasSuffix($0) }
+    }
 
     @Environment(AuthManager.self) var authManager
     @Environment(\.dismiss) var dismiss
@@ -80,11 +88,11 @@ struct ProfileCompletionView: View {
 
     private var hasRealEmail: Bool {
         guard let email = authManager.currentUser?.email else { return false }
-        return !email.hasSuffix(Self.appleRelayDomain)
+        return !Self.isAppleRelayEmail(email)
     }
 
     private var isRelayEmail: Bool {
-        email.trimmingCharacters(in: .whitespaces).hasSuffix(Self.appleRelayDomain)
+        Self.isAppleRelayEmail(email)
     }
 
     private var hasValidEmail: Bool {
@@ -425,7 +433,7 @@ struct ProfileCompletionView: View {
                     ProgressView()
                         .tint(DesignTokens.gold)
                 }
-                Text(emailResendSuccess ? "Verification email sent!" : "Resend verification email")
+                Text(emailResendSuccess ? "Secure link sent!" : "Resend secure email link")
                     .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                     .foregroundStyle(emailResendSuccess ? DesignTokens.success : DesignTokens.gold)
             }
@@ -438,7 +446,12 @@ struct ProfileCompletionView: View {
         defer { isResendingEmail = false }
 
         do {
-            try await apiClient.resendEmailVerification()
+            let targetEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !targetEmail.isEmpty else {
+                errorMessage = "Enter the email address you want to verify."
+                return
+            }
+            try await authManager.requestMagicLogin(email: targetEmail, purpose: .addEmail)
             emailResendSuccess = true
             // Reset after 30 seconds so user can resend again
             Task {
@@ -446,7 +459,7 @@ struct ProfileCompletionView: View {
                 emailResendSuccess = false
             }
         } catch {
-            errorMessage = "Failed to send verification email. Please try again."
+            errorMessage = "Failed to send the secure email link. Please try again."
         }
     }
 
@@ -457,7 +470,7 @@ struct ProfileCompletionView: View {
             displayName = user.displayName ?? ""
 
             if let existingEmail = user.email,
-               !existingEmail.hasSuffix(Self.appleRelayDomain) {
+               !Self.isAppleRelayEmail(existingEmail) {
                 email = existingEmail
             }
         }
@@ -479,7 +492,13 @@ struct ProfileCompletionView: View {
                 displayName: trimmedName.isEmpty ? nil : trimmedName
             )
             authManager.updateCurrentUser(updated)
-            dismiss()
+            if needsVerifiedEmail, !trimmedEmail.isEmpty {
+                try await authManager.requestMagicLogin(email: trimmedEmail, purpose: .addEmail)
+                emailResendSuccess = true
+                errorMessage = "Open the secure link on this device to verify your email."
+            } else {
+                dismiss()
+            }
         } catch let error as APIClientError {
             switch error {
             case .httpError(let status, let body):

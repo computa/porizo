@@ -84,6 +84,7 @@ describe("client config service", () => {
         my_voice_enabled: true,
         gift_scheduling_enabled: true,
         gift_prepay_enforced: false,
+        magic_login_enabled: true,
       });
       assert.deepEqual(body.gift_bundles, [
         {

@@ -40,6 +40,7 @@
 		E9F14A305D7E8B9012345678 /* TikTokOpenShareSDK in Frameworks */ = {isa = PBXBuildFile; productRef = E9F14A2E5D7E8B9012345678 /* TikTokOpenShareSDK */; };
 		F1A2B3C4D5E6F7089A1B2C3D /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = F1A2B3C4D5E6F7089A1B2C3E /* AmplitudeSwift */; };
 		F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */; };
+		A6B7C8D9E0F1122334455667 /* IdentityModelContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C7D8E9F0A1122334455667 /* IdentityModelContractTests.swift */; };
 		I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */; };
 		K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */; };
 		M3N4O5P6Q7R89S0T1U2V3W4X /* PlaybackControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = N4O5P6Q7R8S90T1U2V3W4X5Y /* PlaybackControllerTests.swift */; };
@@ -123,6 +124,7 @@
 		FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PorizoAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushNotificationTests.swift; path = PorizoAppTests/PushNotificationTests.swift; sourceTree = "<group>"; };
 		H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerTests.swift; path = PorizoAppTests/AuthManagerTests.swift; sourceTree = "<group>"; };
+		B6C7D8E9F0A1122334455667 /* IdentityModelContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = IdentityModelContractTests.swift; path = PorizoAppTests/IdentityModelContractTests.swift; sourceTree = "<group>"; };
 		J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthProtectedDataTests.swift; path = PorizoAppTests/AuthProtectedDataTests.swift; sourceTree = "<group>"; };
 		L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerRaceConditionTests.swift; path = PorizoAppTests/AuthManagerRaceConditionTests.swift; sourceTree = "<group>"; };
 		N4O5P6Q7R8S90T1U2V3W4X5Y /* PlaybackControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PlaybackControllerTests.swift; path = PorizoAppTests/PlaybackControllerTests.swift; sourceTree = "<group>"; };
@@ -251,6 +253,7 @@
 			isa = PBXGroup;
 			children = (
 				H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */,
+				B6C7D8E9F0A1122334455667 /* IdentityModelContractTests.swift */,
 				8D4E6F70123456789ABCDEF0 /* APIContractTests.swift */,
 				6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */,
 				L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */,
@@ -506,6 +509,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */,
+				A6B7C8D9E0F1122334455667 /* IdentityModelContractTests.swift in Sources */,
 				8D4E6F70123456789ABCDEF1 /* APIContractTests.swift in Sources */,
 				5B7D92A10C4E48F4A9C74236 /* AppUpdatePolicyTests.swift in Sources */,
 				K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */,

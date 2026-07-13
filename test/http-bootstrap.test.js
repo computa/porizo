@@ -65,13 +65,20 @@ test("HTTP bootstrap serves Apple App Site Association as JSON", async () => {
 
   assert.equal(response.statusCode, 200);
   assert.match(response.headers["content-type"], /application\/json/);
-  assert.equal(response.json().applinks.details[0].appID, "5VCH6937XM.com.porizo.PorizoApp");
+  assert.equal(
+    response.json().applinks.details[0].appID,
+    "5VCH6937XM.porizo.ios.app.PorizoApp",
+  );
   assert.deepEqual(response.json().applinks.details[0].paths, [
     "/play/*",
     "/s/*",
     "/poem/*",
     "/create*",
-    "/verify-email*",
+      "/verify-email*",
+      "/auth/magic/ios*",
+  ]);
+  assert.deepEqual(response.json().appclips.apps, [
+    "5VCH6937XM.porizo.ios.app.PorizoApp.Clip",
   ]);
   assert.deepEqual(
     response.json(),

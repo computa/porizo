@@ -2,6 +2,22 @@
 
 Run this before any TestFlight upload or release candidate.
 
+## Magic Login Association Gate
+
+- [ ] `https://auth.porizo.co/.well-known/apple-app-site-association` returns
+  HTTP 200, `application/json`, the production app identifier, and
+  `/auth/magic/ios*`.
+- [ ] Release entitlements contain `applinks:auth.porizo.co`.
+- [ ] A release-installed build accepts only the exact HTTPS link, rejects
+  custom schemes, spoofed hosts, and query secrets, and exchanges only on the
+  initiating device.
+- [ ] Logs contain transaction IDs but no link secret, requester secret, full
+  callback URL, access token, or refresh token.
+- [ ] `MAGIC_LOGIN_ENABLED` remains false until DNS/TLS, association caching,
+  email delivery, and installed-release routing pass.
+- [ ] Android `assetlinks.json` contains the Play App Signing SHA-256 fingerprint
+  and is deployed; a debug fingerprint or placeholder does not pass this gate.
+
 ## Xcode And SwiftUI Release Gate
 
 - [ ] Release build uses the current stable Xcode lane, not an Xcode beta, unless explicitly approved.

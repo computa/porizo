@@ -15,6 +15,12 @@ const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const { clearRateLimits } = require("../src/routes/auth");
 const authService = require("../src/services/auth-service");
+const {
+  createAccountCleanupRepository,
+} = require("../src/database/account-cleanup-repository");
+const {
+  createAccountCleanupService,
+} = require("../src/services/account-cleanup-service");
 
 describe("Auth API Endpoints", () => {
   let app;
@@ -110,7 +116,7 @@ describe("Auth API Endpoints", () => {
       assert.ok(body.user_id, "should return user_id");
       assert.ok(body.access_token, "should return access_token");
       assert.ok(body.refresh_token, "should return refresh_token");
-      assert.strictEqual(body.expires_in, 3600);
+      assert.strictEqual(body.expires_in, 900);
     });
 
     it("should reject duplicate email", async () => {
@@ -1007,8 +1013,25 @@ describe("Auth API Endpoints", () => {
       });
 
       assert.strictEqual(response.statusCode, 204);
-      assert.strictEqual(await storage.objectExists({ key: targetKey }), false);
+      assert.strictEqual(
+        await storage.objectExists({ key: targetKey }),
+        true,
+        "storage cleanup must not run before the deletion transaction commits",
+      );
       assert.strictEqual(await storage.objectExists({ key: retainedKey }), true);
+      const cleanupJob = await createAccountCleanupRepository(db).findByIdempotencyKey(
+        `account:${signupBody.user_id}`,
+      );
+      assert.ok(cleanupJob, "expected durable post-commit cleanup job");
+      const cleanupService = createAccountCleanupService({
+        repository: createAccountCleanupRepository(db),
+        storageProvider: storage,
+      });
+      const cleanupResult = await cleanupService.processNext({
+        workerId: "auth-api-test-worker",
+      });
+      assert.strictEqual(cleanupResult.status, "completed");
+      assert.strictEqual(await storage.objectExists({ key: targetKey }), false);
 
       const audit = db
         .prepare(

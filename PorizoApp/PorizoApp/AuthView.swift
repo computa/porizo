@@ -3,16 +3,17 @@
 //  PorizoApp
 //
 //  Sign-in view matching Warm Canvas gallery design.
-//  Apple Sign In primary with phone auth alternative.
+//  Passwordless email sign-in.
 //
 
 import SwiftUI
 import AuthenticationServices
 import Security
+import UIKit
 
 // MARK: - AuthView
 
-/// Sign-in view with Apple Sign In primary and phone auth alternative.
+/// Sign-in view with platform-bound passwordless email authentication.
 struct AuthView: View {
     /// Optional context message shown below the subtitle (e.g., deep link context)
     var contextMessage: String?
@@ -27,18 +28,21 @@ struct AuthView: View {
     @State private var showTerms = false
     @State private var showPrivacy = false
     @State private var pendingLinkPrompt: (provider: String, maskedEmail: String)?
+    @State private var email = ""
+    @FocusState private var emailFocused: Bool
 
     var body: some View {
         ZStack {
             // Background: Deep velvet black
             DesignTokens.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                Spacer()
+            ScrollView {
+              VStack(spacing: 0) {
+                Spacer(minLength: 24)
 
                 authHeader
 
-                Spacer()
+                Spacer(minLength: 24)
 
                 // Error banner
                 if let error = errorMessage {
@@ -49,28 +53,41 @@ struct AuthView: View {
 
                 // Auth buttons
                 VStack(spacing: 12) {
-                    // Sign in with Apple (primary — black bg, white text)
-                    appleSignInButton
+                    TextField("Email address", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($emailFocused)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 52)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .accessibilityLabel("Email address")
 
-                    // Phone number (gold outline)
                     Button {
-                        authManager.startPhoneAuth()
+                        sendMagicLink()
                     } label: {
-                        HStack(spacing: 8) {
-                            Text("\u{1F4F1}")
-                            Text("Continue with Phone")
-                        }
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundStyle(DesignTokens.gold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(DesignTokens.gold, lineWidth: 1.5))
+                        Label(magicButtonTitle, systemImage: "envelope.fill")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 52)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isLoading)
-                    .opacity(isLoading ? 0.7 : 1.0)
+                    .buttonStyle(.borderedProminent)
+                    .tint(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.background)
+                    .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityHint("Sends a sign-in link that can only be completed on this device")
+
+                    if let statusMessage = magicStatusMessage {
+                        Text(statusMessage)
+                            .font(DesignTokens.bodyFont(size: 13))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("magicLoginStatus")
+                    }
+
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -78,7 +95,10 @@ struct AuthView: View {
                 // Legal footer
                 legalFooter
                     .padding(.bottom, 40)
+              }
+              .frame(maxWidth: .infinity)
             }
+            .scrollDismissesKeyboard(.interactively)
 
             // Loading overlay
             if isLoading {
@@ -99,6 +119,12 @@ struct AuthView: View {
             if isAuthenticated {
                 errorMessage = nil
             }
+        }
+        .onChange(of: authManager.magicLoginState) { _, state in
+            if let message = magicStatusMessage {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
+            isLoading = state == .submitting || state == .opening || state == .exchanging
         }
         .alert(
             "Link existing account?",
@@ -137,6 +163,46 @@ struct AuthView: View {
     }
 
     // MARK: - Components
+
+    private var magicButtonTitle: String {
+        switch authManager.magicLoginState {
+        case .submitting: "Sending link..."
+        case .sent, .cooldown: "Resend sign-in link"
+        default: "Email me a sign-in link"
+        }
+    }
+
+    private var magicStatusMessage: String? {
+        switch authManager.magicLoginState {
+        case .idle: nil
+        case .submitting: "Sending a secure sign-in link."
+        case .sent(let email), .cooldown(let email): "Link sent to \(email). Open it on this device."
+        case .opening, .exchanging: "Verifying your sign-in link."
+        case .success: "Signed in successfully."
+        case .expired: "This link expired. Request a new link."
+        case .locked: "This request is locked. Change email or contact support."
+        case .conflict: "That email belongs to another account. Keep this account or sign out first."
+        case .wrongDeviceOrPlatform: "This link was requested on another device or platform. Request a new link here."
+        case .offline: "You're offline. Check your connection and try again."
+        case .serverError: "Sign-in could not be completed. Try again or contact support."
+        case .cancelled: "Sign-in cancelled."
+        case .superseded: "A newer sign-in request replaced this one. Request another link."
+        }
+    }
+
+    private func sendMagicLink() {
+        emailFocused = false
+        errorMessage = nil
+        Task { @MainActor in
+            do {
+                try await authManager.requestMagicLogin(email: email, purpose: .login)
+            } catch let error as AuthError {
+                errorMessage = error.localizedDescription
+            } catch {
+                errorMessage = ErrorHandler.friendlyMessage(for: error, context: "Sending sign-in link")
+            }
+        }
+    }
 
     private var authHeader: some View {
         VStack(spacing: 18) {

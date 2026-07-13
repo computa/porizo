@@ -1,6 +1,44 @@
 import XCTest
 @testable import PorizoApp
 
+// MARK: - Review Prompt Policy Tests
+
+final class ReviewPromptPolicyTests: XCTestCase {
+
+    private let policy = ReviewPromptPolicy.production
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func testFirstVerifiedSuccessCanRequestReview() {
+        let state = ReviewPromptPolicy.State(requestCount: 0, lastRequestDate: nil)
+
+        XCTAssertTrue(policy.shouldRequestReview(state: state, now: now))
+    }
+
+    func testRecentRequestIsSuppressed() {
+        let state = ReviewPromptPolicy.State(
+            requestCount: 1,
+            lastRequestDate: now.addingTimeInterval(-119 * 86_400)
+        )
+
+        XCTAssertFalse(policy.shouldRequestReview(state: state, now: now))
+    }
+
+    func testRequestBecomesEligibleAtCooldownBoundary() {
+        let state = ReviewPromptPolicy.State(
+            requestCount: 1,
+            lastRequestDate: now.addingTimeInterval(-120 * 86_400)
+        )
+
+        XCTAssertTrue(policy.shouldRequestReview(state: state, now: now))
+    }
+
+    func testLocalAnnualCapPreventsRepeatedRequests() {
+        let state = ReviewPromptPolicy.State(requestCount: 3, lastRequestDate: nil)
+
+        XCTAssertFalse(policy.shouldRequestReview(state: state, now: now))
+    }
+}
+
 // MARK: - Model Parsing Tests
 
 final class PoemModelTests: XCTestCase {

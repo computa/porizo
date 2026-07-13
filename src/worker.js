@@ -9,6 +9,7 @@ const {
   createStorageRuntimeConfig,
 } = require("./providers/provider-config");
 const { createEventsService } = require("./services/events-service");
+const { startAccountCleanupJob } = require("./jobs/account-cleanup");
 
 // IMPORTANT: In development, the server runs the job runner inline by default.
 // Running worker.js separately is only needed when INLINE_JOB_RUNNER=false.
@@ -43,6 +44,11 @@ async function startWorker() {
     devMode: config.DEV_MODE,
     storageProvider: storage,
     eventsService,
+  });
+  const accountCleanupJob = startAccountCleanupJob({
+    db,
+    storageProvider: storage,
+    logger: console,
   });
 
   // Health check endpoint for Railway
@@ -86,6 +92,7 @@ async function startWorker() {
 
     console.log("[Worker] Shutting down, waiting for active jobs to complete...");
     runner.stop(); // Stop accepting new jobs
+    accountCleanupJob.stop();
 
     // Wait up to 30s for active jobs to complete
     const maxWaitMs = 30000;

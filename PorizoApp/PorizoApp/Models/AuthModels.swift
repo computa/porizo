@@ -105,6 +105,22 @@ struct AccountExistsResponse: Codable, Sendable {
     }
 }
 
+/// Social sign-in found an existing account, but linking requires an
+/// authenticated target-account session and fresh provider proof.
+struct SocialAccountExistsResponse: Codable, Sendable {
+    let accountExists: Bool
+    let requiresExistingAccountAuthentication: Bool
+    let authMethods: [String]
+    let maskedEmail: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accountExists = "account_exists"
+        case requiresExistingAccountAuthentication = "requires_existing_account_authentication"
+        case authMethods = "auth_methods"
+        case maskedEmail = "masked_email"
+    }
+}
+
 // MARK: - Device Registration
 
 /// Response from POST /device/register

@@ -132,6 +132,36 @@ async function sendToUsers({ userIds, title, body, data, imageUrl, name }) {
   return apiRequest("POST", "/notifications", payload);
 }
 
+async function sendRecipientPlayed({ userId, trackId, trackTitle, recipientName }) {
+  if (!userId) throw new Error("userId is required");
+  if (!trackId) throw new Error("trackId is required");
+
+  const safeTitle = (trackTitle || "your song").slice(0, 80);
+  const safeRecipient = (recipientName || "").slice(0, 40).trim();
+  const body = safeRecipient
+    ? `${safeRecipient} just finished listening to "${safeTitle}"`
+    : `Your recipient just finished listening to "${safeTitle}"`;
+
+  const result = await sendToUsers({
+    userIds: [userId],
+    title: "They played your song",
+    body,
+    name: "Recipient played",
+    data: {
+      type: "recipient_played",
+      trackId,
+      trackTitle: safeTitle,
+      recipientName: safeRecipient || null,
+    },
+  });
+  if (result.recipients === 0) {
+    const error = new Error("OneSignal recipient has no subscribed external ID");
+    error.code = "ONESIGNAL_RECIPIENT_NOT_SUBSCRIBED";
+    throw error;
+  }
+  return result;
+}
+
 /**
  * Update tags for a user identified by external ID.
  * Tags are used for segmentation (e.g., songs_created, days_since_last_song).
@@ -142,7 +172,7 @@ async function sendToUsers({ userIds, title, body, data, imageUrl, name }) {
  */
 async function setUserTags(externalId, tags) {
   const { appId } = getConfig();
-  return apiRequest("PUT", `/apps/${appId}/users/by/external_id/${externalId}`, {
+  return apiRequest("PATCH", `/apps/${appId}/users/by/external_id/${externalId}`, {
     properties: { tags },
   });
 }
@@ -250,6 +280,7 @@ module.exports = {
   isConfigured,
   sendToSegment,
   sendToUsers,
+  sendRecipientPlayed,
   setUserTags,
   songsCreatedBucket,
   daysSince,

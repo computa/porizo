@@ -47,7 +47,11 @@ function normalizePhone(phone) {
  * Detect Apple private relay emails.
  */
 function isAppleRelay(email) {
-  return email.endsWith("@privaterelay.appleid.com");
+  const normalized = normalizeEmail(email);
+  return (
+    normalized.endsWith("@privaterelay.appleid.com") ||
+    normalized.endsWith("@private.icloud.com")
+  );
 }
 
 /**
@@ -111,6 +115,13 @@ async function resolveUserByIdentity(db, type, subject) {
  */
 async function createUserWithIdentity(db, identity, options = {}) {
   const repository = identityRepositoryFor(db);
+  return repository.transaction((txRepository) =>
+    createUserWithIdentityInRepository(txRepository, identity, options),
+  );
+}
+
+/** Create a user through an already transaction-scoped identity repository. */
+async function createUserWithIdentityInRepository(repository, identity, options = {}) {
   const { contacts = [], profile = {} } = options;
   const userId = generateId("user");
   const identityId = generateId("ap");
@@ -143,19 +154,16 @@ async function createUserWithIdentity(db, identity, options = {}) {
     }
   }
 
-  await repository.transaction(async (txRepository) => {
-    // 1. Create user
-    await txRepository.insertUser({
+  await repository.insertUser({
       id: userId,
       displayName: profile.displayName || null,
       avatarUrl: profile.avatarUrl || null,
       locale: profile.locale || null,
       country: profile.country || null,
       createdAt: now,
-    });
+  });
 
-    // 2. Create auth identity
-    await txRepository.insertAuthProvider({
+  await repository.insertAuthProvider({
       id: identityId,
       userId,
       provider: identity.type,
@@ -164,11 +172,10 @@ async function createUserWithIdentity(db, identity, options = {}) {
       verifiedAt: identity.verifiedAt || now,
       linkedAt: now,
       lastUsedAt: now,
-    });
+  });
 
-    // 3. Create contact rows
-    for (const c of contactRows) {
-      await txRepository.insertContact({
+  for (const c of contactRows) {
+      await repository.insertContact({
         id: c.id,
         userId: c.userId,
         type: c.type,
@@ -181,11 +188,9 @@ async function createUserWithIdentity(db, identity, options = {}) {
         isRelay: c.isRelay,
         createdAt: now,
       });
-    }
+  }
 
-    // 4. Sync mirror columns from contacts
-    await syncUserContactMirrors(txRepository, userId);
-  });
+  await syncUserContactMirrors(repository, userId);
 
   return { userId, identityId };
 }
@@ -370,6 +375,35 @@ async function verifyContact(db, userId, type, valueNormalized, source) {
 }
 
 /**
+ * Make a magic-link-verified email both a contact and a login credential.
+ * The caller must provide a transaction-scoped identity repository.
+ */
+async function linkVerifiedMagicEmail(repository, userId, email) {
+  const normalized = normalizeEmail(email);
+  const existing = await repository.findActiveIdentity("email", normalized);
+  if (existing && existing.user_id !== userId) {
+    throw new IdentityError(
+      "E118_PROVIDER_ALREADY_LINKED",
+      "This email is already linked to another account.",
+      409,
+    );
+  }
+  if (!existing) {
+    const now = new Date().toISOString();
+    await repository.insertAuthProvider({
+      id: generateId("ap"),
+      userId,
+      provider: "email",
+      providerUserId: normalized,
+      verifiedAt: now,
+      linkedAt: now,
+      lastUsedAt: now,
+    });
+  }
+  await verifyContact(repository, userId, "email", normalized, "magic_link");
+}
+
+/**
  * Set a contact as primary for its type. Unsets previous primary.
  * @param {object} db - Database instance
  * @param {string} userId - User ID
@@ -406,45 +440,26 @@ async function setPrimaryContact(db, userId, contactId) {
  * @param {string} policyVersion - Policy version (default: 'v1')
  * @returns {Promise<{ complete: boolean, missing: string[] }>}
  *
- * Policy v1: profile is complete as soon as the user has ANY non-relay
- * email OR any phone on file — regardless of verification state. The
- * email/phone collection is a marketing signal, not an identity check
- * (Apple Sign-In users hide their real email via relay, so we prompt for
- * a real contact; once they provide one, we don't force verification).
- *
- * The `missing` array still reports unverified channels so the UI can
- * nudge users to verify — but `complete` is true once any channel is
- * present, so the "Complete your profile" sheet no longer blocks them.
+ * Policy v1: verified email and verified phone are independent requirements.
+ * Apple relay addresses do not satisfy the email requirement, and a verified
+ * phone must never substitute for a verified non-relay email.
  */
 async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
   const repository = identityRepositoryFor(db);
   const missing = [];
 
   if (policyVersion === "v1") {
-    // Verified rows are a strict subset of "on file" rows, so we only run the
-    // fallback query when the verified probe misses. Best case: 2 queries.
-    // Relay emails (@privaterelay.appleid.com) don't count — we want a real
-    // address for marketing.
-
     const verifiedEmail = await repository.findVerifiedNonRelayEmail(userId);
-
-    let hasRealEmail = Boolean(verifiedEmail);
     if (!verifiedEmail) {
       missing.push("verified_email");
-      const realEmail = await repository.findNonRelayEmail(userId);
-      hasRealEmail = Boolean(realEmail);
     }
 
     const verifiedPhone = await repository.findVerifiedPhone(userId);
-
-    let hasPhone = Boolean(verifiedPhone);
     if (!verifiedPhone) {
       missing.push("verified_phone");
-      const phone = await repository.findPhone(userId);
-      hasPhone = Boolean(phone);
     }
 
-    return { complete: hasRealEmail || hasPhone, missing };
+    return { complete: missing.length === 0, missing };
   }
 
   return { complete: missing.length === 0, missing };
@@ -583,6 +598,7 @@ module.exports = {
 
   // User + identity creation
   createUserWithIdentity,
+  createUserWithIdentityInRepository,
 
   // Identity linking
   linkIdentityToUser,
@@ -590,6 +606,7 @@ module.exports = {
   // Contact management
   createOrUpdateContact,
   verifyContact,
+  linkVerifiedMagicEmail,
   setPrimaryContact,
 
   // Profile completeness

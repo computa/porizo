@@ -20,6 +20,24 @@ final class IdentityModelContractTests: XCTestCase {
 
     private let decoder = JSONDecoder()
 
+    func testMagicRequestDTOIncludesPublicRequesterKeyAndIOSPlatform() throws {
+        let body = MagicLoginRequestBody(
+            email: "ambrose@example.com",
+            platform: "ios",
+            purpose: .addEmail,
+            requesterKey: "public-requester-key-1234"
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: String]
+        )
+
+        XCTAssertEqual(object["email"], "ambrose@example.com")
+        XCTAssertEqual(object["platform"], "ios")
+        XCTAssertEqual(object["purpose"], "add_email")
+        XCTAssertEqual(object["requester_key"], "public-requester-key-1234")
+        XCTAssertNil(object["request_secret"])
+    }
+
     // MARK: - Full /auth/me Response
 
     /// The canonical /auth/me response with all identity fields present.
@@ -284,5 +302,11 @@ final class IdentityModelContractTests: XCTestCase {
 
         XCTAssertFalse(user.hasRealVerifiedEmail, "Relay email should not count as real verified email")
         XCTAssertTrue(user.needsProfileCompletion)
+    }
+
+    func testProfileCompletion_recognizesBothAppleRelayDomainsCaseInsensitively() {
+        XCTAssertTrue(ProfileCompletionView.isAppleRelayEmail("user@privaterelay.appleid.com"))
+        XCTAssertTrue(ProfileCompletionView.isAppleRelayEmail(" USER@PRIVATE.ICLOUD.COM "))
+        XCTAssertFalse(ProfileCompletionView.isAppleRelayEmail("user@icloud.com"))
     }
 }

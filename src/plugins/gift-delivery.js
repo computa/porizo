@@ -26,6 +26,10 @@ const {
   redactGiftContacts,
 } = require("../services/gift-delivery-ops");
 const { createGiftOpsMonitor } = require("../services/gift-ops-monitoring");
+const {
+  createContactDeliveryService,
+  EVENT_STATUS: CONTACT_DELIVERY_EVENT_STATUS,
+} = require("../services/contact-delivery-service");
 
 function giftDeliveryPlugin(app, options) {
   const {
@@ -58,6 +62,8 @@ function giftDeliveryPlugin(app, options) {
     upsertGiftIncident,
     resolveGiftIncident,
   });
+  const contactDeliveryService = createContactDeliveryService(db);
+  emailService.configureContactDeliveryPolicy(contactDeliveryService);
   const logGiftLifecycle = giftOpsMonitor.logGiftLifecycle;
   const createGiftIncident = giftOpsMonitor.recordGiftIncident;
   const clearGiftIncident = giftOpsMonitor.clearGiftIncident;
@@ -1397,6 +1403,26 @@ function giftDeliveryPlugin(app, options) {
       }
 
       const normalized = normalizeResendReceipt(verifiedPayload || {});
+      const eventType = String(
+        verifiedPayload?.type || verifiedPayload?.event || "",
+      ).toLowerCase();
+      const rawRecipients = verifiedPayload?.data?.to;
+      const recipient = Array.isArray(rawRecipients)
+        ? rawRecipients[0]
+        : rawRecipients;
+      if (CONTACT_DELIVERY_EVENT_STATUS[eventType] && recipient) {
+        await contactDeliveryService.recordDeliveryEvent({
+          provider: "resend",
+          eventId: headers.id,
+          eventType,
+          recipient,
+          eventAt: normalized.receiptEventAt,
+          reason:
+            verifiedPayload?.data?.bounce?.message ||
+            verifiedPayload?.data?.reason ||
+            null,
+        });
+      }
       const result = await applyGiftDeliveryReceipt({
         providerName: normalized.providerName,
         providerMessageId: normalized.providerMessageId,

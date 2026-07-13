@@ -14,6 +14,7 @@ const {
   isConfigured,
   sendToSegment,
   sendToUsers,
+  sendRecipientPlayed,
   startTagSyncJob,
 } = require("../src/services/onesignal");
 
@@ -200,6 +201,54 @@ describe("OneSignal Service", () => {
           data: { screen: "songs" },
         });
       });
+    });
+
+    it("sends recipient-played events to the sender external ID", async () => {
+      await withMockedOneSignal(async (calls) => {
+        await sendRecipientPlayed({
+          userId: "sender_1",
+          trackId: "track_1",
+          trackTitle: "A Song for Sarah",
+          recipientName: "Sarah",
+        });
+
+        assert.deepStrictEqual(calls[0].body.include_aliases, {
+          external_id: ["sender_1"],
+        });
+        assert.deepStrictEqual(calls[0].body.data, {
+          type: "recipient_played",
+          trackId: "track_1",
+          trackTitle: "A Song for Sarah",
+          recipientName: "Sarah",
+        });
+        assert.strictEqual(calls[0].body.contents.en, 'Sarah just finished listening to "A Song for Sarah"');
+      });
+    });
+
+    it("rejects recipient-played sends with no subscribed external ID", async () => {
+      const origAppId = process.env.ONESIGNAL_APP_ID;
+      const origKey = process.env.ONESIGNAL_REST_API_KEY;
+      const origFetch = global.fetch;
+      process.env.ONESIGNAL_APP_ID = "app-id";
+      process.env.ONESIGNAL_REST_API_KEY = "rest-key";
+      global.fetch = async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "", recipients: 0 }),
+      });
+
+      try {
+        await assert.rejects(
+          sendRecipientPlayed({ userId: "missing", trackId: "track_1" }),
+          { code: "ONESIGNAL_RECIPIENT_NOT_SUBSCRIBED" },
+        );
+      } finally {
+        global.fetch = origFetch;
+        if (origAppId) process.env.ONESIGNAL_APP_ID = origAppId;
+        else delete process.env.ONESIGNAL_APP_ID;
+        if (origKey) process.env.ONESIGNAL_REST_API_KEY = origKey;
+        else delete process.env.ONESIGNAL_REST_API_KEY;
+      }
     });
   });
 

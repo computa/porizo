@@ -14,6 +14,7 @@ const {
   healAndCheckShare,
 } = require("../services/share-service");
 const pushNotification = require("../services/push-notification");
+const oneSignal = require("../services/onesignal");
 const { createDeviceRepository } = require("../database/device-repository");
 const {
   createShareTokenRepository,
@@ -1768,18 +1769,9 @@ function registerSharingRoutes(
       // Fire-and-forget: notify the sender that the recipient finished playing.
       // This is the "moment of magic" — the gift landed. iOS uses this push
       // as the primary trigger for the rating pre-prompt.
-      if (
-        eventName === "receiver_play_completed" &&
-        pushNotification.isConfigured() &&
-        share.creator_id
-      ) {
+      if (eventName === "receiver_play_completed" && share.creator_id) {
         (async () => {
           try {
-            const devices = await deviceRepository.listPushTokensForUser(
-              share.creator_id,
-            );
-            if (!devices || devices.length === 0) return;
-
             const track = share.track_id
               ? await shareTokenRepository.getTrackNotificationMetadata(
                   share.track_id,
@@ -1789,6 +1781,20 @@ function registerSharingRoutes(
             const trackTitle = track?.title || "your song";
             const recipientName = track?.recipient_name || null;
 
+            if (oneSignal.isConfigured()) {
+              await oneSignal.sendRecipientPlayed({
+                userId: share.creator_id,
+                trackId: share.track_id,
+                trackTitle,
+                recipientName,
+              });
+              return;
+            }
+
+            if (!pushNotification.isConfigured()) return;
+            const devices = await deviceRepository.listPushTokensForUser(
+              share.creator_id,
+            );
             for (const device of devices) {
               if (!device.push_token) continue;
               pushNotification
