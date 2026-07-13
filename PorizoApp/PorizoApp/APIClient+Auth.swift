@@ -38,6 +38,37 @@ struct MagicLoginExchangeBody: Codable, Equatable, Sendable {
     }
 }
 
+struct MagicLoginNativeProofBody: Codable, Equatable, Sendable {
+    let transactionId: String
+    let platform: String
+    let requestSecret: String
+
+    enum CodingKeys: String, CodingKey {
+        case transactionId = "transaction_id"
+        case platform
+        case requestSecret = "request_secret"
+    }
+}
+
+enum MagicLoginNativeStatus: String, Codable, Sendable {
+    case pending
+    case approved
+    case expired
+    case locked
+    case consumed
+    case conflict
+}
+
+struct MagicLoginNativeStatusResponse: Codable, Equatable, Sendable {
+    let status: MagicLoginNativeStatus
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case expiresAt = "expires_at"
+    }
+}
+
 struct MagicLoginRequestResponse: Codable, Sendable {
     let transactionId: String
     let requestSecret: String
@@ -113,6 +144,46 @@ extension APIClient {
             transactionId: transactionId,
             platform: "ios",
             linkSecret: linkSecret,
+            requestSecret: requestSecret
+        ))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+        return try Self.jsonDecoder.decode(MagicLoginExchangeResponse.self, from: data)
+    }
+
+    func magicLoginNativeStatus(
+        transactionId: String,
+        requestSecret: String
+    ) async throws -> MagicLoginNativeStatusResponse {
+        let url = URL(string: "\(baseURL)/auth/magic/native/status")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONEncoder().encode(MagicLoginNativeProofBody(
+            transactionId: transactionId,
+            platform: "ios",
+            requestSecret: requestSecret
+        ))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+        return try Self.jsonDecoder.decode(MagicLoginNativeStatusResponse.self, from: data)
+    }
+
+    func completeApprovedMagicLogin(
+        transactionId: String,
+        requestSecret: String
+    ) async throws -> MagicLoginExchangeResponse {
+        let url = URL(string: "\(baseURL)/auth/magic/native/complete")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONEncoder().encode(MagicLoginNativeProofBody(
+            transactionId: transactionId,
+            platform: "ios",
             requestSecret: requestSecret
         ))
 

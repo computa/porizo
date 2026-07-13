@@ -451,8 +451,21 @@ ${verifyUrl}
  * Send a platform-bound magic sign-in link. The link secret is delivered only
  * by email; the independent requester secret stays on the initiating device.
  */
-async function sendMagicLoginEmail(email, { transactionId, platform, linkSecret, expiresAt }) {
-  const magicUrl = `https://auth.porizo.co/auth/magic/${encodeURIComponent(platform)}?transaction_id=${encodeURIComponent(transactionId)}#secret=${encodeURIComponent(linkSecret)}`;
+function buildMagicLoginUrl({ webOrigin, transactionId, platform, linkSecret }) {
+  const origin = String(webOrigin || "https://auth.porizo.co").replace(/\/$/, "");
+  return `${origin}/auth/magic/${encodeURIComponent(platform)}?transaction_id=${encodeURIComponent(transactionId)}#secret=${encodeURIComponent(linkSecret)}`;
+}
+
+async function sendMagicLoginEmail(
+  email,
+  { webOrigin, transactionId, platform, linkSecret, expiresAt },
+) {
+  const magicUrl = buildMagicLoginUrl({
+    webOrigin,
+    transactionId,
+    platform,
+    linkSecret,
+  });
   const expiresDate = new Date(expiresAt);
   const safeMinutes = Math.max(1, Math.ceil((expiresDate - new Date()) / 60_000));
   const { data, error } = await sendLifecyclePayload(email, {
@@ -973,6 +986,7 @@ module.exports = {
   sendAdminPasswordResetEmail,
   sendAdminSecurityAlertEmail,
   sendVerificationEmail,
+  buildMagicLoginUrl,
   sendMagicLoginEmail,
   sendWelcomeEmail,
   sendSecurityAlertEmail,

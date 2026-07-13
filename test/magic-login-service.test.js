@@ -161,6 +161,109 @@ describe("magic login service", () => {
     );
   });
 
+  it("requires explicit link approval before requester-only completion", async () => {
+    const created = await service.createTransaction({
+      email: "browser-fallback@example.com",
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "browser-fallback-device",
+    });
+
+    assert.equal((await service.status({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    })).status, "pending");
+    assert.equal((await service.completeApproved({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    })).status, "invalid");
+    assert.equal((await service.approve({
+      transactionId: created.transactionId,
+      platform: "ios",
+      linkSecret: created.linkSecret,
+    })).status, "approved");
+    assert.equal((await service.status({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    })).status, "approved");
+
+    const completed = await service.completeApproved({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+      consume: async () => ({ sessionId: "session-browser-fallback" }),
+    });
+    assert.deepEqual(completed, {
+      status: "consumed",
+      result: { sessionId: "session-browser-fallback" },
+    });
+    assert.equal((await service.status({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    })).status, "consumed");
+  });
+
+  it("keeps a consumed transaction recoverable after the original link expires", async () => {
+    const createdAt = new Date(now);
+    const created = await service.createTransaction({
+      email: "response-loss@example.com",
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "response-loss-device",
+    });
+    now = new Date(createdAt.getTime() + MAGIC_LOGIN_TTL_MS - 1_000);
+    assert.equal((await service.approve({
+      transactionId: created.transactionId,
+      platform: "ios",
+      linkSecret: created.linkSecret,
+    })).status, "approved");
+    assert.equal((await service.completeApproved({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+      consume: async () => ({ sessionId: "session-response-loss" }),
+    })).status, "consumed");
+
+    now = new Date(createdAt.getTime() + MAGIC_LOGIN_TTL_MS + 1_000);
+    assert.equal((await service.status({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    })).status, "consumed");
+    assert.deepEqual(await service.completeApproved({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    }), {
+      status: "recovered",
+      result: { sessionId: "session-response-loss" },
+    });
+  });
+
+  it("does not approve with the wrong link factor", async () => {
+    const created = await service.createTransaction({
+      email: "wrong-link-factor@example.com",
+      platform: "android",
+      purpose: "login",
+      requesterKey: "wrong-link-factor-device",
+    });
+
+    assert.equal((await service.approve({
+      transactionId: created.transactionId,
+      platform: "android",
+      linkSecret: "wrong-secret",
+    })).status, "invalid");
+    assert.equal((await service.status({
+      transactionId: created.transactionId,
+      platform: "android",
+      requestSecret: created.requestSecret,
+    })).status, "pending");
+  });
+
   it("provides active-cap, cooldown, and expiry cleanup primitives", async () => {
     await service.createTransaction({
       email: "caps@example.com",

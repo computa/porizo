@@ -206,9 +206,132 @@ function createMagicLoginService({
     });
   }
 
+  async function approve({ transactionId, platform, linkSecret }) {
+    if (!transactionId || !PLATFORMS.has(platform) || platform === "web") {
+      return { status: "invalid" };
+    }
+    const linkSecretHash = requireSecret(linkSecret);
+    if (!linkSecretHash) return { status: "invalid" };
+
+    return repository.withTransaction(async (transactionRepository) => {
+      const approvedAt = now().toISOString();
+      const approved = await transactionRepository.approvePending({
+        id: transactionId,
+        platform,
+        linkSecretHash,
+        approvedAt,
+      });
+      if (!approved) {
+        await transactionRepository.recordFailedAttempt({
+          id: transactionId,
+          platform,
+          attemptedAt: approvedAt,
+        });
+        return { status: "invalid" };
+      }
+      return { status: "approved" };
+    });
+  }
+
+  async function status({ transactionId, platform, requestSecret }) {
+    if (!transactionId || !PLATFORMS.has(platform) || platform === "web") {
+      return { status: "invalid" };
+    }
+    const requestSecretHash = requireSecret(requestSecret);
+    if (!requestSecretHash) return { status: "invalid" };
+    const transaction = await repository.findByRequesterProof({
+      id: transactionId,
+      platform,
+      requestSecretHash,
+    });
+    if (!transaction) return { status: "invalid" };
+    if (transaction.status === "locked") {
+      return { status: "locked", expiresAt: transaction.expiresAt };
+    }
+    if (transaction.status === "consumed") {
+      return { status: "consumed", expiresAt: transaction.expiresAt };
+    }
+    if (Date.parse(transaction.expiresAt) <= now().getTime()) {
+      return { status: "expired", expiresAt: transaction.expiresAt };
+    }
+    return {
+      status: transaction.approvedAt ? "approved" : "pending",
+      expiresAt: transaction.expiresAt,
+    };
+  }
+
+  async function completeApproved({
+    transactionId,
+    platform,
+    requestSecret,
+    consume = async () => ({}),
+  }) {
+    if (!transactionId || !PLATFORMS.has(platform) || platform === "web") {
+      return { status: "invalid" };
+    }
+    const requestSecretHash = requireSecret(requestSecret);
+    if (!requestSecretHash) return { status: "invalid" };
+
+    return repository.withTransaction(async (transactionRepository) => {
+      const completedAtDate = now();
+      const completedAt = completedAtDate.toISOString();
+      const recovered = await transactionRepository.claimNativeRecovery({
+        id: transactionId,
+        platform,
+        requestSecretHash,
+        claimedAt: completedAt,
+      });
+      if (recovered) {
+        return {
+          status: "recovered",
+          result: openRecoveryResult(recovered.recoveryResult),
+        };
+      }
+
+      const transaction = await transactionRepository.findByRequesterProof({
+        id: transactionId,
+        platform,
+        requestSecretHash,
+      });
+      if (
+        !transaction ||
+        transaction.status !== "pending" ||
+        !transaction.approvedAt ||
+        Date.parse(transaction.expiresAt) <= completedAtDate.getTime()
+      ) {
+        return { status: "invalid" };
+      }
+      const claimed = await transactionRepository.claimApproved({
+        id: transactionId,
+        platform,
+        requestSecretHash,
+        consumedAt: completedAt,
+      });
+      if (!claimed) return { status: "invalid" };
+
+      const result = (await consume(transaction, transactionRepository)) || {};
+      const stored = await transactionRepository.storeRecoveryResult({
+        id: transactionId,
+        requestSecretHash,
+        result: sealRecoveryResult(result, randomBytes),
+        recoveryExpiresAt: new Date(
+          completedAtDate.getTime() + recoveryTtlMs,
+        ).toISOString(),
+        sessionId: result.sessionId || null,
+      });
+      if (stored.changes !== 1) {
+        throw new Error("MAGIC_LOGIN_RECOVERY_RESULT_NOT_STORED");
+      }
+      return { status: "consumed", result };
+    });
+  }
+
   return {
     createTransaction,
     exchange,
+    approve,
+    status,
+    completeApproved,
     hashRequesterKey,
   };
 }

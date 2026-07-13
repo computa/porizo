@@ -4,6 +4,10 @@ Run this before any TestFlight upload or release candidate.
 
 ## Magic Login Association Gate
 
+- [ ] Run
+  `ANDROID_MANIFEST_PATH=<android-checkout>/PorizoAndroid/Android/app/src/main/AndroidManifest.xml ANDROID_PLAY_SIGNING_SHA256=<fingerprint> npm run preflight:magic-login`
+  and retain the passing output with the release evidence.
+
 - [ ] `https://auth.porizo.co/.well-known/apple-app-site-association` returns
   HTTP 200, `application/json`, the production app identifier, and
   `/auth/magic/ios*`.
@@ -17,6 +21,12 @@ Run this before any TestFlight upload or release candidate.
   email delivery, and installed-release routing pass.
 - [ ] Android `assetlinks.json` contains the Play App Signing SHA-256 fingerprint
   and is deployed; a debug fingerprint or placeholder does not pass this gate.
+- [ ] For deterministic Universal Link validation, delete any build installed
+  before `auth.porizo.co` became valid, reinstall the release build, run Apple's
+  Universal Links Diagnostics, and long-press the link in Notes to confirm
+  “Open in Porizo” appears.
+- [ ] Resend click and open tracking remain disabled for authentication email so
+  the signed link is not rewritten through a tracking domain.
 
 ## Xcode And SwiftUI Release Gate
 

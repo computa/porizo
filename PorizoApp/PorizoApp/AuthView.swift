@@ -37,66 +37,73 @@ struct AuthView: View {
             DesignTokens.background.ignoresSafeArea()
 
             ScrollView {
-              VStack(spacing: 0) {
-                Spacer(minLength: 24)
+                if let presentation = loginPresentation {
+                    VStack(spacing: DesignTokens.spacing16) {
+                        CheckEmailView(
+                            context: presentation,
+                            state: authManager.magicLoginState,
+                            onResend: { resendMagicLink(to: presentation.email) },
+                            onUseDifferentEmail: useDifferentEmail,
+                            onRefresh: {
+                                await authManager.refreshMagicLoginStatus(
+                                    transactionId: presentation.transactionId
+                                )
+                            }
+                        )
 
-                authHeader
+                        legacyRecoveryActions
+                            .padding(.horizontal, DesignTokens.spacing20)
+                            .padding(.bottom, DesignTokens.spacing32)
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 24)
 
-                Spacer(minLength: 24)
+                        authHeader
 
-                // Error banner
-                if let error = errorMessage {
-                    errorBanner(error)
+                        Spacer(minLength: 24)
+
+                        if let error = errorMessage {
+                            errorBanner(error)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 16)
+                        }
+
+                        VStack(spacing: 12) {
+                            TextField("Email address", text: $email)
+                                .textContentType(.emailAddress)
+                                .keyboardType(.emailAddress)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .focused($emailFocused)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 52)
+                                .background(DesignTokens.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .accessibilityLabel("Email address")
+
+                            Button {
+                                sendMagicLink()
+                            } label: {
+                                Label(magicButtonTitle, systemImage: "envelope.fill")
+                                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .frame(minHeight: 52)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.background)
+                            .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .accessibilityHint("Sends a sign-in link that can only be completed on this device")
+                        }
                         .padding(.horizontal, 20)
-                        .padding(.bottom, 16)
-                }
+                        .padding(.bottom, 24)
 
-                // Auth buttons
-                VStack(spacing: 12) {
-                    TextField("Email address", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($emailFocused)
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: 52)
-                        .background(DesignTokens.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .accessibilityLabel("Email address")
-
-                    Button {
-                        sendMagicLink()
-                    } label: {
-                        Label(magicButtonTitle, systemImage: "envelope.fill")
-                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 52)
+                        legalFooter
+                            .padding(.bottom, 40)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(DesignTokens.gold)
-                    .foregroundStyle(DesignTokens.background)
-                    .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityHint("Sends a sign-in link that can only be completed on this device")
-
-                    if let statusMessage = magicStatusMessage {
-                        Text(statusMessage)
-                            .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundStyle(DesignTokens.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .accessibilityIdentifier("magicLoginStatus")
-                    }
-
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
-
-                // Legal footer
-                legalFooter
-                    .padding(.bottom, 40)
-              }
-              .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
 
@@ -182,6 +189,7 @@ struct AuthView: View {
         case .expired: "This link expired. Request a new link."
         case .locked: "This request is locked. Change email or contact support."
         case .conflict: "That email belongs to another account. Keep this account or sign out first."
+        case .legacyRecovery(let maskedEmail, _): "Recover the existing account for \(maskedEmail) to keep its songs and purchases."
         case .wrongDeviceOrPlatform: "This link was requested on another device or platform. Request a new link here."
         case .offline: "You're offline. Check your connection and try again."
         case .serverError: "Sign-in could not be completed. Try again or contact support."
@@ -200,6 +208,70 @@ struct AuthView: View {
                 errorMessage = error.localizedDescription
             } catch {
                 errorMessage = ErrorHandler.friendlyMessage(for: error, context: "Sending sign-in link")
+            }
+        }
+    }
+
+    private var loginPresentation: MagicLoginPresentation? {
+        guard authManager.pendingMagicLoginPresentation?.purpose == .login else { return nil }
+        return authManager.pendingMagicLoginPresentation
+    }
+
+    private func resendMagicLink(to email: String) {
+        errorMessage = nil
+        Task { @MainActor in
+            do {
+                try await authManager.requestMagicLogin(email: email, purpose: .login)
+            } catch let error as AuthError {
+                errorMessage = error.localizedDescription
+            } catch {
+                errorMessage = ErrorHandler.friendlyMessage(for: error, context: "Resending sign-in link")
+            }
+        }
+    }
+
+    private func useDifferentEmail() {
+        if let pendingEmail = loginPresentation?.email {
+            email = pendingEmail
+        }
+        authManager.cancelMagicLogin()
+        authManager.resetMagicLoginState()
+        emailFocused = true
+    }
+
+    @ViewBuilder
+    private var legacyRecoveryActions: some View {
+        if case .legacyRecovery(_, let authMethods) = authManager.magicLoginState {
+            VStack(spacing: DesignTokens.spacing12) {
+                Text("Recover existing account")
+                    .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textPrimary)
+
+                if authMethods.contains("apple") {
+                    appleSignInButton
+                }
+
+                if authMethods.contains("phone") {
+                    Button {
+                        authManager.startPhoneAuth()
+                    } label: {
+                        Label("Continue with phone", systemImage: "phone.fill")
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 52)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(DesignTokens.gold)
+                }
+
+                if authMethods.isEmpty || authMethods.contains(where: { method in
+                    method != "apple" && method != "phone"
+                }) {
+                    Text("Contact support so we can recover the original account without separating its content.")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
             }
         }
     }

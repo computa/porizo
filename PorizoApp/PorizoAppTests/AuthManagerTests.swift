@@ -13,6 +13,8 @@ final class AuthManagerTests: XCTestCase {
 
     override func tearDown() {
         super.tearDown()
+        MagicLoginPresentationStore.remove()
+        PendingMagicLoginStore.removeAll()
         PendingSuggestionStore.clear()
         KeychainHelper.delete(key: "porizo_pending_phone_link")
         KeychainHelper.delete(key: "porizo_pending_phone_link_expiry")
@@ -170,6 +172,85 @@ final class AuthManagerTests: XCTestCase {
         }
     }
 
+    func testMagicLoginResumeLinkCarriesTransactionIdOnly() throws {
+        let valid = try XCTUnwrap(URL(string: "porizo://auth/magic/resume?transaction_id=tx_1"))
+        XCTAssertEqual(
+            MagicLoginResumeLink.parse(valid),
+            MagicLoginResumeLink(transactionId: "tx_1")
+        )
+
+        let rejected = [
+            "porizo://auth/magic/resume?transaction_id=tx&secret=leaked",
+            "porizo://auth/magic/resume?transaction_id=tx#secret=leaked",
+            "porizo://auth/magic/resume?transaction_id=tx&transaction_id=other",
+            "porizo://evil/magic/resume?transaction_id=tx",
+            "https://auth.porizo.co/auth/magic/resume?transaction_id=tx",
+        ]
+        for value in rejected {
+            XCTAssertNil(MagicLoginResumeLink.parse(try XCTUnwrap(URL(string: value))), value)
+        }
+    }
+
+    func testMagicLoginPresentationPersistsWithoutRequesterSecret() throws {
+        let suiteName = "MagicLoginPresentationStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let now = Date()
+        let presentation = MagicLoginPresentation(
+            transactionId: "tx_public",
+            email: "person@example.com",
+            purpose: .login,
+            expiresAt: now.addingTimeInterval(600),
+            createdAt: now
+        )
+
+        XCTAssertTrue(MagicLoginPresentationStore.save(presentation, defaults: defaults))
+        XCTAssertEqual(MagicLoginPresentationStore.load(now: now, defaults: defaults), presentation)
+        let stored = try XCTUnwrap(defaults.data(forKey: MagicLoginPresentationStore.storageKey))
+        let storedText = try XCTUnwrap(String(data: stored, encoding: .utf8))
+        XCTAssertFalse(storedText.contains("request_secret"))
+        XCTAssertFalse(storedText.contains("requester_key"))
+        XCTAssertFalse(storedText.contains("link_secret"))
+    }
+
+    func testExpiredMagicLoginPresentationIsRemoved() throws {
+        let suiteName = "ExpiredMagicLoginPresentationStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let now = Date()
+        XCTAssertTrue(MagicLoginPresentationStore.save(MagicLoginPresentation(
+            transactionId: "tx_expired",
+            email: "person@example.com",
+            purpose: .addEmail,
+            expiresAt: now.addingTimeInterval(
+                -MagicLoginPresentation.recoveryGraceInterval - 1
+            ),
+            createdAt: now.addingTimeInterval(-600)
+        ), defaults: defaults))
+
+        XCTAssertNil(MagicLoginPresentationStore.load(now: now, defaults: defaults))
+        XCTAssertNil(defaults.data(forKey: MagicLoginPresentationStore.storageKey))
+    }
+
+    func testConsumedMagicLoginPresentationCanRemainDuringRecoveryGrace() throws {
+        let suiteName = "RecoveryMagicLoginPresentationStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let now = Date()
+        let presentation = MagicLoginPresentation(
+            transactionId: "tx_recovery",
+            email: "person@example.com",
+            purpose: .login,
+            expiresAt: now.addingTimeInterval(-1),
+            createdAt: now.addingTimeInterval(-901)
+        )
+        XCTAssertTrue(MagicLoginPresentationStore.save(presentation, defaults: defaults))
+        XCTAssertEqual(
+            MagicLoginPresentationStore.load(now: now, defaults: defaults),
+            presentation
+        )
+    }
+
     func testPendingMagicRequestsAreBoundedAndSurviveReloadByTransactionId() {
         PendingMagicLoginStore.removeAll()
         defer { PendingMagicLoginStore.removeAll() }
@@ -216,6 +297,21 @@ final class AuthManagerTests: XCTestCase {
         XCTAssertNil(PendingMagicLoginStore.load(
             transactionId: "u6_expired",
             now: now.addingTimeInterval(2)
+        ))
+    }
+
+    func testMagicLoginCannotReplaceAnAuthenticatedSession() {
+        XCTAssertFalse(MagicLoginCompletionPolicy.allowsCompletion(
+            purpose: .login,
+            isAuthenticated: true
+        ))
+        XCTAssertTrue(MagicLoginCompletionPolicy.allowsCompletion(
+            purpose: .login,
+            isAuthenticated: false
+        ))
+        XCTAssertTrue(MagicLoginCompletionPolicy.allowsCompletion(
+            purpose: .addEmail,
+            isAuthenticated: true
         ))
     }
 }

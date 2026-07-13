@@ -215,6 +215,12 @@ describe("IdentityRepository", () => {
       ["apple", "phone"],
     );
     assert.deepEqual(
+      (await repository.listActiveAuthProvidersForUser("user_identity_repo")).map(
+        (row) => row.provider,
+      ),
+      ["phone"],
+    );
+    assert.deepEqual(
       await repository.findUserContactMirrors("user_identity_repo"),
       {
         email: "identity@example.com",

@@ -144,6 +144,12 @@ function decodePreauthCookie(value) {
   }
 }
 
+function maskEmail(email) {
+  const [local, domain] = String(email || "").split("@");
+  if (!local || !domain) return "this email";
+  return `${local.slice(0, 1)}***@${domain}`;
+}
+
 /**
  * Generate a DB-backed registration token for phone auth
  * @param {object} db - Database instance
@@ -408,6 +414,137 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
     attachUserId: true,
   });
 
+  async function consumeMagicTransaction(
+    transaction,
+    transactionRepository,
+    platform,
+    request,
+  ) {
+    if (transaction.purpose === "add_email") {
+      const txIdentityRepository = createIdentityRepository(transactionRepository.db);
+      await identityService.linkVerifiedMagicEmail(
+        txIdentityRepository,
+        transaction.accountId,
+        transaction.emailNormalized,
+      );
+      return {
+        userId: transaction.accountId,
+        sessionId: null,
+        contactVerified: true,
+      };
+    }
+    if (transaction.purpose !== "login") {
+      throw new Error("MAGIC_LOGIN_PURPOSE_NOT_SUPPORTED");
+    }
+
+    const txDb = transactionRepository.db;
+    const txIdentityRepository = createIdentityRepository(txDb);
+    let owner = await txIdentityRepository.findActiveUserByVerifiedContact(
+      "email",
+      transaction.emailNormalized,
+    );
+    let isNewUser = false;
+    if (!owner) {
+      const legacyOwner = await txIdentityRepository.findActiveUserByAnyContact(
+        "email",
+        transaction.emailNormalized,
+      );
+      if (legacyOwner) {
+        const providers = await txIdentityRepository.listActiveAuthProvidersForUser(
+          legacyOwner.id,
+        );
+        const error = new Error("LEGACY_ACCOUNT_RECOVERY_REQUIRED");
+        error.code = "LEGACY_ACCOUNT_RECOVERY_REQUIRED";
+        error.details = {
+          masked_email: maskEmail(transaction.emailNormalized),
+          auth_methods: providers.map((row) => row.provider).join(","),
+        };
+        throw error;
+      }
+      const created = await identityService.createUserWithIdentityInRepository(
+        txIdentityRepository,
+        {
+          type: "email",
+          subject: transaction.emailNormalized,
+          verifiedAt: new Date().toISOString(),
+        },
+        {
+          contacts: [{
+            type: "email",
+            value: transaction.emailNormalized,
+            source: "magic_link",
+            verified: true,
+          }],
+        },
+      );
+      owner = { id: created.userId };
+      isNewUser = true;
+    }
+
+    if (platform === "web") {
+      const now = new Date();
+      const webSessionToken = crypto.randomBytes(32).toString("base64url");
+      const sessionId = `sess_${crypto.randomBytes(12).toString("hex")}`;
+      const absoluteExpiresAt = new Date(
+        now.getTime() + 365 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      await createAuthSessionRepository(txDb).insertSession({
+        id: sessionId,
+        userId: owner.id,
+        deviceName: request.headers["user-agent"],
+        ipAddress: getClientIp(request),
+        userAgent: request.headers["user-agent"],
+        authMethod: "magic_email",
+        platform: "web",
+        authenticatedAt: now.toISOString(),
+        idleExpiresAt: new Date(
+          now.getTime() + 90 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        absoluteExpiresAt,
+        lastRotatedAt: now.toISOString(),
+        webSessionHash: crypto
+          .createHash("sha256")
+          .update(webSessionToken, "utf8")
+          .digest("hex"),
+      });
+      return {
+        userId: owner.id,
+        sessionId,
+        webSessionToken,
+        absoluteExpiresAt,
+        isNewUser,
+        identitySubject: transaction.emailNormalized,
+      };
+    }
+
+    const issued = await authService.createSessionAndRefreshTokenInTransaction(
+      owner.id,
+      {
+        platform,
+        authMethod: "magic_email",
+        deviceName: request.headers["user-agent"],
+        userAgent: request.headers["user-agent"],
+        ipAddress: getClientIp(request),
+      },
+      {
+        sessionRepository: createAuthSessionRepository(txDb),
+        refreshTokenRepository: createAuthRefreshTokenRepository(txDb),
+      },
+    );
+    return {
+      userId: owner.id,
+      sessionId: issued.sessionId,
+      tokenFamilyId: issued.tokenFamily,
+      accessToken: authService.generateAccessToken(owner.id, {
+        sessionId: issued.sessionId,
+      }),
+      refreshToken: issued.refreshToken,
+      absoluteExpiresAt: issued.absoluteExpiresAt,
+      isNewUser,
+      identitySubject: transaction.emailNormalized,
+    };
+  }
+
   // ==================== PLATFORM-BOUND MAGIC LOGIN ====================
 
   app.post("/auth/magic/request", async (request, reply) => {
@@ -489,6 +626,8 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
     if (emailService.isConfigured()) {
       emailService
         .sendMagicLoginEmail(email, {
+          webOrigin:
+            process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co",
           transactionId: created.transactionId,
           platform,
           linkSecret: created.linkSecret,
@@ -587,6 +726,8 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
       if (emailService.isConfigured()) {
         emailService
           .sendMagicLoginEmail(email, {
+            webOrigin:
+              process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co",
             transactionId: created.transactionId,
             platform,
             linkSecret: created.linkSecret,
@@ -612,6 +753,7 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
   app.get("/auth/magic/:platform", async (request, reply) => {
     reply.header("Cache-Control", "no-store, max-age=0");
     reply.header("Pragma", "no-cache");
+    reply.header("Referrer-Policy", "no-referrer");
     const platform = String(request.params?.platform || "").toLowerCase();
     if (!["ios", "android", "web"].includes(platform)) {
       return reply.code(404).type("text/plain").send("Not found");
@@ -647,11 +789,134 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
 })();
 </script></body></html>`);
     }
-    return reply
-      .type("text/html; charset=utf-8")
-      .send(
-        "<!doctype html><html lang=\"en\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Open Porizo</title><body><main><h1>Open this link on your device</h1><p>Return to the Porizo app on the device where you requested this sign-in link.</p><p>This page does not sign you in by itself.</p></main></body></html>",
-      );
+    const browserApprovalEnabled =
+      process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED !== "false";
+    const nonce = crypto.randomBytes(16).toString("base64");
+    reply.header(
+      "Content-Security-Policy",
+      `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'`,
+    );
+    return reply.type("text/html; charset=utf-8").send(`<!doctype html>
+<html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Continue sign-in to Porizo</title>
+<style>body{font:17px system-ui;margin:0;padding:32px;color:#211d1a;background:#fffaf6}main{max-width:560px;margin:10vh auto}button,a{display:block;box-sizing:border-box;width:100%;margin:16px 0;padding:16px;border:0;border-radius:12px;text-align:center;font:inherit;text-decoration:none}button{background:#e7784d;color:white}a{background:#eee;color:#211d1a}.hidden{display:none}</style>
+<body><main><h1>Continue sign-in to Porizo</h1>
+<p id="status" role="status" aria-live="polite">${
+      browserApprovalEnabled
+        ? `Confirm this email link, then return to the ${platform === "ios" ? "iPhone" : "Android"} device that requested it.`
+        : `Open the original email on the ${platform === "ios" ? "iPhone" : "Android"} device that requested this link, then choose Open in Porizo. Browser confirmation is temporarily unavailable.`
+    }</p>
+${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in</button>' : ""}
+<a id="open" class="hidden" href="#">Open Porizo</a>
+<a href="${platform === "ios" ? "https://apps.apple.com/app/id6758205028" : "https://play.google.com/store/apps/details?id=com.porizo.app"}">Get Porizo</a>
+</main><script nonce="${nonce}">
+(function () {
+  const status = document.getElementById('status');
+  const approve = document.getElementById('approve');
+  const open = document.getElementById('open');
+  const transactionId = new URL(location.href).searchParams.get('transaction_id');
+  const secret = new URLSearchParams(location.hash.slice(1)).get('secret');
+  history.replaceState(null, '', location.pathname + (transactionId ? '?transaction_id=' + encodeURIComponent(transactionId) : ''));
+  if (!approve) return;
+  if (!transactionId || !secret) { approve.disabled = true; status.textContent = 'This sign-in link is invalid.'; return; }
+  approve.addEventListener('click', async function (event) {
+    if (!event.isTrusted) return;
+    approve.disabled = true; status.textContent = 'Confirming your email…';
+    try {
+      const response = await fetch('/auth/magic/native/approve', {
+        method: 'POST', credentials: 'same-origin', headers: {'content-type':'application/json'},
+        body: JSON.stringify({transaction_id: transactionId, platform: '${platform}', link_secret: secret})
+      });
+      if (!response.ok) throw new Error('approval failed');
+      status.textContent = 'Email confirmed. Open Porizo on the device that requested this link.';
+      approve.className = 'hidden';
+      open.href = 'porizo://auth/magic/resume?transaction_id=' + encodeURIComponent(transactionId);
+      open.className = '';
+    } catch (_) { approve.disabled = false; status.textContent = 'This link is invalid or expired. Request a new one in Porizo.'; }
+  });
+})();
+</script></body></html>`);
+  });
+
+  app.post("/auth/magic/native/approve", async (request, reply) => {
+    if (process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED === "false") {
+      return sendError(reply, 503, "MAGIC_LOGIN_BROWSER_APPROVAL_DISABLED", "Browser confirmation is unavailable.");
+    }
+    const expectedOrigin =
+      process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co";
+    if (request.headers.origin !== expectedOrigin) {
+      return sendError(reply, 403, "INVALID_MAGIC_LOGIN_ORIGIN", "Invalid request.");
+    }
+    const result = await magicLoginService.approve({
+      transactionId: String(request.body?.transaction_id || ""),
+      platform: String(request.body?.platform || "").toLowerCase(),
+      linkSecret: String(request.body?.link_secret || ""),
+    });
+    reply.header("Cache-Control", "no-store");
+    if (result.status !== "approved") {
+      return sendError(reply, 400, "INVALID_MAGIC_LOGIN", "Invalid or expired sign-in link.");
+    }
+    return reply.send({ status: "approved" });
+  });
+
+  app.post("/auth/magic/native/status", async (request, reply) => {
+    const result = await magicLoginService.status({
+      transactionId: String(request.body?.transaction_id || ""),
+      platform: String(request.body?.platform || "").toLowerCase(),
+      requestSecret: String(request.body?.request_secret || ""),
+    });
+    reply.header("Cache-Control", "no-store");
+    if (result.status === "invalid") {
+      return sendError(reply, 400, "INVALID_MAGIC_LOGIN", "Invalid or expired sign-in link.");
+    }
+    return reply.send({ status: result.status, expires_at: result.expiresAt });
+  });
+
+  app.post("/auth/magic/native/complete", async (request, reply) => {
+    const transactionId = String(request.body?.transaction_id || "");
+    const platform = String(request.body?.platform || "").toLowerCase();
+    try {
+      const completed = await magicLoginService.completeApproved({
+        transactionId,
+        platform,
+        requestSecret: String(request.body?.request_secret || ""),
+        consume: (transaction, transactionRepository) =>
+          consumeMagicTransaction(transaction, transactionRepository, platform, request),
+      });
+      if (!['consumed', 'recovered'].includes(completed.status)) {
+        return sendError(reply, 400, "INVALID_MAGIC_LOGIN", "Invalid or expired sign-in link.");
+      }
+      if (completed.result.isNewUser) {
+        await subscriptionManager.createFreeEntitlements(completed.result.userId, {
+          identity: { provider: "email", subject: completed.result.identitySubject },
+        });
+      }
+      reply.header("Cache-Control", "no-store");
+      if (completed.result.contactVerified) {
+        return reply.send({
+          user_id: completed.result.userId,
+          contact_verified: true,
+        });
+      }
+      return reply.send({
+        user_id: completed.result.userId,
+        access_token: completed.result.accessToken,
+        refresh_token: completed.result.refreshToken,
+        expires_in: 900,
+        session_expires_at: completed.result.absoluteExpiresAt,
+        is_new_user: Boolean(completed.result.isNewUser),
+      });
+    } catch (error) {
+      app.log.warn({ transactionId, platform, code: error.code || error.message }, "Magic login completion rejected");
+      if (error.code === "LEGACY_ACCOUNT_RECOVERY_REQUIRED") {
+        return reply.code(409).send({
+          error: error.code,
+          message: "Recover the existing account before using this email.",
+          details: error.details,
+        });
+      }
+      return sendError(reply, 400, "INVALID_MAGIC_LOGIN", "Invalid or expired sign-in link.");
+    }
   });
 
   app.post("/auth/magic/exchange", async (request, reply) => {
@@ -690,117 +955,13 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
         platform,
         linkSecret,
         requestSecret,
-        consume: async (transaction, transactionRepository) => {
-          if (transaction.purpose === "add_email") {
-            const txIdentityRepository = createIdentityRepository(
-              transactionRepository.db,
-            );
-            await identityService.linkVerifiedMagicEmail(
-              txIdentityRepository,
-              transaction.accountId,
-              transaction.emailNormalized,
-            );
-            return {
-              userId: transaction.accountId,
-              sessionId: null,
-              contactVerified: true,
-            };
-          }
-          if (transaction.purpose !== "login") {
-            throw new Error("MAGIC_LOGIN_PURPOSE_NOT_SUPPORTED");
-          }
-
-          const txDb = transactionRepository.db;
-          const txIdentityRepository = createIdentityRepository(txDb);
-          let owner = await txIdentityRepository.findActiveUserByVerifiedContact(
-            "email",
-            transaction.emailNormalized,
-          );
-          let isNewUser = false;
-          if (!owner) {
-            const created = await identityService.createUserWithIdentityInRepository(
-              txIdentityRepository,
-              {
-                type: "email",
-                subject: transaction.emailNormalized,
-                verifiedAt: new Date().toISOString(),
-              },
-              {
-                contacts: [{
-                  type: "email",
-                  value: transaction.emailNormalized,
-                  source: "magic_link",
-                  verified: true,
-                }],
-              },
-            );
-            owner = { id: created.userId };
-            isNewUser = true;
-          }
-
-          if (platform === "web") {
-            const now = new Date();
-            const webSessionToken = crypto.randomBytes(32).toString("base64url");
-            const sessionId = `sess_${crypto.randomBytes(12).toString("hex")}`;
-            const absoluteExpiresAt = new Date(
-              now.getTime() + 365 * 24 * 60 * 60 * 1000,
-            ).toISOString();
-            await createAuthSessionRepository(txDb).insertSession({
-              id: sessionId,
-              userId: owner.id,
-              deviceName: request.headers["user-agent"],
-              ipAddress: getClientIp(request),
-              userAgent: request.headers["user-agent"],
-              authMethod: "magic_email",
-              platform: "web",
-              authenticatedAt: now.toISOString(),
-              idleExpiresAt: new Date(
-                now.getTime() + 90 * 24 * 60 * 60 * 1000,
-              ).toISOString(),
-              absoluteExpiresAt,
-              lastRotatedAt: now.toISOString(),
-              webSessionHash: crypto
-                .createHash("sha256")
-                .update(webSessionToken, "utf8")
-                .digest("hex"),
-            });
-            return {
-              userId: owner.id,
-              sessionId,
-              webSessionToken,
-              absoluteExpiresAt,
-              isNewUser,
-              identitySubject: transaction.emailNormalized,
-            };
-          }
-
-          const issued = await authService.createSessionAndRefreshTokenInTransaction(
-            owner.id,
-            {
-              platform,
-              authMethod: "magic_email",
-              deviceName: request.headers["user-agent"],
-              userAgent: request.headers["user-agent"],
-              ipAddress: getClientIp(request),
-            },
-            {
-              sessionRepository: createAuthSessionRepository(txDb),
-              refreshTokenRepository: createAuthRefreshTokenRepository(txDb),
-            },
-          );
-          return {
-            userId: owner.id,
-            sessionId: issued.sessionId,
-            tokenFamilyId: issued.tokenFamily,
-            accessToken: authService.generateAccessToken(owner.id, {
-              sessionId: issued.sessionId,
-            }),
-            refreshToken: issued.refreshToken,
-            absoluteExpiresAt: issued.absoluteExpiresAt,
-            isNewUser,
-            identitySubject: transaction.emailNormalized,
-          };
-        },
+        consume: (transaction, transactionRepository) =>
+          consumeMagicTransaction(
+            transaction,
+            transactionRepository,
+            platform,
+            request,
+          ),
       });
 
       if (!["consumed", "recovered"].includes(exchanged.status)) {
@@ -848,6 +1009,13 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
         { transactionId, platform, code: error.code || error.message },
         "Magic login exchange rejected",
       );
+      if (error.code === "LEGACY_ACCOUNT_RECOVERY_REQUIRED") {
+        return reply.code(409).send({
+          error: error.code,
+          message: "Recover the existing account before using this email.",
+          details: error.details,
+        });
+      }
       return sendError(reply, 400, "INVALID_MAGIC_LOGIN", "Invalid or expired sign-in link.");
     }
   });

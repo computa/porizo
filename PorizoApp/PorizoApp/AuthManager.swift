@@ -40,6 +40,30 @@ struct MagicLoginLink: Equatable, Sendable {
     }
 }
 
+struct MagicLoginResumeLink: Equatable, Sendable {
+    let transactionId: String
+
+    static func parse(_ url: URL) -> MagicLoginResumeLink? {
+        guard url.scheme?.lowercased() == "porizo",
+              url.host?.lowercased() == "auth",
+              url.path == "/magic/resume",
+              url.port == nil,
+              url.user == nil,
+              url.password == nil,
+              url.fragment == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+
+        let queryItems = components.queryItems ?? []
+        let transactionValues = queryItems
+            .filter { $0.name == "transaction_id" }
+            .compactMap(\.value)
+        guard queryItems.count == 1,
+              transactionValues.count == 1,
+              !transactionValues[0].isEmpty else { return nil }
+        return MagicLoginResumeLink(transactionId: transactionValues[0])
+    }
+}
+
 struct PendingMagicLogin: Codable, Equatable, Sendable {
     let transactionId: String
     let requestSecret: String
@@ -48,6 +72,58 @@ struct PendingMagicLogin: Codable, Equatable, Sendable {
     let purpose: MagicLoginPurpose
     let expiresAt: Date
     let createdAt: Date
+}
+
+enum MagicLoginCompletionPolicy {
+    static func allowsCompletion(purpose: MagicLoginPurpose, isAuthenticated: Bool) -> Bool {
+        purpose == .addEmail || !isAuthenticated
+    }
+}
+
+struct MagicLoginPresentation: Codable, Equatable, Identifiable, Sendable {
+    static let recoveryGraceInterval: TimeInterval = 5 * 60
+    let transactionId: String
+    let email: String
+    let purpose: MagicLoginPurpose
+    let expiresAt: Date
+    let createdAt: Date
+
+    var id: String { transactionId }
+    var resendAvailableAt: Date { createdAt.addingTimeInterval(60) }
+}
+
+enum MagicLoginPresentationStore {
+    static let storageKey = "porizo_magic_login_presentation"
+
+    static func save(
+        _ presentation: MagicLoginPresentation,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard let data = try? JSONEncoder().encode(presentation) else { return false }
+        defaults.set(data, forKey: storageKey)
+        return true
+    }
+
+    static func load(
+        now: Date = .now,
+        defaults: UserDefaults = .standard
+    ) -> MagicLoginPresentation? {
+        guard let data = defaults.data(forKey: storageKey),
+              let presentation = try? JSONDecoder().decode(MagicLoginPresentation.self, from: data) else {
+            return nil
+        }
+        guard presentation.expiresAt.addingTimeInterval(
+            MagicLoginPresentation.recoveryGraceInterval
+        ) > now else {
+            remove(defaults: defaults)
+            return nil
+        }
+        return presentation
+    }
+
+    static func remove(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
+    }
 }
 
 enum PendingMagicLoginStore {
@@ -80,7 +156,9 @@ enum PendingMagicLoginStore {
         guard let value = KeychainHelper.loadString(key: keyPrefix + transactionId),
               let data = value.data(using: .utf8),
               let pending = try? JSONDecoder().decode(PendingMagicLogin.self, from: data) else { return nil }
-        guard pending.expiresAt > now else {
+        guard pending.expiresAt.addingTimeInterval(
+            MagicLoginPresentation.recoveryGraceInterval
+        ) > now else {
             remove(transactionId: transactionId)
             return nil
         }
@@ -126,6 +204,7 @@ enum MagicLoginState: Equatable, Sendable {
     case expired
     case locked
     case conflict
+    case legacyRecovery(maskedEmail: String, authMethods: [String])
     case wrongDeviceOrPlatform
     case offline
     case serverError
@@ -154,6 +233,7 @@ class AuthManager {
     private(set) var hasValidatedSession: Bool = false
     private(set) var needsProfileCompletion: Bool = false
     private(set) var magicLoginState: MagicLoginState = .idle
+    private(set) var pendingMagicLoginPresentation: MagicLoginPresentation?
 
     /// Phone authentication flow state
     private(set) var phoneAuthState: PhoneAuthState = .idle
@@ -249,6 +329,11 @@ class AuthManager {
     // MARK: - Notification Observers
     @ObservationIgnored private var credentialRevokedObserver: NSObjectProtocol?
     @ObservationIgnored private var protectedDataObserver: NSObjectProtocol?
+    @ObservationIgnored private var magicStatusTask: Task<Bool, Never>?
+    @ObservationIgnored private var isDirectMagicExchangeInFlight = false
+    @ObservationIgnored private var isMagicRequestInFlight = false
+    @ObservationIgnored private var initialAuthRestorationCompleted = false
+    @ObservationIgnored private var initialAuthRestorationWaiters: [CheckedContinuation<Void, Never>] = []
 
     // MARK: - Protected Data Handling (iOS 15+ Fix)
 
@@ -299,6 +384,10 @@ class AuthManager {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
+        self.pendingMagicLoginPresentation = MagicLoginPresentationStore.load()
+        if let pendingMagicLoginPresentation {
+            self.magicLoginState = .sent(email: pendingMagicLoginPresentation.email)
+        }
 
         // Listen for Apple credential revocation (Apple's WWDC20 requirement)
         // This fires when user revokes access via Settings → Apple ID → Apps Using Apple ID
@@ -330,6 +419,12 @@ class AuthManager {
     // MARK: - Platform-bound Magic Login
 
     func requestMagicLogin(email: String, purpose: MagicLoginPurpose) async throws {
+        guard !isMagicRequestInFlight else {
+            throw AuthError.serverError("A sign-in link is already being sent.")
+        }
+        isMagicRequestInFlight = true
+        defer { isMagicRequestInFlight = false }
+        cancelMagicStatusRefresh()
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard normalizedEmail.contains("@") else {
             magicLoginState = .serverError
@@ -361,6 +456,22 @@ class AuthManager {
             guard PendingMagicLoginStore.save(pending) else {
                 throw AuthError.keychainSaveFailed
             }
+            let presentation = MagicLoginPresentation(
+                transactionId: response.transactionId,
+                email: normalizedEmail,
+                purpose: purpose,
+                expiresAt: expiresAt,
+                createdAt: .now
+            )
+            guard MagicLoginPresentationStore.save(presentation) else {
+                PendingMagicLoginStore.remove(transactionId: response.transactionId)
+                throw AuthError.keychainSaveFailed
+            }
+            if let previous = pendingMagicLoginPresentation,
+               previous.transactionId != response.transactionId {
+                PendingMagicLoginStore.remove(transactionId: previous.transactionId)
+            }
+            pendingMagicLoginPresentation = presentation
             magicLoginState = .sent(email: normalizedEmail)
         } catch {
             magicLoginState = Self.magicFailureState(for: error)
@@ -371,11 +482,34 @@ class AuthManager {
     @discardableResult
     func handleMagicLoginURL(_ url: URL) async -> Bool {
         guard let link = MagicLoginLink.parse(url) else { return false }
+        if let magicStatusTask {
+            magicStatusTask.cancel()
+            let reachedTerminalState = await magicStatusTask.value
+            self.magicStatusTask = nil
+            if reachedTerminalState,
+               pendingMagicLoginPresentation?.transactionId != link.transactionId {
+                return true
+            }
+        }
+        guard !isDirectMagicExchangeInFlight else { return true }
+        isDirectMagicExchangeInFlight = true
+        defer { isDirectMagicExchangeInFlight = false }
         magicLoginState = .opening
         guard let pending = PendingMagicLoginStore.load(transactionId: link.transactionId) else {
-            magicLoginState = .wrongDeviceOrPlatform
+            if let presentation = pendingMagicLoginPresentation,
+               presentation.transactionId == link.transactionId,
+               presentation.expiresAt <= .now {
+                clearMagicLoginPresentation(transactionId: link.transactionId)
+                magicLoginState = .expired
+            } else {
+                magicLoginState = .wrongDeviceOrPlatform
+            }
             return true
         }
+        if pending.purpose == .login {
+            await awaitInitialAuthRestoration()
+        }
+        guard canCompleteMagicLogin(pending) else { return true }
 
         magicLoginState = .exchanging
         do {
@@ -384,42 +518,180 @@ class AuthManager {
                 linkSecret: link.linkSecret,
                 requestSecret: pending.requestSecret
             )
-            if pending.purpose == .addEmail {
-                guard response.contactVerified == true else {
-                    throw AuthError.serverError("The email could not be verified.")
-                }
-                PendingMagicLoginStore.remove(transactionId: link.transactionId)
-                try await fetchCurrentUser()
-                magicLoginState = .success
-                return true
-            }
-            guard let accessToken = response.accessToken,
-                  let refreshToken = response.refreshToken else {
-                throw AuthError.serverError("The sign-in response was incomplete.")
-            }
-            let authResponse = AuthResponse(
-                userId: response.userId,
-                accessToken: accessToken,
-                refreshToken: refreshToken,
-                expiresIn: response.expiresIn ?? 15 * 60,
-                isNewUser: response.isNewUser ?? false
-            )
-            try saveTokens(authResponse)
-            PendingMagicLoginStore.remove(transactionId: link.transactionId)
-            if pending.purpose == .login {
-                setAuthProvider("email_magic")
-            }
-            isAuthenticated = true
-            try await fetchCurrentUser()
-            magicLoginState = .success
+            try await finishMagicLogin(response, pending: pending)
         } catch {
             magicLoginState = Self.magicFailureState(for: error)
         }
         return true
     }
 
+    @discardableResult
+    func refreshMagicLoginStatus(transactionId: String? = nil) async -> Bool {
+        guard !isDirectMagicExchangeInFlight else { return false }
+        if let magicStatusTask {
+            return await magicStatusTask.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.performMagicLoginStatusRefresh(transactionId: transactionId)
+        }
+        magicStatusTask = task
+        let result = await task.value
+        magicStatusTask = nil
+        return result
+    }
+
+    private func performMagicLoginStatusRefresh(transactionId: String?) async -> Bool {
+        guard let presentation = pendingMagicLoginPresentation,
+              transactionId == nil || transactionId == presentation.transactionId else {
+            if transactionId != nil { magicLoginState = .wrongDeviceOrPlatform }
+            return false
+        }
+        guard let pending = PendingMagicLoginStore.load(transactionId: presentation.transactionId) else {
+            clearMagicLoginPresentation(transactionId: presentation.transactionId)
+            magicLoginState = .wrongDeviceOrPlatform
+            return true
+        }
+        if pending.purpose == .login {
+            await awaitInitialAuthRestoration()
+        }
+        guard canCompleteMagicLogin(pending) else { return true }
+
+        do {
+            let response = try await magicAPIClient.magicLoginNativeStatus(
+                transactionId: pending.transactionId,
+                requestSecret: pending.requestSecret
+            )
+            guard !Task.isCancelled else { return false }
+            switch response.status {
+            case .pending:
+                if magicLoginState != .cooldown(email: pending.email) {
+                    magicLoginState = .sent(email: pending.email)
+                }
+                return false
+            case .approved, .consumed:
+                magicLoginState = .exchanging
+                let completion = try await magicAPIClient.completeApprovedMagicLogin(
+                    transactionId: pending.transactionId,
+                    requestSecret: pending.requestSecret
+                )
+                guard !Task.isCancelled else { return false }
+                try await finishMagicLogin(completion, pending: pending)
+                return true
+            case .expired:
+                clearMagicLoginPresentation(transactionId: pending.transactionId)
+                magicLoginState = .expired
+                return true
+            case .locked:
+                magicLoginState = .locked
+                return true
+            case .conflict:
+                magicLoginState = .conflict
+                return true
+            }
+        } catch {
+            guard !Task.isCancelled else { return false }
+            magicLoginState = Self.magicFailureState(for: error)
+            switch magicLoginState {
+            case .expired, .locked, .conflict, .legacyRecovery,
+                 .wrongDeviceOrPlatform, .cancelled, .superseded:
+                return true
+            default:
+                break
+            }
+        }
+        return false
+    }
+
+    func cancelMagicLogin() {
+        cancelMagicStatusRefresh()
+        if let transactionId = pendingMagicLoginPresentation?.transactionId {
+            PendingMagicLoginStore.remove(transactionId: transactionId)
+        }
+        MagicLoginPresentationStore.remove()
+        pendingMagicLoginPresentation = nil
+        magicLoginState = .cancelled
+    }
+
     func resetMagicLoginState() {
         magicLoginState = .idle
+    }
+
+    private func finishMagicLogin(
+        _ response: MagicLoginExchangeResponse,
+        pending: PendingMagicLogin
+    ) async throws {
+        if pending.purpose == .addEmail {
+            guard response.contactVerified == true else {
+                throw AuthError.serverError("The email could not be verified.")
+            }
+            clearMagicLoginPresentation(transactionId: pending.transactionId)
+            try await fetchCurrentUser()
+            magicLoginState = .success
+            return
+        }
+
+        guard let accessToken = response.accessToken,
+              let refreshToken = response.refreshToken else {
+            throw AuthError.serverError("The sign-in response was incomplete.")
+        }
+        let authResponse = AuthResponse(
+            userId: response.userId,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresIn: response.expiresIn ?? 15 * 60,
+            isNewUser: response.isNewUser ?? false
+        )
+        try saveTokens(authResponse)
+        clearMagicLoginPresentation(transactionId: pending.transactionId)
+        setAuthProvider("email_magic")
+        isAuthenticated = true
+        try await fetchCurrentUser()
+        magicLoginState = .success
+    }
+
+    private func clearMagicLoginPresentation(transactionId: String) {
+        PendingMagicLoginStore.remove(transactionId: transactionId)
+        if pendingMagicLoginPresentation?.transactionId == transactionId {
+            MagicLoginPresentationStore.remove()
+            pendingMagicLoginPresentation = nil
+        }
+    }
+
+    private func canCompleteMagicLogin(_ pending: PendingMagicLogin) -> Bool {
+        guard MagicLoginCompletionPolicy.allowsCompletion(
+            purpose: pending.purpose,
+            isAuthenticated: isAuthenticated
+        ) else {
+            clearMagicLoginPresentation(transactionId: pending.transactionId)
+            magicLoginState = .superseded
+            return false
+        }
+        return true
+    }
+
+    private func awaitInitialAuthRestoration() async {
+        guard !initialAuthRestorationCompleted else { return }
+        await withCheckedContinuation { continuation in
+            if initialAuthRestorationCompleted {
+                continuation.resume()
+            } else {
+                initialAuthRestorationWaiters.append(continuation)
+            }
+        }
+    }
+
+    private func finishInitialAuthRestoration() {
+        guard !initialAuthRestorationCompleted else { return }
+        initialAuthRestorationCompleted = true
+        let waiters = initialAuthRestorationWaiters
+        initialAuthRestorationWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    private func cancelMagicStatusRefresh() {
+        magicStatusTask?.cancel()
+        magicStatusTask = nil
     }
 
     private static func parseServerDate(_ value: String) -> Date? {
@@ -439,6 +711,21 @@ class AuthManager {
             if status == 410 || normalized.contains("expired") { return .expired }
             if status == 423 || normalized.contains("locked") { return .locked }
             if normalized.contains("platform") || normalized.contains("requester") { return .wrongDeviceOrPlatform }
+        }
+        if case APIClientError.serverError(_, let code, let details) = error {
+            if code == "LEGACY_ACCOUNT_RECOVERY_REQUIRED" {
+                let maskedEmail = details?["masked_email"] ?? "this email"
+                let methods = details?["auth_methods"]?
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? []
+                return .legacyRecovery(maskedEmail: maskedEmail, authMethods: methods)
+            }
+            if code?.contains("EXPIRED") == true { return .expired }
+            if code?.contains("LOCKED") == true { return .locked }
+            if code?.contains("CONFLICT") == true { return .conflict }
+            if code?.contains("PLATFORM") == true || code?.contains("REQUESTER") == true {
+                return .wrongDeviceOrPlatform
+            }
         }
         return .serverError
     }
@@ -536,12 +823,14 @@ class AuthManager {
                         print("[Auth] Apple credential invalid - forcing re-login")
                         self.logout()
                     }
+                    self.finishInitialAuthRestoration()
                 }
             }
         } else {
             // Non-Apple session (or legacy session without provider)
             print("[Auth] Apple credential check skipped (provider=\(authProvider ?? "none"))")
             completeAuthStateLoad(accessToken: accessToken, refreshToken: refreshToken, userId: userId)
+            finishInitialAuthRestoration()
         }
     }
 
@@ -1423,7 +1712,10 @@ class AuthManager {
         KeychainHelper.delete(key: Self.authProviderKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
+        cancelMagicStatusRefresh()
         PendingMagicLoginStore.removeAll()
+        MagicLoginPresentationStore.remove()
+        pendingMagicLoginPresentation = nil
         PendingSuggestionStore.clear()
         tokenLock.withLock {
             cachedAccessToken = nil

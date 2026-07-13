@@ -546,7 +546,7 @@ describe("Auth Identity Model", () => {
       const me = await getMe(app, appleUser.accessToken);
       assert.strictEqual(me.statusCode, 200);
 
-      // With relay email and no phone, profile is incomplete
+      // Relay email does not satisfy the email-only profile gate.
       assert.strictEqual(
         me.body.needs_profile_completion,
         true,
@@ -568,6 +568,17 @@ describe("Auth Identity Model", () => {
         true,
       );
       assert.strictEqual(identityService.isAppleRelay("user@icloud.com"), false);
+    });
+
+    it("should treat a verified non-relay email as complete without a phone", async () => {
+      const appleUser = await createAppleUser(app, { email: uniqueEmail() });
+
+      const me = await getMe(app, appleUser.accessToken);
+
+      assert.strictEqual(me.statusCode, 200);
+      assert.strictEqual(me.body.needs_profile_completion, false);
+      assert.deepEqual(me.body.missing_profile_requirements, []);
+      assert.equal(me.body.primary_phone, null);
     });
 
     it("should keep private.icloud.com users incomplete after phone verification", async () => {
@@ -851,8 +862,7 @@ describe("Auth Identity Model", () => {
   describe("S8: Skip profile completion -> re-check -> still incomplete", () => {
     it("should not grant grace period after skipping profile completion", async () => {
       // Use a relay email so the user genuinely has no verified channel —
-      // otherwise policy v1 ("email OR phone verified") would mark them complete
-      // without needing to skip.
+      // otherwise a verified non-relay email would mark them complete.
       const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
       const user = await createAppleUser(app, { email: relayEmail });
 

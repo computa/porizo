@@ -23,6 +23,7 @@ function mapTransaction(row) {
     maxAttempts: Number(row.max_attempts),
     createdAt: row.created_at,
     expiresAt: row.expires_at,
+    approvedAt: row.approved_at,
     consumedAt: row.consumed_at,
     sessionId: row.session_id,
     recoveryRequestHash: row.recovery_request_hash,
@@ -99,6 +100,43 @@ function createMagicLoginRepository(db) {
     return result.changes === 1;
   }
 
+  async function approvePending({ id, platform, linkSecretHash, approvedAt }) {
+    const result = await dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET approved_at = COALESCE(approved_at, ?)
+        WHERE id = ? AND platform = ? AND status = 'pending'
+          AND expires_at > ? AND attempt_count < max_attempts
+          AND link_secret_hash = ?`,
+      [approvedAt, id, platform, approvedAt, linkSecretHash],
+    );
+    return result.changes === 1;
+  }
+
+  async function findByRequesterProof({ id, platform, requestSecretHash }) {
+    return mapTransaction(
+      await dbGet(
+        db,
+        `SELECT * FROM magic_login_transactions
+          WHERE id = ? AND platform = ? AND request_secret_hash = ?`,
+        [id, platform, requestSecretHash],
+      ),
+    );
+  }
+
+  async function claimApproved({ id, platform, requestSecretHash, consumedAt }) {
+    const result = await dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET status = 'consumed', consumed_at = ?
+        WHERE id = ? AND platform = ? AND status = 'pending'
+          AND approved_at IS NOT NULL AND expires_at > ?
+          AND attempt_count < max_attempts AND request_secret_hash = ?`,
+      [consumedAt, id, platform, consumedAt, requestSecretHash],
+    );
+    return result.changes === 1;
+  }
+
   async function recordFailedAttempt({ id, platform, attemptedAt }) {
     return dbRun(
       db,
@@ -160,6 +198,20 @@ function createMagicLoginRepository(db) {
         requestSecretHash,
         claimedAt,
       ],
+    );
+    if (result.changes !== 1) return null;
+    return findById(id);
+  }
+
+  async function claimNativeRecovery({ id, platform, requestSecretHash, claimedAt }) {
+    const result = await dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET recovery_claimed_at = ?
+        WHERE id = ? AND platform = ? AND status = 'consumed'
+          AND recovery_request_hash = ? AND recovery_result_json IS NOT NULL
+          AND recovery_expires_at > ? AND recovery_claimed_at IS NULL`,
+      [claimedAt, id, platform, requestSecretHash, claimedAt],
     );
     if (result.changes !== 1) return null;
     return findById(id);
@@ -241,9 +293,13 @@ function createMagicLoginRepository(db) {
     insert,
     findById,
     claimPending,
+    approvePending,
+    findByRequesterProof,
+    claimApproved,
     recordFailedAttempt,
     storeRecoveryResult,
     claimRecovery,
+    claimNativeRecovery,
     countActive,
     findRecentActive,
     cleanupExpired,

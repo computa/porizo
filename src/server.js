@@ -239,6 +239,7 @@ function buildAllowedHostSet({
     appConfig.STREAM_BASE_URL,
     appConfig.PUBLIC_BASE_URL,
     appConfig.SHARE_PUBLIC_BASE_URL,
+    appConfig.MAGIC_LOGIN_WEB_ORIGIN,
   ]) {
     const host = hostFromUrl(value);
     if (host) hosts.add(host);
@@ -2777,6 +2778,15 @@ async function start() {
       throw new Error(
         "ADMIN_SETUP_SECRET must be unset in production — it exposes the admin bootstrap endpoint",
       );
+    }
+    let magicLoginOrigin;
+    try {
+      magicLoginOrigin = new URL(config.MAGIC_LOGIN_WEB_ORIGIN);
+    } catch (_) {
+      throw new Error("MAGIC_LOGIN_WEB_ORIGIN must be a valid absolute URL");
+    }
+    if (magicLoginOrigin.protocol !== "https:") {
+      throw new Error("MAGIC_LOGIN_WEB_ORIGIN must use https in production");
     }
   }
   const authFallbackEnv = process.env.NODE_ENV;

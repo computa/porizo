@@ -16,6 +16,8 @@ const STREAM_BASE_URL =
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const SHARE_PUBLIC_BASE_URL = process.env.SHARE_PUBLIC_BASE_URL || "";
+const MAGIC_LOGIN_WEB_ORIGIN =
+  process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co";
 // Canonical public host for SEO surfaces (rel=canonical, og:url, JSON-LD). The
 // sitemap and static marketing pages use the apex porizo.co; PUBLIC_BASE_URL is
 // the API/app host (api.porizo.co) used for share/email/deep-link URLs, so SEO
@@ -258,6 +260,7 @@ module.exports = {
   STREAM_BASE_URL,
   PUBLIC_BASE_URL,
   SHARE_PUBLIC_BASE_URL,
+  MAGIC_LOGIN_WEB_ORIGIN,
   CANONICAL_BASE_URL,
   APP_STORE_URL,
   PLAY_STORE_URL,

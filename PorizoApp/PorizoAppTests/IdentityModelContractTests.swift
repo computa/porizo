@@ -38,6 +38,33 @@ final class IdentityModelContractTests: XCTestCase {
         XCTAssertNil(object["request_secret"])
     }
 
+    func testNativeMagicProofDTOCarriesNoEmailOrLinkSecret() throws {
+        let body = MagicLoginNativeProofBody(
+            transactionId: "tx_123",
+            platform: "ios",
+            requestSecret: "device_secret"
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: String]
+        )
+
+        XCTAssertEqual(object["transaction_id"], "tx_123")
+        XCTAssertEqual(object["platform"], "ios")
+        XCTAssertEqual(object["request_secret"], "device_secret")
+        XCTAssertNil(object["email"])
+        XCTAssertNil(object["link_secret"])
+        XCTAssertEqual(object.count, 3)
+    }
+
+    func testNativeMagicStatusDecodesApprovedResponse() throws {
+        let response = try decoder.decode(
+            MagicLoginNativeStatusResponse.self,
+            from: Data(#"{"status":"approved","expires_at":"2026-07-13T12:00:00Z"}"#.utf8)
+        )
+        XCTAssertEqual(response.status, .approved)
+        XCTAssertEqual(response.expiresAt, "2026-07-13T12:00:00Z")
+    }
+
     // MARK: - Full /auth/me Response
 
     /// The canonical /auth/me response with all identity fields present.
@@ -251,6 +278,28 @@ final class IdentityModelContractTests: XCTestCase {
         XCTAssertEqual(user.missingProfileRequirements, ["display_name", "verified_email"])
         XCTAssertEqual(user.authMethods.count, 1)
         XCTAssertEqual(user.contacts.count, 1)
+    }
+
+    func testEmailOnlyProfileContractDoesNotRequirePhoneOrDisplayName() throws {
+        let json = Data("""
+        {
+            "user_id": "usr_email_only",
+            "email": "person@example.com",
+            "email_verified": true,
+            "needs_profile_completion": false,
+            "missing_profile_requirements": [],
+            "contacts": [
+                {"type": "email", "value_display": "person@example.com", "verified": true, "is_primary": true, "is_relay": false}
+            ]
+        }
+        """.utf8)
+
+        let user = try decoder.decode(AuthUser.self, from: json)
+        XCTAssertTrue(user.hasRealVerifiedEmail)
+        XCTAssertFalse(user.needsProfileCompletion)
+        XCTAssertNil(user.phoneNumber)
+        XCTAssertNil(user.displayName)
+        XCTAssertTrue(user.missingProfileRequirements.isEmpty)
     }
 
     // MARK: - AccountManagementView State Logic

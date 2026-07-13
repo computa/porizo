@@ -230,6 +230,9 @@ platform displays recovery guidance and does not consume the transaction.
   email identity. The same visible flow therefore handles registration and login.
 - Authenticated user adding email: bind the transaction to that `users.id`; after
   exchange, verify the contact and link the email identity to that same user.
+- Email stored only as an unverified legacy contact: do not create a second owner
+  and do not auto-link it. Return `LEGACY_ACCOUNT_RECOVERY_REQUIRED` with masked,
+  contextual recovery methods only after both magic-link factors are proven.
 - Email already owned by another user: do not switch, merge, or move ownership.
   Enter explicit account recovery/consolidation.
 - An already-authenticated client opening a link for a different user must never
@@ -237,10 +240,11 @@ platform displays recovery guidance and does not consume the transaction.
 
 ### 8.5 Cross-device behavior
 
-Version 1 supports same-device completion only. A link opened away from the
-requesting device cannot authenticate because the request secret is absent. It
-shows instructions to open the email on the requesting device. Future cross-device
-login requires an explicit approval/code protocol and is not a bearer-link fallback.
+Version 1 supports same-device completion only. If a native association fails and
+the email opens in a browser, page load has no side effect. An explicit user tap may
+approve the email factor, but it creates no session. The requesting app must then
+present its device-only request secret to status/complete. A forwarded link or a
+different device cannot authenticate because that request secret is absent.
 
 ---
 

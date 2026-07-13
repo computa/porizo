@@ -440,9 +440,8 @@ async function setPrimaryContact(db, userId, contactId) {
  * @param {string} policyVersion - Policy version (default: 'v1')
  * @returns {Promise<{ complete: boolean, missing: string[] }>}
  *
- * Policy v1: verified email and verified phone are independent requirements.
- * Apple relay addresses do not satisfy the email requirement, and a verified
- * phone must never substitute for a verified non-relay email.
+ * Policy v1: a verified, non-relay email is the sole launch gate. Phone and
+ * display name remain optional profile fields.
  */
 async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
   const repository = identityRepositoryFor(db);
@@ -452,11 +451,6 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
     const verifiedEmail = await repository.findVerifiedNonRelayEmail(userId);
     if (!verifiedEmail) {
       missing.push("verified_email");
-    }
-
-    const verifiedPhone = await repository.findVerifiedPhone(userId);
-    if (!verifiedPhone) {
-      missing.push("verified_phone");
     }
 
     return { complete: missing.length === 0, missing };

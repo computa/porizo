@@ -914,6 +914,18 @@ struct RootView: View {
 
         defer { previousScenePhase = newPhase }
 
+        if newPhase == .active,
+           authManager.pendingMagicLoginPresentation != nil {
+            Task { @MainActor in
+                let completed = await authManager.refreshMagicLoginStatus()
+                if completed && authManager.isAuthenticated {
+                    authContextMessage = nil
+                    profileCompletionContext = nil
+                    appState = .main
+                }
+            }
+        }
+
         // Write timestamp on entering .background (from any prior stable phase)
         if newPhase == .background {
             lastBackgroundedAtEpoch = Date().timeIntervalSince1970
@@ -1052,6 +1064,23 @@ struct RootView: View {
                     appState = .main
                 } else if appState != .auth {
                     authContextMessage = "Finish signing in with the email link you requested on this device."
+                    appState = .auth
+                }
+            }
+            return
+        }
+
+        if let resume = MagicLoginResumeLink.parse(url) {
+            Task { @MainActor in
+                let completed = await authManager.refreshMagicLoginStatus(
+                    transactionId: resume.transactionId
+                )
+                if completed && authManager.isAuthenticated {
+                    authContextMessage = nil
+                    profileCompletionContext = nil
+                    appState = .main
+                } else if !authManager.isAuthenticated && appState != .auth {
+                    authContextMessage = "Finish signing in from the link you opened on this device."
                     appState = .auth
                 }
             }

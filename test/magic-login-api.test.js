@@ -60,10 +60,31 @@ describe("platform-bound magic login API", () => {
     });
     assert.equal(response.statusCode, 200);
     assert.match(response.headers["cache-control"], /no-store/);
+    assert.match(response.body, /Continue sign-in/);
     assert.equal(
       (await createMagicLoginRepository(db).findById(created.transactionId)).status,
       "pending",
     );
+  });
+
+  it("does not offer a broken browser approval action while approval is disabled", async () => {
+    const previous = process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED;
+    process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED = "false";
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/auth/magic/ios?transaction_id=disabled-browser-approval",
+      });
+      assert.equal(response.statusCode, 200);
+      assert.doesNotMatch(response.body, /id="approve"/);
+      assert.match(response.body, /Browser confirmation is temporarily unavailable/);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED;
+      } else {
+        process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED = previous;
+      }
+    }
   });
 
   it("rejects cross-platform exchange without consuming the link", async () => {
@@ -211,6 +232,114 @@ describe("platform-bound magic login API", () => {
       "SELECT tier FROM entitlements WHERE user_id = ?",
     ).get(user.id);
     assert.equal(entitlement?.tier, "free");
+  });
+
+  it("does not create a duplicate owner for an unverified legacy contact", async () => {
+    const userId = "user_magic_legacy_contact";
+    const email = "legacy-unverified@example.com";
+    await db.prepare(
+      "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 0, CURRENT_TIMESTAMP)",
+    ).run(userId, email);
+    await db.prepare(
+      `INSERT INTO user_contacts
+       (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
+       VALUES (?, ?, 'email', ?, ?, NULL, 'user_entered', 1, 0)`,
+    ).run("contact_magic_legacy", userId, email, email);
+    await db.prepare(
+      `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+       VALUES (?, ?, 'apple', ?)`,
+    ).run("provider_magic_legacy", userId, "apple-legacy-subject");
+    const created = await createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    }).createTransaction({
+      email,
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "legacy-requester-key",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+        request_secret: created.requestSecret,
+      },
+    });
+
+    assert.equal(response.statusCode, 409, response.body);
+    assert.equal(response.json().error, "LEGACY_ACCOUNT_RECOVERY_REQUIRED");
+    assert.equal(response.json().details.masked_email, "l***@example.com");
+    assert.equal(response.json().details.auth_methods, "apple");
+    const owners = await db.prepare(
+      "SELECT COUNT(*) AS count FROM users WHERE email = ?",
+    ).get(email);
+    assert.equal(Number(owners.count), 1);
+    assert.equal(
+      (await createMagicLoginRepository(db).findById(created.transactionId)).status,
+      "pending",
+    );
+  });
+
+  it("completes browser-approved native login with the requester secret", async () => {
+    const created = await createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    }).createTransaction({
+      email: "native-browser-complete@example.com",
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "native-browser-requester",
+    });
+
+    const pending = await app.inject({
+      method: "POST",
+      url: "/auth/magic/native/status",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        request_secret: created.requestSecret,
+      },
+    });
+    assert.equal(pending.statusCode, 200, pending.body);
+    assert.equal(pending.json().status, "pending");
+
+    const crossOriginApproval = await app.inject({
+      method: "POST",
+      url: "/auth/magic/native/approve",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+      },
+    });
+    assert.equal(crossOriginApproval.statusCode, 403);
+
+    const approve = await app.inject({
+      method: "POST",
+      url: "/auth/magic/native/approve",
+      headers: { origin: "https://auth.porizo.co" },
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+      },
+    });
+    assert.equal(approve.statusCode, 200, approve.body);
+
+    const complete = await app.inject({
+      method: "POST",
+      url: "/auth/magic/native/complete",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        request_secret: created.requestSecret,
+      },
+    });
+    assert.equal(complete.statusCode, 200, complete.body);
+    assert.ok(complete.json().access_token);
+    assert.ok(complete.json().refresh_token);
   });
 
   it("returns a typed cooldown error for repeated requests", async () => {

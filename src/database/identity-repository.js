@@ -38,6 +38,17 @@ function createIdentityRepository(db) {
     ).get(type, valueNormalized);
   }
 
+  async function findActiveUserByAnyContact(type, valueNormalized) {
+    return db.prepare(
+      `SELECT uc.user_id AS id, uc.verified_at
+       FROM user_contacts uc
+       JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
+       WHERE uc.type = ? AND uc.value_normalized = ?
+       ORDER BY CASE WHEN uc.verified_at IS NOT NULL THEN 0 ELSE 1 END
+       LIMIT 1`,
+    ).get(type, valueNormalized);
+  }
+
   async function findActiveUserByProvider(provider, providerUserId, options = {}) {
     const status = options.status ?? null;
     return db.prepare(
@@ -52,6 +63,12 @@ function createIdentityRepository(db) {
   async function listAuthProvidersForUser(userId) {
     return db.prepare(
       "SELECT provider FROM user_auth_providers WHERE user_id = ?",
+    ).all(userId);
+  }
+
+  async function listActiveAuthProvidersForUser(userId) {
+    return db.prepare(
+      "SELECT provider FROM user_auth_providers WHERE user_id = ? AND status = 'active'",
     ).all(userId);
   }
 
@@ -292,8 +309,10 @@ function createIdentityRepository(db) {
     findActiveIdentity,
     findUserDisplayProfile,
     findActiveUserByVerifiedContact,
+    findActiveUserByAnyContact,
     findActiveUserByProvider,
     listAuthProvidersForUser,
+    listActiveAuthProvidersForUser,
     findMostRecentActiveIdentityForUser,
     findUserContactMirrors,
     deleteUserIdentityBootstrapRows,
