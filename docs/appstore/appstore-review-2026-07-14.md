@@ -1,7 +1,14 @@
 # App Store Review Audit — 2026-07-14
 
-**Scope:** TestFlight (internal testing) upload of build **1.5.27 (151)** from `main`.
-**Context:** Two-fix delta over build 150 (magic-link login state race + review-prompt policy refactor). Backend magic-link account-takeover fix (`b81df270`) deployed to Railway prod and live-verified. This is an INTERNAL TestFlight build for magic-login validation — NOT an App Store submission and NOT external TestFlight review.
+**Scope:** TestFlight (internal testing) uploads of builds **1.5.27 (151)** and **1.5.27 (152)** from `main`.
+**Context:** Delta over build 150 (magic-link login state race + review-prompt policy refactor); build 152 adds one recovery-UI change. Backend magic-link account-takeover fix (`b81df270`) deployed to Railway prod and live-verified (build-151 on-device test confirmed the recovery flow: exchange → 409 → Apple recovery → session). This is an INTERNAL TestFlight build — NOT an App Store submission and NOT external TestFlight review.
+
+## Build 152 additional delta (`605fbc75..9d683662`)
+
+| Commit     | Change                                                                                                                                                                                                                                                            | Review surface                                    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `6a38244e` | fix(ios): legacy-recovery screen hides "Continue with phone" unless the account has no Apple factor (phone is legacy-recovery-only, not a registration method; 3 phone-only accounts in prod keep access). `.contains(where:)`→`.allSatisfy` on support fallback. | None — recovery-UI visibility logic; builds clean |
+| `9d683662` | chore: build 151 → 152                                                                                                                                                                                                                                            | None                                              |
 
 ## Verdict: GO (TestFlight internal)
 
