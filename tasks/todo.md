@@ -1,4 +1,59 @@
-# Marketing Factory Streamlining (2026-07-10) — ACTIVE
+# Magic-link legacy-account recovery (2026-07-13) — SERVER FIX DONE 2026-07-14
+
+**Bug:** Owner of an Apple+phone account requests a magic link for the same (unverified) email → server throws `LEGACY_ACCOUNT_RECOVERY_REQUIRED` (409) → iOS flashes Sign-in-with-Apple and strands the user. Verified in prod logs (txn `a6005367…`) + DB (`user_2bc191587da2551881aab8ba`: apple+phone providers, email contact `verified_at=NULL`).
+
+**Design evolution:** the original "auto-merge when safe" guard (email not an auth provider) was found CRITICALLY vulnerable by security review — attacker plants victim's email as an unverified contact on their own account, victim's magic-link click signs them into the attacker's account. Even the reviewer's "email-only shell" fix (1) left a residual hole (email-shell attacker plants a SECOND email as unverified contact — `createOrUpdateContact` doesn't constrain which emails an account may hold). Final airtight predicate shipped:
+
+> **Auto-adopt iff every active auth factor on the matched account is an email provider whose subject == this exact magic email (or the account has zero auth factors).** Anything else → 409 recover-via-other-factor.
+
+### Shipped (all verified 2026-07-14)
+
+- [x] `identity-repository.js`: `listActiveAuthProvidersForUser` now returns `provider_user_id` too (sole caller = the new guard).
+- [x] `auth.js consumeMagicTransaction`: replaced `emailIsAuthProvider` guard with `isSafeEmailShell` predicate; 409 details use the account's actual providers.
+- [x] Fixed latent `ReferenceError`: the adopt branch called bare `verifyContact` (never imported) → the "shipped" auto-adopt could NEVER have succeeded (always crashed → 400). Now `identityService.verifyContact`. Silver lining: the takeover hole was likely never exploitable in prod — the crash masked it.
+- [x] Prod audit query (read-only, via `railway connect postgres`): 75 provider-backed accounts, exactly 1 email-only account (internal `re***@porizo.co` test account, 0 tracks) → **no stranded population**. All 9 foreign unverified email contacts sit on provider-backed (recoverable) accounts.
+- [x] Adversarial tests added (`test/magic-login-api.test.js`): planted-second-email attack → 409 + contact stays unverified; true email-shell own-email login → adopts + verifies; zero-provider legacy contact account → adopts. Existing apple-provider 409 test still green.
+- [x] Full suite: 3235 tests, 3212 pass, 0 fail, 23 pre-existing skips.
+
+### Outcome for the affected user (Apple+phone, unverified email)
+
+409 → recovery screen → sign in with Apple/phone once (U2 flow works) → email gets verified → every future magic login is seamless. This is security-correct: until verified, that account is structurally indistinguishable from an attacker's.
+
+### Remaining
+
+- [ ] Commit + deploy (push to origin/main auto-deploys Railway). NOT committed yet.
+- [ ] Post-deploy: verify live 409 shape + a real magic login against prod (verify-production-claims rule).
+
+### iOS — recovery screen holds stably (fallback path)
+
+- [ ] Fix the presentation race: `.legacyRecovery` must NOT clear `pendingMagicLoginPresentation`; concurrent triggers (`onOpenURL`, scene-phase `.active` refresh, `CheckEmailView.task` poller) must not clobber it to `.wrongDeviceOrPlatform`/nil.
+- [ ] `CheckEmailView` renders the recovery actions inline (Apple/phone buttons) OR `AuthView.legacyRecoveryActions` stays mounted — no flash to email-entry.
+- [ ] Verify on simulator: legacy-recovery state holds; Apple button runs SIWA → same account → signed in.
+
+### Ship
+
+- [ ] Backend: push to origin/main → Railway auto-deploy → verify route/behavior against prod.
+- [ ] iOS: bump build, archive, upload to TestFlight, release to internal testers.
+- [ ] On-device verification by user (the whole point).
+
+---
+
+# App Store Demand And Attention (2026-07-11) — ACTIVE
+
+**Tracked ExecPlan:** `docs/plans/2026-07-11-app-store-demand-and-attention-execplan.md`
+
+- [x] Live-state and keyword audit completed.
+- [ ] Restore App Store acquisition analytics. (`Porizo Reports` can read but no ongoing request exists; an Admin must create it once.)
+- [x] Repair review acquisition and recipient-play push delivery through OneSignal.
+- [x] Ship evergreen keywords and live regional localizations to editable 1.5.27.
+- [ ] Complete CPP assignment, routing, and measurement. (Live manifest/audit complete; conversion analytics blocked by role.)
+- [ ] Implement the bounded recipient App Clip. (Code, shared scheme, AASA, and simulator builds complete; parent-linked App Clip ID must be registered in Apple’s web portal, then physical invocation remains.)
+- [ ] Ship seasonal event/nomination operations and resolve zero App Tags. (AU Father’s Day event is waiting for review; nomination drafted; tags remain Apple-controlled.)
+- [x] Complete full code validation and retrospective; external production evidence remains in the ExecPlan.
+
+---
+
+# Marketing Factory Streamlining (2026-07-10) — COMPLETE
 
 **Goal:** Consolidate scattered marketing efforts into 6 clear pipelines + production loops. Doc → pressure-test → adversarial review → execute archival cleanup. Full plan: `~/.claude/plans/we-have-made-a-generic-squirrel.md`.
 

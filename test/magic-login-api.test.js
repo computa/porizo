@@ -62,7 +62,8 @@ describe("platform-bound magic login API", () => {
     assert.match(response.headers["cache-control"], /no-store/);
     assert.match(response.body, /Continue sign-in/);
     assert.equal(
-      (await createMagicLoginRepository(db).findById(created.transactionId)).status,
+      (await createMagicLoginRepository(db).findById(created.transactionId))
+        .status,
       "pending",
     );
   });
@@ -77,7 +78,10 @@ describe("platform-bound magic login API", () => {
       });
       assert.equal(response.statusCode, 200);
       assert.doesNotMatch(response.body, /id="approve"/);
-      assert.match(response.body, /Browser confirmation is temporarily unavailable/);
+      assert.match(
+        response.body,
+        /Browser confirmation is temporarily unavailable/,
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED;
@@ -109,7 +113,8 @@ describe("platform-bound magic login API", () => {
     });
     assert.equal(response.statusCode, 400);
     assert.equal(
-      (await createMagicLoginRepository(db).findById(created.transactionId)).status,
+      (await createMagicLoginRepository(db).findById(created.transactionId))
+        .status,
       "pending",
     );
   });
@@ -117,14 +122,18 @@ describe("platform-bound magic login API", () => {
   it("exchanges once for a verified email and returns 15-minute native credentials", async () => {
     const userId = "user_magic_api";
     const email = "magic-api@example.com";
-    await db.prepare(
-      "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
-    ).run(userId, email);
-    await db.prepare(
-      `INSERT INTO user_contacts
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
+      )
+      .run(userId, email);
+    await db
+      .prepare(
+        `INSERT INTO user_contacts
        (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
        VALUES (?, ?, 'email', ?, ?, CURRENT_TIMESTAMP, 'user_entered', 1, 0)`,
-    ).run("contact_magic_api", userId, email, email);
+      )
+      .run("contact_magic_api", userId, email, email);
     const service = createMagicLoginService({
       repository: createMagicLoginRepository(db),
     });
@@ -140,26 +149,38 @@ describe("platform-bound magic login API", () => {
       link_secret: created.linkSecret,
       request_secret: created.requestSecret,
     };
-    const first = await app.inject({ method: "POST", url: "/auth/magic/exchange", payload });
+    const first = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload,
+    });
     assert.equal(first.statusCode, 200, first.body);
     assert.equal(first.json().user_id, userId);
     assert.equal(first.json().expires_in, 900);
     assert.ok(first.json().access_token);
     assert.ok(first.json().refresh_token);
 
-    const recovery = await app.inject({ method: "POST", url: "/auth/magic/exchange", payload });
+    const recovery = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload,
+    });
     assert.equal(recovery.statusCode, 200, recovery.body);
     assert.equal(recovery.json().refresh_token, first.json().refresh_token);
-    const count = await db.prepare("SELECT COUNT(*) AS count FROM user_sessions WHERE user_id = ?").get(userId);
+    const count = await db
+      .prepare("SELECT COUNT(*) AS count FROM user_sessions WHERE user_id = ?")
+      .get(userId);
     assert.equal(Number(count.count), 1);
   });
 
   it("links a magic-verified email as both contact and login credential without issuing replacement tokens", async () => {
     const userId = "user_magic_add_email";
     const email = "magic-add-email@example.com";
-    await db.prepare(
-      "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP)",
-    ).run(userId);
+    await db
+      .prepare(
+        "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP)",
+      )
+      .run(userId);
     const created = await createMagicLoginService({
       repository: createMagicLoginRepository(db),
     }).createTransaction({
@@ -185,13 +206,17 @@ describe("platform-bound magic login API", () => {
       user_id: userId,
       contact_verified: true,
     });
-    const contact = await db.prepare(
-      "SELECT verified_at FROM user_contacts WHERE user_id = ? AND type = 'email' AND value_normalized = ?",
-    ).get(userId, email);
+    const contact = await db
+      .prepare(
+        "SELECT verified_at FROM user_contacts WHERE user_id = ? AND type = 'email' AND value_normalized = ?",
+      )
+      .get(userId, email);
     assert.ok(contact?.verified_at);
-    const identity = await db.prepare(
-      "SELECT status FROM user_auth_providers WHERE user_id = ? AND provider = 'email' AND provider_user_id = ?",
-    ).get(userId, email);
+    const identity = await db
+      .prepare(
+        "SELECT status FROM user_auth_providers WHERE user_id = ? AND provider = 'email' AND provider_user_id = ?",
+      )
+      .get(userId, email);
     assert.equal(identity?.status, "active");
   });
 
@@ -223,32 +248,38 @@ describe("platform-bound magic login API", () => {
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json().is_new_user, true);
     assert.ok(response.json().access_token);
-    const user = await db.prepare(
-      "SELECT id, email, email_verified FROM users WHERE email = ?",
-    ).get(email);
+    const user = await db
+      .prepare("SELECT id, email, email_verified FROM users WHERE email = ?")
+      .get(email);
     assert.ok(user?.id);
     assert.equal(Boolean(user.email_verified), true);
-    const entitlement = await db.prepare(
-      "SELECT tier FROM entitlements WHERE user_id = ?",
-    ).get(user.id);
+    const entitlement = await db
+      .prepare("SELECT tier FROM entitlements WHERE user_id = ?")
+      .get(user.id);
     assert.equal(entitlement?.tier, "free");
   });
 
   it("does not create a duplicate owner for an unverified legacy contact", async () => {
     const userId = "user_magic_legacy_contact";
     const email = "legacy-unverified@example.com";
-    await db.prepare(
-      "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 0, CURRENT_TIMESTAMP)",
-    ).run(userId, email);
-    await db.prepare(
-      `INSERT INTO user_contacts
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 0, CURRENT_TIMESTAMP)",
+      )
+      .run(userId, email);
+    await db
+      .prepare(
+        `INSERT INTO user_contacts
        (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
        VALUES (?, ?, 'email', ?, ?, NULL, 'user_entered', 1, 0)`,
-    ).run("contact_magic_legacy", userId, email, email);
-    await db.prepare(
-      `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+      )
+      .run("contact_magic_legacy", userId, email, email);
+    await db
+      .prepare(
+        `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
        VALUES (?, ?, 'apple', ?)`,
-    ).run("provider_magic_legacy", userId, "apple-legacy-subject");
+      )
+      .run("provider_magic_legacy", userId, "apple-legacy-subject");
     const created = await createMagicLoginService({
       repository: createMagicLoginRepository(db),
     }).createTransaction({
@@ -273,14 +304,178 @@ describe("platform-bound magic login API", () => {
     assert.equal(response.json().error, "LEGACY_ACCOUNT_RECOVERY_REQUIRED");
     assert.equal(response.json().details.masked_email, "l***@example.com");
     assert.equal(response.json().details.auth_methods, "apple");
-    const owners = await db.prepare(
-      "SELECT COUNT(*) AS count FROM users WHERE email = ?",
-    ).get(email);
+    const owners = await db
+      .prepare("SELECT COUNT(*) AS count FROM users WHERE email = ?")
+      .get(email);
     assert.equal(Number(owners.count), 1);
     assert.equal(
-      (await createMagicLoginRepository(db).findById(created.transactionId)).status,
+      (await createMagicLoginRepository(db).findById(created.transactionId))
+        .status,
       "pending",
     );
+  });
+
+  it("refuses to adopt an email-only account whose login email differs (planted second email)", async () => {
+    // Attack: an email-shell account (its own email login) plants a VICTIM's
+    // email as an unverified contact. The victim's magic link must NOT sign
+    // them into that account — the shell's email subject differs.
+    const attackerId = "user_magic_email_shell_attacker";
+    const attackerEmail = "attacker-own@example.com";
+    const victimEmail = "victim-planted@example.com";
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
+      )
+      .run(attackerId, attackerEmail);
+    await db
+      .prepare(
+        `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+       VALUES (?, ?, 'email', ?)`,
+      )
+      .run("provider_magic_shell_attacker", attackerId, attackerEmail);
+    await db
+      .prepare(
+        `INSERT INTO user_contacts
+       (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
+       VALUES (?, ?, 'email', ?, ?, NULL, 'user_entered', 0, 0)`,
+      )
+      .run(
+        "contact_magic_planted_victim",
+        attackerId,
+        victimEmail,
+        victimEmail,
+      );
+    const created = await createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    }).createTransaction({
+      email: victimEmail,
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "planted-requester-key",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+        request_secret: created.requestSecret,
+      },
+    });
+
+    assert.equal(response.statusCode, 409, response.body);
+    assert.equal(response.json().error, "LEGACY_ACCOUNT_RECOVERY_REQUIRED");
+    assert.equal(response.json().details.auth_methods, "email");
+    // The planted contact must remain unverified — the victim's click must
+    // not verify an attacker-held contact.
+    const planted = await db
+      .prepare("SELECT verified_at FROM user_contacts WHERE id = ?")
+      .get("contact_magic_planted_victim");
+    assert.equal(planted.verified_at, null);
+  });
+
+  it("adopts a true email-only legacy account signing in with its own email", async () => {
+    // Legitimate legacy shape: the account's ONLY auth factor is the email
+    // login for this exact email, but the contact row was never verified.
+    // Mailbox control here IS account ownership — auto-adopt.
+    const legacyId = "user_magic_true_email_shell";
+    const email = "legacy-shell-own@example.com";
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 0, CURRENT_TIMESTAMP)",
+      )
+      .run(legacyId, email);
+    await db
+      .prepare(
+        `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+       VALUES (?, ?, 'email', ?)`,
+      )
+      .run("provider_magic_true_shell", legacyId, email);
+    await db
+      .prepare(
+        `INSERT INTO user_contacts
+       (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
+       VALUES (?, ?, 'email', ?, ?, NULL, 'user_entered', 1, 0)`,
+      )
+      .run("contact_magic_true_shell", legacyId, email, email);
+    const created = await createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    }).createTransaction({
+      email,
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "true-shell-requester-key",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+        request_secret: created.requestSecret,
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().user_id, legacyId);
+    assert.equal(Boolean(response.json().is_new_user), false);
+    const contact = await db
+      .prepare("SELECT verified_at FROM user_contacts WHERE id = ?")
+      .get("contact_magic_true_shell");
+    assert.ok(contact.verified_at);
+    const owners = await db
+      .prepare("SELECT COUNT(*) AS count FROM users WHERE email = ?")
+      .get(email);
+    assert.equal(Number(owners.count), 1);
+  });
+
+  it("adopts a legacy contact-only account with no auth providers at all", async () => {
+    // Oldest legacy shape: a contact row exists but the account has zero
+    // auth-provider rows. Nothing to hijack — mailbox proof adopts it.
+    const legacyId = "user_magic_no_provider_shell";
+    const email = "legacy-no-provider@example.com";
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 0, CURRENT_TIMESTAMP)",
+      )
+      .run(legacyId, email);
+    await db
+      .prepare(
+        `INSERT INTO user_contacts
+       (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
+       VALUES (?, ?, 'email', ?, ?, NULL, 'user_entered', 1, 0)`,
+      )
+      .run("contact_magic_no_provider", legacyId, email, email);
+    const created = await createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    }).createTransaction({
+      email,
+      platform: "ios",
+      purpose: "login",
+      requesterKey: "no-provider-requester-key",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+        request_secret: created.requestSecret,
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().user_id, legacyId);
+    const contact = await db
+      .prepare("SELECT verified_at FROM user_contacts WHERE id = ?")
+      .get("contact_magic_no_provider");
+    assert.ok(contact.verified_at);
   });
 
   it("completes browser-approved native login with the requester secret", async () => {
@@ -369,14 +564,18 @@ describe("platform-bound magic login API", () => {
   it("web exchange requires Origin, CSRF and pre-auth cookie and returns only an opaque cookie", async () => {
     const userId = "user_magic_web";
     const email = "magic-web@example.com";
-    await db.prepare(
-      "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
-    ).run(userId, email);
-    await db.prepare(
-      `INSERT INTO user_contacts
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, email_verified, created_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
+      )
+      .run(userId, email);
+    await db
+      .prepare(
+        `INSERT INTO user_contacts
        (id, user_id, type, value_normalized, value_display, verified_at, source, is_primary, is_relay)
        VALUES (?, ?, 'email', ?, ?, CURRENT_TIMESTAMP, 'user_entered', 1, 0)`,
-    ).run("contact_magic_web", userId, email, email);
+      )
+      .run("contact_magic_web", userId, email, email);
     const csrf = "web-csrf-requester-key-123456789";
     const created = await createMagicLoginService({
       repository: createMagicLoginRepository(db),
@@ -425,7 +624,9 @@ describe("platform-bound magic login API", () => {
     assert.match(String(setCookies), /__Host-porizo_session=/);
     assert.match(String(setCookies), /HttpOnly/);
     assert.doesNotMatch(String(setCookies), /Domain=/i);
-    const sessionToken = String(setCookies).match(/__Host-porizo_session=([^;,]+)/)[1];
+    const sessionToken = String(setCookies).match(
+      /__Host-porizo_session=([^;,]+)/,
+    )[1];
     const session = await app.inject({
       method: "GET",
       url: "/auth/web/session",

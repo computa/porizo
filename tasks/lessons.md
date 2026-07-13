@@ -6,6 +6,14 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-07-13 — iOS client shipped to TestFlight ahead of its backend (deploy ≠ working, deploy never happened)
+
+**Trigger:** TestFlight build 150 magic-link login failed on-device with "We could not check the link." Prod logs showed `Route POST:/auth/magic/native/status not found` (404) on every ~3s poll.
+
+**Mistake:** The magic-login backend (commit `d3010039`/`21083be5`: routes, service, migrations 124–128) was committed to LOCAL `main` and a TestFlight build cut from it — but `main` was never pushed. `origin/main` (what Railway auto-deploys) was stuck 6 days stale at `65f5bef1`, so the routes the client depends on didn't exist in prod. The client half shipped; its backend half never left the laptop.
+
+**Rule:** Before cutting a TestFlight/App Store build that depends on new backend routes, confirm `git branch -r --contains <commit>` shows the backend commit on `origin/main` AND that Railway actually redeployed it (`origin/main` HEAD == running build; probe the new route for non-404). Client and server for one feature must ship as a pair — verify the server is LIVE in prod, not merely committed. Fix here was a single `git push origin main`; verified 404→400 on the route post-deploy.
+
 ### 2026-07-10 — Literal path grep is not enough before moving runtime assets
 
 **Trigger:** The marketing consolidation reported zero references for `marketing/emails/` and archived its three HTML files. The admin route actually built that path with `path.join(process.cwd(), "marketing", "emails")`, so the literal grep could not see it and template previews silently returned `File not found`.
