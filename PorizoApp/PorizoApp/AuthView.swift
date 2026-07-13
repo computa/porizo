@@ -251,7 +251,12 @@ struct AuthView: View {
                     appleSignInButton
                 }
 
-                if authMethods.contains("phone") {
+                // Phone is a legacy recovery factor only — it is no longer a
+                // registration method. Surface it ONLY when it is the account's
+                // sole recovery option (a legacy phone-only account), so the
+                // common Apple-backed case shows Apple alone. Removing it
+                // outright would strand the remaining phone-only accounts.
+                if authMethods.contains("phone") && !authMethods.contains("apple") {
                     Button {
                         authManager.startPhoneAuth()
                     } label: {
@@ -264,7 +269,7 @@ struct AuthView: View {
                     .tint(DesignTokens.gold)
                 }
 
-                if authMethods.isEmpty || authMethods.contains(where: { method in
+                if authMethods.isEmpty || authMethods.allSatisfy({ method in
                     method != "apple" && method != "phone"
                 }) {
                     Text("Contact support so we can recover the original account without separating its content.")
