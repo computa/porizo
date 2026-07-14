@@ -20,14 +20,14 @@
 
 Porizo's problem is **distribution, not production**: ~26 genuine users in ~98 days, and a viral loop where ~39 recipients converted to **0** new users. This doc used to lead with video/ads/blog — production capacity the funnel can't yet convert. Fixed. **The order below is the priority order.** In a bad week, do the top items and drop the bottom ones — that's the whole point of ranking them.
 
-| Rank  | Pipeline                                 | Why it's here                                                                                                                                 | Effort            |
-| ----- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| **0** | **Recipient conversion** (Pipeline 1)    | The diagnosed failure. 39 people already felt the payoff → 0 converted. Cheapest acquisition surface there is.                                | 1 hypothesis/week |
-| **1** | **ASO** (Pipeline 4)                     | The one channel with a live #1 signal (US/AU/GB "birthday song gift" #1). `node` command, proven.                                             | ~5 min            |
-| **2** | **Blog / programmatic SEO** (Pipeline 5) | Extends the #1 ASO keyword win into organic web search. Lowest-cost, highest-leverage content.                                                | biweekly          |
-| **3** | **Organic social** (Pipeline 6)          | Free top-of-funnel; creator seeding is cheaper to test than paid.                                                                             | batch             |
-| **4** | **Video** (Pipeline 2)                   | Feeds the above; per-launch only.                                                                                                             | per-launch        |
-| **5** | **Paid acquisition** (Pipeline 3)        | **DORMANT.** Meta ran at 5× target CPI on a non-converting funnel; TikTok has no proven winner to port.                                        | dormant           |
+| Rank  | Pipeline                                 | Why it's here                                                                                                  | Effort            |
+| ----- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------- |
+| **0** | **Recipient conversion** (Pipeline 1)    | The diagnosed failure. 39 people already felt the payoff → 0 converted. Cheapest acquisition surface there is. | 1 hypothesis/week |
+| **1** | **ASO** (Pipeline 4)                     | The one channel with a live #1 signal (US/AU/GB "birthday song gift" #1). `node` command, proven.              | ~5 min            |
+| **2** | **Blog / programmatic SEO** (Pipeline 5) | Extends the #1 ASO keyword win into organic web search. Lowest-cost, highest-leverage content.                 | biweekly          |
+| **3** | **Organic social** (Pipeline 6)          | Free top-of-funnel; creator seeding is cheaper to test than paid.                                              | batch             |
+| **4** | **Video** (Pipeline 2)                   | Feeds the above; per-launch only.                                                                              | per-launch        |
+| **5** | **Paid acquisition** (Pipeline 3)        | **DORMANT.** Meta ran at 5× target CPI on a non-converting funnel; TikTok has no proven winner to port.        | dormant           |
 
 Low-cost one-time bets (do them, but they're not recurring pipelines): **Reddit** (occasion/relationship subreddits, genuine-comment playbook), **App Store editorial pitch** (a #1–2 niche gifting app is exactly Apple's featuring profile — an afternoon, asymmetric upside), **creator seeding** (free codes to 5–10 median-3k-view gifting creators).
 
@@ -35,17 +35,17 @@ Low-cost one-time bets (do them, but they're not recurring pipelines): **Reddit*
 
 Don't infer automation level from prose. This table is the truth:
 
-| Capability             | Status                    | Note                                                                                                                |
-| ---------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Recipient conversion   | **PARTLY BUILT**          | Receiver events and `viral_loop_metrics` exist; recipient-to-creator cohorts and a weekly reporting surface do not. |
-| ASO                    | **RUNNABLE TODAY**        | `scripts/aso/*` proven 2026-07-10.                                                                                  |
-| Meta ads (measure)     | **RUNNABLE TODAY**        | `scripts/ads/run.mjs` proven; publish via MCP/CLI is manual.                                                        |
-| Video                  | **RUNNABLE TODAY**        | Remotion proven.                                                                                                    |
-| Blog                   | **RUNNABLE TODAY**        | `tools/blog-publish-production.js` runs create/review/repair/publish with CMS and Railway-remote modes.             |
-| Social                 | **RUNNABLE (needs keys)** | `tiktok-pipeline` CLI proven; full generation still needs `ANTHROPIC_API_KEY` + an image source.                    |
-| — TikTok ads           | **NOT BUILT**             | Manual Ads Manager via browser-harness; runbook is a TODO.                                                          |
-| — Instagram publish    | **NOT BUILT**             | Phase-2 glue; manual posting today.                                                                                 |
-| Marketing router       | **BUILT** (2026-07-10)    | Tracked canonical router at `.agents/skills/marketing/SKILL.md`; tracked Claude compatibility router delegates to it. |
+| Capability           | Status                    | Note                                                                                                                  |
+| -------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Recipient conversion | **PARTLY BUILT**          | Receiver events and `viral_loop_metrics` exist; recipient-to-creator cohorts and a weekly reporting surface do not.   |
+| ASO                  | **RUNNABLE TODAY**        | `scripts/aso/*` proven 2026-07-10.                                                                                    |
+| Meta ads (measure)   | **RUNNABLE TODAY**        | `scripts/ads/run.mjs` proven; publish via MCP/CLI is manual.                                                          |
+| Video                | **RUNNABLE TODAY**        | Remotion proven.                                                                                                      |
+| Blog                 | **RUNNABLE TODAY**        | `tools/blog-publish-production.js` runs create/review/repair/publish with CMS and Railway-remote modes.               |
+| Social               | **RUNNABLE (needs keys)** | `tiktok-pipeline` CLI proven; full generation still needs `ANTHROPIC_API_KEY` + an image source.                      |
+| — TikTok ads         | **NOT BUILT**             | Manual Ads Manager via browser-harness; runbook is a TODO.                                                            |
+| — Instagram publish  | **NOT BUILT**             | Phase-2 glue; manual posting today.                                                                                   |
+| Marketing router     | **BUILT** (2026-07-10)    | Tracked canonical router at `.agents/skills/marketing/SKILL.md`; tracked Claude compatibility router delegates to it. |
 
 ## Credentials — one table, with recovery
 
@@ -75,6 +75,8 @@ Trigger via `$marketing` in Codex or `/marketing` in Claude Code. Every loop als
 **Honest time note:** the old "~90 min" was fiction — it understated editorial authoring and zero-retry social generation. Real ranges: blog authoring/review 20–40 min (publishing is automated), 6 social posts 30–48 min, Meta apply 2–20 min. That's why the **floor is 15 min** and blog is biweekly.
 
 **Friday `/marketing status` is the forcing function.** It doesn't just "roll up" — it diffs this week's ranks/spend/installs/median-views vs last week and prints a one-line verdict + action per pipeline ("ASO: NZ still weakest, unchanged 2wk → action?"). A loop only closes if this runs. A metric nobody reads is a warehouse, not a loop.
+
+**Channel ledger: `marketing/CHANNELS.md`** — one section per channel (Google organic/ads, Meta, TikTok, App Store, ASA, Etsy, email, web funnel, recipient loop) with dated actions → results, next step, and kill/scale gate. Update it after EVERY channel action; Friday status reads it and appends the week's result rows. Google keyword/campaign work has its own skill: `/google-ads`.
 
 ### If you skip a week — what rots
 
@@ -203,13 +205,15 @@ Not a separate pipeline: it's blocked on a precondition that has never fired —
 ```bash
 node scripts/aso/rank-track.mjs           # live iTunes-Search ranks per storefront → ranks/ + history.csv
 node scripts/aso/review.mjs --note "..."  # weekly orchestrator: ASA pull → rerank → lane comparison → spend dashboard
+node scripts/aso/acquisition-report.mjs   # ASC analytics access/report-request gate; fails loudly on missing role
+node scripts/aso/cpp-audit.mjs            # compare the canonical five-page CPP manifest with live ASC
 #   (refuses rerank on <14-day window; --skip-asa/--skip-rerank/--force-short-window-rerank/--asc/--external)
 node scripts/aso/apply-<x>.mjs --execute  # the ONLY scripts that WRITE to ASA. Dry-run by default.
 ```
 
 `keywords.json` is the source of truth; every rerank writes a dated snapshot. **Tool ranks are estimates — live truth comes only from `rank-track.mjs`.** App Store submissions use `asc` CLI (numeric app ID `6758205028`) + fastlane metadata; follow `porizo-swiftui-release-workflow` and the distribution checklist before submission.
 
-**Cadence:** Monday — `rank-track` weekly, full `review` bi-weekly (the 14-day guard enforces the cadence). **Loop close:** `ranks/history.csv` trend + the spend dashboard (`spend-history/dashboard.html`).
+**Cadence:** Monday — `rank-track`, `acquisition-report`, and `cpp-audit` weekly; full `review` bi-weekly (the 14-day guard enforces the cadence). **Loop close:** App Store Search/Browse impressions → product-page views → first-time downloads, plus `ranks/history.csv` and the spend dashboard. A permission failure is a blocked measurement system, never a zero-result week.
 
 **Proven 2026-07-10:** `rank-track.mjs` pulled live ranks across 5 storefronts — US "birthday song gift" #1, AU #1, GB #1, US "anniversary song gift" #2; NZ weakest (matches the 2026-07-07 rank-regression audit). ✓
 
@@ -287,17 +291,17 @@ cd ~/.claude/skills && python3 -m tiktok-pipeline.scripts.slideshow <campaign> -
 
 `.agents/skills/marketing/SKILL.md` is the tracked canonical dispatcher. The tracked `.claude/skills/marketing/SKILL.md` compatibility skill exposes the same routes in Claude Code and delegates to the canonical file instead of copying its logic.
 
-| Subcommand              | Does                                                      |
-| ----------------------- | --------------------------------------------------------- |
+| Subcommand              | Does                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
 | `/marketing weekly`     | Minimum floor, then Pipeline 1, Pipeline 4, Pipeline 5, and Pipeline 6 in priority order. |
-| `/marketing status`     | The Friday roll-up.                                       |
-| `/marketing aso`        | Pipeline 4.                                               |
-| `/marketing recipient`  | Pipeline 1.                                               |
-| `/marketing ads`        | Pipeline 3 (Meta).                                        |
-| `/marketing tiktok-ads` | Pipeline 3 (TikTok subsection).                           |
-| `/marketing video`      | Pipeline 2.                                               |
-| `/marketing blog`       | Pipeline 5.                                               |
-| `/marketing social`     | Pipeline 6.                                               |
+| `/marketing status`     | The Friday roll-up.                                                                       |
+| `/marketing aso`        | Pipeline 4.                                                                               |
+| `/marketing recipient`  | Pipeline 1.                                                                               |
+| `/marketing ads`        | Pipeline 3 (Meta).                                                                        |
+| `/marketing tiktok-ads` | Pipeline 3 (TikTok subsection).                                                           |
+| `/marketing video`      | Pipeline 2.                                                                               |
+| `/marketing blog`       | Pipeline 5.                                                                               |
+| `/marketing social`     | Pipeline 6.                                                                               |
 
 It does no work itself — it dispatches to the pipeline's canonical commands + consultant skills above. This collapses ~55 marketing skills into one thing to remember.
 

@@ -53,6 +53,9 @@ out/
 /marketing/*
 !/marketing/README.md
 !/marketing/current-push.md
+!/marketing/CHANNELS.md
+!/marketing/web/
+!/marketing/web/**
 !/marketing/appstore/
 /marketing/appstore/*
 !/marketing/appstore/metadata/
@@ -165,6 +168,8 @@ venv/
 !.agents/skills/porizo-swiftui-release-workflow/**
 !.agents/skills/marketing/
 !.agents/skills/marketing/**
+!.agents/skills/google-ads/
+!.agents/skills/google-ads/**
 # Track only the thin /marketing compatibility router. Keep every other
 # Claude Code file local to the machine.
 !.claude/
@@ -173,6 +178,7 @@ venv/
 .claude/skills/*
 !.claude/skills/marketing/
 !.claude/skills/marketing/**
+!.claude/skills/google-ads
 .codex/
 .cursor/
 .droid/
