@@ -19,10 +19,35 @@
 
 409 → recovery screen → sign in with Apple/phone once (U2 flow works) → email gets verified → every future magic login is seamless. This is security-correct: until verified, that account is structurally indistinguishable from an attacker's.
 
-### Remaining
+### Deployed 2026-07-14
 
-- [ ] Commit + deploy (push to origin/main auto-deploys Railway). NOT committed yet.
-- [ ] Post-deploy: verify live 409 shape + a real magic login against prod (verify-production-claims rule).
+- [x] Committed `b81df270` (auth.js + identity-repository.js + tests + task files; scope-verified, no unrelated files).
+- [x] Pushed → Railway auto-deploy `48236365` **SUCCESS**, `meta.commitHash = b81df270` (verified via deployment JSON — prod serves the fix).
+- [x] No migration needed: change is schema-free; magic-login migrations 124–128 confirmed already applied in prod `schema_migrations` pre-deploy.
+- [x] Server booted clean (03:42 +08, listening; OneSignal tag-sync 404s are pre-existing noise). Live probe: `POST /auth/magic/exchange` garbage → 400 `INVALID_MAGIC_LOGIN` ✓.
+- [x] Owner's live test on build 150 FAILED (tap did nothing) → traced: click never reached the server; iOS universal link opened the app and build 150's state race dropped the flow (scene-active refresh clobbers the pending state → collapses to email entry, zero network).
+- [x] iOS fix shipped (2026-07-14): terminal-state guard (`isTerminalMagicState`, nonisolated) in `performMagicLoginStatusRefresh`; CheckEmailView reuses predicate. 17/17 AuthManagerTests (incl. new regression tests; stale expiry test corrected to recovery-grace semantics).
+- [x] Build **1.5.27 (151)** archived + uploaded to TestFlight (manual-signing ExportOptions-manual.plist + ASC API key; `-allowProvisioningUpdates`/automatic signing does NOT work for export — use the manual plist). AppsFlyer dSYM warning benign. Scoped GO audit: `docs/appstore/appstore-review-2026-07-14.md`.
+- [x] Pushed `6d6df506`/`7374fbff`/`605fbc75`/`ae076dbc` → origin/main (TestFlight ↔ git lockstep per the build-150 lesson). Also shipped in 151: review-prompt policy refactor (pre-prompt sheet removed).
+- [x] **Build 151 live test PASSED** (2026-07-14 04:45, prod logs): tap → `/auth/magic/exchange` → **409 LEGACY_ACCOUNT_RECOVERY_REQUIRED** (42ms) → recovery screen rendered correctly (screenshot) → Apple sign-in → 200s, session issued, recovered. The race fix works: the tap now reaches the server (build 150 sent zero).
+- [x] Removed "Continue with phone" from the recovery screen for Apple-backed accounts (`AuthView.swift`): phone now shows ONLY for legacy phone-only accounts (3 exist in prod — verified — removing outright would strand them). New users register email-only; phone/Apple are not signup methods. Also fixed `.contains(where:)`→`.allSatisfy` so "contact support" no longer shows alongside a working Apple button.
+
+### Build 153 (2026-07-14) — two more races fixed from the build-152 on-device test
+
+Traced via prod logs (only 1 exchange despite 2 taps; `/auth/social` 200 then `/app/config` re-init flash):
+
+- [x] **First tap dropped** (`handleMagicLoginURL`): an in-flight status poll could short-circuit the handler before `/auth/magic/exchange`. Poll is now drained but never short-circuits — link secret is authoritative, every tap exchanges. → "tap twice" gone.
+- [x] **Email screen flash** (`AuthView`): fell back to email-entry whenever `loginPresentation` nil, incl. the post-recovery `.auth`→`.main` frame. Added `isMagicFlowResolving` → progress placeholder instead of the email field during opening/exchanging/recovery/success.
+- [x] AuthManagerTests green; builds clean; audit GO; **build 153 uploaded + pushed** (`36704fcc`).
+
+### FINAL human check on build 153
+
+Request magic link → **first** tap should sign in (no second tap) → recovery screen shows Apple only (no phone, no email-field flash) → recover → done.
+
+### Known follow-up (separate, lower priority)
+
+- [ ] **Post-recovery 401 burst ("struggled"):** after Apple recovery, the app fires authed data fetches BEFORE the new access token is installed → ~12× 401, then APIClient auth-retry replays → 200. Self-heals but visible jank (did NOT recur on build 152 — intermittent, token-timing dependent). Fix: gate the initial post-auth data load behind the token swap. Client-only; server correct throughout.
+- [ ] **Test-harness gap:** `AuthManagerTests` has no mock-API injection, so `handleMagicLoginURL`'s exchange path (the two-tap fix) is covered only by build + manual test, not a unit test. Add a mock APIClient harness if this area churns again.
 
 ### iOS — recovery screen holds stably (fallback path)
 
@@ -198,3 +223,11 @@ Backend deployed + song rendered successfully, but user is validating more in-ap
 
 - [ ] Confirm in-app experience is good (playback, share, gift flows).
 - [ ] Then merge `refactor` → `main` (style TBD: merge-commit vs squash vs PR) — OR `railway redeploy` to roll back to `main` if issues found.
+
+### E2E sim trace findings (2026-07-14 ~10:45, Claude session)
+
+Full repro in simulator (request + tap same install, prod API via `SIMCTL_CHILD_PORIZO_API_BASE_URL`):
+
+- [x] **FIXED IN PROD — new-user email signup was completely broken**: exchange rejected `code=23514` (pg `check_violation`). `migrations/pg/091_user_contacts.sql` CHECK on `user_contacts.source` lacks `'magic_link'`. SQLite twin has NO check → 3,238 tests green while prod 500s. **Migration 130 (pg widens CHECK; sqlite no-op) applied to prod + recorded in schema_migrations + verified** (`pg_get_constraintdef` now includes magic_link).
+- [ ] **OPEN — client completion self-sabotage loop** (needs iOS fix + build 155): after the constraint fix, tap → exchange → poll sees `consumed` → `/auth/magic/native/complete` returns **200 with credentials repeatedly** (server perfect), but the client rejects its own success each time, shows "We could not check the link", retries every ~3.5s. Diagnosed cause: `finishMagicLogin` (or its caller) re-checks `isCurrentMagicOperation(generation, sessionGeneration:)` AFTER installing the session — and login itself bumps `authSessionGeneration` (`AuthManager.swift:1831/:2042`) → guard fails → own success discarded. Fix: capture/exempt the session-generation bump caused by the operation itself (or drop the sessionGeneration check post-install). See `AuthManager.swift:821-831` + `:1898-1920`.
+- [x] User-confirmed context for the phone TestFlight failure: the tapped email was **not initiated from that install** — platform-bound by design; needs clearer UX copy ("requested on another device — request a new one here") instead of silent absorb / generic error.
