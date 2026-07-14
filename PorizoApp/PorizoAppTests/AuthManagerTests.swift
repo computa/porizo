@@ -9,6 +9,41 @@ import XCTest
 import Security
 @testable import PorizoApp
 
+private final class AuthManagerURLProtocolStub: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var response: (status: Int, data: Data)?
+
+    static func configure(status: Int = 200, data: Data) {
+        lock.withLock { response = (status, data) }
+    }
+
+    static func reset() {
+        lock.withLock { response = nil }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let configured = Self.lock.withLock({ Self.response }),
+              let url = request.url,
+              let response = HTTPURLResponse(
+                url: url,
+                statusCode: configured.status,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: configured.data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 private actor ControllableMagicLoginAPI: MagicLoginAPI {
     enum TestError: Error {
         case intentionalExchangeFailure
@@ -23,7 +58,10 @@ private actor ControllableMagicLoginAPI: MagicLoginAPI {
     private var exchangeStarted = false
     private(set) var exchangeCallCount = 0
     private(set) var exchangeLinkSecrets: [String] = []
+    private(set) var completionCallCount = 0
     var holdExchange = false
+    private var exchangeResponse: MagicLoginExchangeResponse?
+    private var completionResponse: MagicLoginExchangeResponse?
 
     func requestMagicLogin(
         email: String,
@@ -45,6 +83,7 @@ private actor ControllableMagicLoginAPI: MagicLoginAPI {
         exchangeCallCount += 1
         exchangeLinkSecrets.append(linkSecret)
         exchangeStarted = true
+        if let exchangeResponse { return exchangeResponse }
         if holdExchange {
             return try await withCheckedThrowingContinuation { continuation in
                 exchangeContinuations.append(continuation)
@@ -67,6 +106,8 @@ private actor ControllableMagicLoginAPI: MagicLoginAPI {
         transactionId: String,
         requestSecret: String
     ) async throws -> MagicLoginExchangeResponse {
+        completionCallCount += 1
+        if let completionResponse { return completionResponse }
         throw TestError.unsupported
     }
 
@@ -84,6 +125,14 @@ private actor ControllableMagicLoginAPI: MagicLoginAPI {
 
     func setHoldExchange(_ value: Bool) {
         holdExchange = value
+    }
+
+    func setExchangeResponse(_ response: MagicLoginExchangeResponse) {
+        exchangeResponse = response
+    }
+
+    func setCompletionResponse(_ response: MagicLoginExchangeResponse) {
+        completionResponse = response
     }
 
     func releaseStatus(as status: MagicLoginNativeStatus) {
@@ -119,6 +168,14 @@ final class AuthManagerTests: XCTestCase {
         PendingSuggestionStore.clear()
         KeychainHelper.delete(key: "porizo_pending_phone_link")
         KeychainHelper.delete(key: "porizo_pending_phone_link_expiry")
+        KeychainHelper.delete(key: "porizo_access_token")
+        KeychainHelper.delete(key: "porizo_refresh_token")
+        KeychainHelper.delete(key: "porizo_token_expiry")
+        KeychainHelper.delete(key: "porizo_auth_user_id")
+        KeychainHelper.delete(key: "porizo_auth_provider")
+        KeychainHelper.delete(key: "porizo_device_token")
+        KeychainHelper.delete(key: "porizo_device_token_expiry")
+        AuthManagerURLProtocolStub.reset()
     }
 
     // MARK: - Identity helpers
@@ -549,14 +606,133 @@ final class AuthManagerTests: XCTestCase {
         XCTAssertEqual(authManager.magicLoginState, .serverError)
     }
 
-    private func seedPendingMagicLogin(transactionId: String) throws {
+    @MainActor
+    func testDirectMagicLoginCommitsIssuedSessionWithoutBootstrapGate() async throws {
+        let api = ControllableMagicLoginAPI()
+        let transactionId = "direct_success_tx"
+        let userId = "user_magic_direct"
+        try seedPendingMagicLogin(transactionId: transactionId, purpose: .login)
+        await api.setExchangeResponse(successfulExchange(userId: userId))
+        let authManager = AuthManager(
+            magicAPIClient: api,
+            session: makeCurrentUserSession(userId: userId)
+        )
+        let link = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=link_secret"
+        ))
+
+        let handled = await authManager.handleMagicLoginURL(link)
+        let exchangeCallCount = await api.exchangeCallCount
+
+        XCTAssertTrue(handled)
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertEqual(authManager.currentUser?.id, userId)
+        XCTAssertEqual(authManager.magicLoginState, .success)
+        XCTAssertNil(authManager.pendingMagicLoginPresentation)
+        XCTAssertEqual(exchangeCallCount, 1)
+    }
+
+    @MainActor
+    func testPendingMagicLoginCannotReplaceDurableSessionDuringColdRestore() async throws {
+        let api = ControllableMagicLoginAPI()
+        let transactionId = "restore_wins_tx"
+        try seedPendingMagicLogin(transactionId: transactionId, purpose: .login)
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_access_token", value: "existing_access"))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_refresh_token", value: "existing_refresh"))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_token_expiry", value: "4102444800"))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_auth_user_id", value: "existing_user"))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_auth_provider", value: "email_magic"))
+        let authManager = AuthManager(
+            magicAPIClient: api,
+            session: makeCurrentUserSession(userId: "existing_user")
+        )
+        let link = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=link_secret"
+        ))
+
+        let handled = await authManager.handleMagicLoginURL(link)
+        let exchangeCallCount = await api.exchangeCallCount
+
+        XCTAssertTrue(handled)
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertEqual(authManager.magicLoginState, .superseded)
+        XCTAssertEqual(exchangeCallCount, 0)
+    }
+
+    @MainActor
+    func testPartialColdStartCredentialsAreClearedBeforeMagicLoginExchange() async throws {
+        let api = ControllableMagicLoginAPI()
+        let transactionId = "partial_restore_tx"
+        let userId = "user_after_partial_restore"
+        try seedPendingMagicLogin(transactionId: transactionId, purpose: .login)
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_access_token", value: "orphaned_access"))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_device_token", value: "previous_account_device"))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_device_token_expiry", value: "4102444800"))
+        await api.setExchangeResponse(successfulExchange(userId: userId))
+        let authManager = AuthManager(
+            magicAPIClient: api,
+            session: makeCurrentUserSession(userId: userId)
+        )
+        let link = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=link_secret"
+        ))
+
+        let handled = await authManager.handleMagicLoginURL(link)
+        let exchangeCallCount = await api.exchangeCallCount
+
+        XCTAssertTrue(handled)
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertEqual(authManager.currentUser?.id, userId)
+        XCTAssertEqual(authManager.magicLoginState, .success)
+        XCTAssertEqual(exchangeCallCount, 1)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_device_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_device_token_expiry"))
+    }
+
+    @MainActor
+    func testConsumedStatusCommitsIssuedSessionOnceInsteadOfLooping() async throws {
+        let api = ControllableMagicLoginAPI()
+        let transactionId = "status_success_tx"
+        let userId = "user_magic_status"
+        try seedPendingMagicLogin(transactionId: transactionId, purpose: .login)
+        await api.setCompletionResponse(successfulExchange(userId: userId))
+        let authManager = AuthManager(
+            magicAPIClient: api,
+            session: makeCurrentUserSession(userId: userId)
+        )
+
+        let refresh = Task { @MainActor in
+            await authManager.refreshMagicLoginStatus(transactionId: transactionId)
+        }
+        let statusStarted = await waitUntil { await api.hasStatusStarted() }
+        XCTAssertTrue(statusStarted)
+        await api.releaseStatus(as: .consumed)
+
+        let completed = await refresh.value
+        let firstCompletionCallCount = await api.completionCallCount
+        let terminalRefresh = await authManager.refreshMagicLoginStatus(transactionId: transactionId)
+        let finalCompletionCallCount = await api.completionCallCount
+
+        XCTAssertTrue(completed)
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertEqual(authManager.currentUser?.id, userId)
+        XCTAssertEqual(authManager.magicLoginState, .success)
+        XCTAssertEqual(firstCompletionCallCount, 1)
+        XCTAssertTrue(terminalRefresh)
+        XCTAssertEqual(finalCompletionCallCount, 1)
+    }
+
+    private func seedPendingMagicLogin(
+        transactionId: String,
+        purpose: MagicLoginPurpose = .addEmail
+    ) throws {
         let now = Date()
         let pending = PendingMagicLogin(
             transactionId: transactionId,
             requestSecret: "request_secret",
             requesterKey: "requester_key",
             email: "person@example.com",
-            purpose: .addEmail,
+            purpose: purpose,
             expiresAt: now.addingTimeInterval(600),
             createdAt: now
         )
@@ -568,6 +744,37 @@ final class AuthManagerTests: XCTestCase {
             expiresAt: pending.expiresAt,
             createdAt: pending.createdAt
         )))
+    }
+
+    private func successfulExchange(userId: String) -> MagicLoginExchangeResponse {
+        MagicLoginExchangeResponse(
+            accessToken: "issued_access_token",
+            refreshToken: "issued_refresh_token",
+            userId: userId,
+            expiresIn: 900,
+            contactVerified: nil,
+            isNewUser: true
+        )
+    }
+
+    private func makeCurrentUserSession(userId: String) -> URLSession {
+        let json = """
+        {
+          "user_id": "\(userId)",
+          "email": "person@example.com",
+          "email_verified": true,
+          "providers": ["email"],
+          "created_at": "2026-07-14T00:00:00Z",
+          "needs_profile_completion": false,
+          "auth_methods": [],
+          "contacts": [],
+          "missing_profile_requirements": []
+        }
+        """
+        AuthManagerURLProtocolStub.configure(data: Data(json.utf8))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthManagerURLProtocolStub.self]
+        return URLSession(configuration: configuration)
     }
 
     private func waitUntil(

@@ -387,13 +387,21 @@ class AuthManager {
 
     // MARK: - Initialization
 
-    init(baseURL: String? = nil, magicAPIClient: (any MagicLoginAPI)? = nil) {
+    init(
+        baseURL: String? = nil,
+        magicAPIClient: (any MagicLoginAPI)? = nil,
+        session: URLSession? = nil
+    ) {
         self.baseURL = baseURL ?? AppConfig.apiBaseURL
         self.magicAPIClient = magicAPIClient ?? APIClient(baseURL: self.baseURL)
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config)
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 30
+            self.session = URLSession(configuration: config)
+        }
         self.pendingMagicLoginPresentation = MagicLoginPresentationStore.load()
         if let pendingMagicLoginPresentation {
             self.magicLoginState = .sent(email: pendingMagicLoginPresentation.email)
@@ -574,16 +582,24 @@ class AuthManager {
             }
             return true
         }
-        if pending.purpose == .login {
+        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return true }
+        if pending.purpose == .login, shouldAwaitInitialAuthRestoration() {
             guard await awaitInitialAuthRestoration() else {
                 if isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) {
                     magicLoginState = .serverError
                 }
                 return true
             }
+            guard isCurrentMagicOperation(
+                generation,
+                sessionGeneration: sessionGeneration
+            ) else { return true }
         }
-        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return true }
         guard canCompleteMagicLogin(pending) else { return true }
+        guard let ownedSessionGeneration = claimMagicLoginSessionOwnership(
+            pending,
+            expectedSessionGeneration: sessionGeneration
+        ) else { return true }
 
         magicLoginState = .exchanging
         do {
@@ -592,11 +608,15 @@ class AuthManager {
                 linkSecret: link.linkSecret,
                 requestSecret: pending.requestSecret
             )
-            guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return true }
+            guard isCurrentMagicOperation(
+                generation,
+                sessionGeneration: ownedSessionGeneration
+            ) else { return true }
             try await finishMagicLogin(
                 response,
                 pending: pending,
-                generation: generation
+                generation: generation,
+                sessionGeneration: ownedSessionGeneration
             )
         } catch {
             guard isCurrentMagicOperation(generation), !isAuthenticated else { return true }
@@ -659,15 +679,19 @@ class AuthManager {
             magicLoginState = .wrongDeviceOrPlatform
             return true
         }
-        if pending.purpose == .login {
+        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
+        if pending.purpose == .login, shouldAwaitInitialAuthRestoration() {
             guard await awaitInitialAuthRestoration() else {
                 if isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) {
                     magicLoginState = .serverError
                 }
-                return true
+                return false
             }
+            guard isCurrentMagicOperation(
+                generation,
+                sessionGeneration: sessionGeneration
+            ) else { return false }
         }
-        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
         guard canCompleteMagicLogin(pending) else { return true }
 
         do {
@@ -683,16 +707,24 @@ class AuthManager {
                 }
                 return false
             case .approved, .consumed:
+                guard let ownedSessionGeneration = claimMagicLoginSessionOwnership(
+                    pending,
+                    expectedSessionGeneration: sessionGeneration
+                ) else { return true }
                 magicLoginState = .exchanging
                 let completion = try await magicAPIClient.completeApprovedMagicLogin(
                     transactionId: pending.transactionId,
                     requestSecret: pending.requestSecret
                 )
-                guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
+                guard isCurrentMagicOperation(
+                    generation,
+                    sessionGeneration: ownedSessionGeneration
+                ) else { return false }
                 try await finishMagicLogin(
                     completion,
                     pending: pending,
-                    generation: generation
+                    generation: generation,
+                    sessionGeneration: ownedSessionGeneration
                 )
                 return true
             case .expired:
@@ -737,14 +769,18 @@ class AuthManager {
     private func finishMagicLogin(
         _ response: MagicLoginExchangeResponse,
         pending: PendingMagicLogin,
-        generation: UInt64
+        generation: UInt64,
+        sessionGeneration: UInt64
     ) async throws {
         if pending.purpose == .addEmail {
             guard response.contactVerified == true else {
                 throw AuthError.serverError("The email could not be verified.")
             }
-            try await fetchCurrentUser()
-            guard isCurrentMagicOperation(generation) else { throw CancellationError() }
+            try await fetchCurrentUser(sessionGeneration: sessionGeneration)
+            guard isCurrentMagicOperation(
+                generation,
+                sessionGeneration: sessionGeneration
+            ) else { throw CancellationError() }
             clearMagicLoginPresentation(transactionId: pending.transactionId)
             magicLoginState = .success
             return
@@ -761,12 +797,23 @@ class AuthManager {
             expiresIn: response.expiresIn ?? 15 * 60,
             isNewUser: response.isNewUser ?? false
         )
-        try saveTokens(authResponse)
+        guard isCurrentMagicOperation(
+            generation,
+            sessionGeneration: sessionGeneration
+        ) else { throw CancellationError() }
+        let committedSessionGeneration = try saveTokens(authResponse)
         setAuthProvider("email_magic")
         isCommittingMagicLoginSession = true
         defer { isCommittingMagicLoginSession = false }
-        try await fetchCurrentUser(expectedUserId: response.userId)
-        guard isCurrentMagicOperation(generation) else { throw CancellationError() }
+        try await fetchCurrentUser(
+            expectedUserId: response.userId,
+            sessionGeneration: committedSessionGeneration,
+            accessTokenOverride: accessToken
+        )
+        guard isCurrentMagicOperation(
+            generation,
+            sessionGeneration: committedSessionGeneration
+        ) else { throw CancellationError() }
         isAuthenticated = true
         clearMagicLoginPresentation(transactionId: pending.transactionId)
         magicLoginState = .success
@@ -792,17 +839,46 @@ class AuthManager {
         return true
     }
 
+    private func claimMagicLoginSessionOwnership(
+        _ pending: PendingMagicLogin,
+        expectedSessionGeneration: UInt64
+    ) -> UInt64? {
+        guard expectedSessionGeneration == authSessionGeneration else { return nil }
+        guard pending.purpose == .login else { return authSessionGeneration }
+        guard !isAuthenticated else {
+            magicLoginState = .superseded
+            return nil
+        }
+
+        // A requested magic login is now the sole candidate session. Invalidate
+        // stale launch-time provider validation before it can restore or clear
+        // the previous session underneath this transaction.
+        authSessionGeneration &+= 1
+        return authSessionGeneration
+    }
+
+    private func shouldAwaitInitialAuthRestoration() -> Bool {
+        guard !initialAuthRestorationCompleted else { return false }
+        guard UIApplication.shared.isProtectedDataAvailable else { return true }
+
+        // Any durable credential material means restoration still has work to do.
+        // A complete set may restore a valid account; a partial set must be
+        // cleared before a magic-login exchange consumes its one-time link.
+        return KeychainHelper.loadString(key: Self.accessTokenKey) != nil
+            || KeychainHelper.loadString(key: Self.refreshTokenKey) != nil
+            || KeychainHelper.loadString(key: Self.userIdKey) != nil
+    }
+
     private func awaitInitialAuthRestoration() async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(6))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(8))
         while !initialAuthRestorationCompleted {
             guard !Task.isCancelled, ContinuousClock.now < deadline else { return false }
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await Task.sleep(for: .milliseconds(25))
         }
         return true
     }
 
     private func finishInitialAuthRestoration() {
-        guard !initialAuthRestorationCompleted else { return }
         initialAuthRestorationCompleted = true
     }
 
@@ -921,6 +997,16 @@ class AuthManager {
                 self.performKeychainAuthLoad()
             }
         }
+
+        // Close the check/register race: protected data may become available
+        // after waitForProtectedData timed out but before the observer existed.
+        if UIApplication.shared.isProtectedDataAvailable {
+            if let observer = protectedDataObserver {
+                NotificationCenter.default.removeObserver(observer)
+                protectedDataObserver = nil
+            }
+            performKeychainAuthLoad()
+        }
     }
 
     /// Performs the actual Keychain read after protected data is available
@@ -962,9 +1048,15 @@ class AuthManager {
         // If this session is Apple-authenticated, validate credential FIRST (WWDC20 requirement)
         // getCredentialState is a LOCAL call (no network) - very fast
         if authProvider == "apple", let appleUserId = appleUserId {
+            let restorationSessionGeneration = authSessionGeneration
             Task {
                 let credentialValid = await validateAppleCredential(appleUserId: appleUserId)
                 await MainActor.run {
+                    guard restorationSessionGeneration == self.authSessionGeneration else {
+                        print("[Auth] Ignoring stale Apple credential restoration")
+                        self.finishInitialAuthRestoration()
+                        return
+                    }
                     if credentialValid {
                         print("[Auth] Apple credential valid - proceeding with token check")
                         self.completeAuthStateLoad(accessToken: accessToken, refreshToken: refreshToken, userId: userId)
@@ -1001,11 +1093,35 @@ class AuthManager {
             }
         } else if accessToken != nil || refreshToken != nil || userId != nil {
             // Partial auth state is invalid; clear stored credentials
-            print("[Auth] PARTIAL STATE DETECTED - calling logout()")
-            logout()
+            print("[Auth] PARTIAL STATE DETECTED - clearing incomplete restored session")
+            clearIncompleteRestoredAuthState()
         } else {
             print("[Auth] No tokens found")
         }
+    }
+
+    /// Clears an invalid cold-start credential fragment without cancelling a
+    /// pending magic-login transaction. There is no complete session to revoke,
+    /// and the transaction may be waiting for this cleanup to finish.
+    private func clearIncompleteRestoredAuthState() {
+        KeychainHelper.delete(key: Self.accessTokenKey)
+        KeychainHelper.delete(key: Self.refreshTokenKey)
+        KeychainHelper.delete(key: Self.tokenExpiryKey)
+        KeychainHelper.delete(key: Self.userIdKey)
+        KeychainHelper.delete(key: Self.deviceTokenKey)
+        KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
+        KeychainHelper.delete(key: Self.appleUserIdKey)
+        KeychainHelper.delete(key: Self.authProviderKey)
+        tokenLock.withLock {
+            cachedAccessToken = nil
+            cachedRefreshToken = nil
+            cachedTokenExpiryEpoch = nil
+            cachedUserId = nil
+        }
+        isAuthenticated = false
+        hasValidatedSession = false
+        needsProfileCompletion = false
+        currentUser = nil
     }
 
     /// Handle launch-time session validation failures without forcing logout on transient errors
@@ -1893,7 +2009,8 @@ class AuthManager {
     func fetchCurrentUser(
         retryCount: Int = 0,
         expectedUserId: String? = nil,
-        sessionGeneration: UInt64? = nil
+        sessionGeneration: UInt64? = nil,
+        accessTokenOverride: String? = nil
     ) async throws {
         let expectedSessionGeneration = sessionGeneration ?? authSessionGeneration
         // Prevent infinite recursion if server returns corrupted tokens
@@ -1902,8 +2019,15 @@ class AuthManager {
             throw AuthError.tokenExpired
         }
 
-        let token = try await getAccessToken()
-        guard let token else { throw AuthError.notAuthenticated }
+        let token: String
+        if let accessTokenOverride {
+            token = accessTokenOverride
+        } else {
+            guard let storedToken = try await getAccessToken() else {
+                throw AuthError.notAuthenticated
+            }
+            token = storedToken
+        }
 
         let url = URL(string: "\(baseURL)/auth/me")!
         var request = URLRequest(url: url)
@@ -1936,13 +2060,19 @@ class AuthManager {
             await LocalNotificationService.shared.ensureAuthorizedForAuthenticatedUser()
             print("[Auth] fetchCurrentUser success: user=\(user.id)")
         } else if httpResponse.statusCode == 401 {
+            // A just-issued magic-login token must validate as issued. Do not
+            // enter the normal refresh path before the new session is public.
+            guard accessTokenOverride == nil else {
+                throw AuthError.notAuthenticated
+            }
             // Token expired, try refresh
             print("[Auth] fetchCurrentUser got 401 (attempt \(retryCount + 1)/2), attempting refresh")
             try await refreshTokens()
             try await fetchCurrentUser(
                 retryCount: retryCount + 1,
                 expectedUserId: expectedUserId,
-                sessionGeneration: expectedSessionGeneration
+                sessionGeneration: expectedSessionGeneration,
+                accessTokenOverride: nil
             )
         } else {
             print("[Auth] fetchCurrentUser unexpected status: \(httpResponse.statusCode)")
@@ -2014,7 +2144,8 @@ class AuthManager {
     // MARK: - Private Helpers
 
     /// Saves tokens atomically using tokenLock to prevent race conditions
-    private func saveTokens(_ response: AuthResponse) throws {
+    @discardableResult
+    private func saveTokens(_ response: AuthResponse) throws -> UInt64 {
         try tokenLock.withLock {
             // Write all auth values with rollback to avoid partial-keychain state.
             let expiry = Date.now.addingTimeInterval(TimeInterval(response.expiresIn))
@@ -2045,6 +2176,7 @@ class AuthManager {
         needsProfileCompletion = false
 
         print("[Auth] All tokens saved successfully")
+        return authSessionGeneration
     }
 
     /// Saves refreshed tokens atomically using tokenLock
