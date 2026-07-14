@@ -11,11 +11,22 @@
 <link rel="stylesheet" href="base.css" />
 </head>
 <body>
+  <!-- The funnel is a page of porizo.co: same site nav (implementation reuses
+       public/styles/main.css .nav--static verbatim). On /create the nav CTA is
+       "Sign in" — never "Get the app" mid-purchase. -->
+  <nav class="site-nav">
+    <div class="site-nav__inner">
+      <a href="/" class="site-nav__logo">Porizo</a>
+      <div class="site-nav__links">
+        <a href="/#how">How it works</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/blog">Blog</a>
+      </div>
+      <a href="#" class="site-nav__signin">Sign in</a>
+    </div>
+  </nav>
+
   <div class="shell">
-    <header class="shell-top">
-      <a class="brand" href="/">Porizo</a>
-      <span></span>
-    </header>
 
     <!-- THE FLOW MODEL: answered steps collapse to summary rows; the live
          question sits in the same focus zone. The user stays; the page grows. -->
@@ -41,7 +52,7 @@
 
       <section class="step-live">
         <h1 class="q">Tell us one real memory.</h1>
-        <p class="hint">The small detail only you two know — that's the line that makes her cry.</p>
+        <p class="hint">You don't need to be creative. Start with one real memory.</p>
         <textarea class="field" placeholder="The road trip where the car broke down outside Broome, and she turned it into the best night of the year…"></textarea>
         <div class="field-row">
           <span class="hint" style="margin:0">Plain words beat perfect words.</span>

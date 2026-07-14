@@ -74,12 +74,40 @@
   --pad-x: 20px; /* mobile horizontal padding */
   --cta-h: 56px; /* primary CTA + chips-row height */
   --tap-min: 44px;
+  --sr-size: 1px;
+  --summary-h: 52px;
+  --line-w: 1px;
+  --icon-sm: 18px;
+  --icon-md: 22px;
+  --lyric-size: 1.375rem;
+  --lyric-lh: 1.45;
+  --lyrics-editor-h: 320px;
+  --karaoke-h: 260px;
+  --success-mark-size: 3rem;
+  --orbit-size: 48px;
+  --orbit-line: 3px;
 
   /* ---- Motion (all with prefers-reduced-motion fallbacks) */
   --ease-reveal: cubic-bezier(0.16, 1, 0.3, 1); /* ease-out-expo family */
   --t-step: 280ms; /* step advance */
   --t-reveal: 700ms; /* content reveals */
   --t-dim: 900ms; /* the lights-dim transition */
+  --t-chip-delay: 250ms;
+  --t-lyric-stagger: 900ms;
+  --t-placeholder: 8s;
+  --t-stage: 12s;
+  --t-theater-hold: 150s;
+  --t-manual-scroll: 4s;
+  --t-copy-feedback: 2s;
+  --t-checkout-timeout: 5s;
+  --t-poll: 2s;
+  --t-order-poll: 3s;
+  --t-order-elapsed: 1s;
+  --t-pulse: 600ms;
+  --t-orbit: 900ms;
+  --shadow-pulse: 0 0 0 8px rgba(224, 120, 80, 0.2);
+  --dim-cta-fade: linear-gradient(rgba(20, 16, 12, 0), var(--ink-deep) 40%);
+  --modal-scrim: rgba(20, 16, 12, 0.48);
 
   /* ---- Z scale (semantic, never arbitrary) */
   --z-sticky: 10;

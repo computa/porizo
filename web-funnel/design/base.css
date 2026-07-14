@@ -564,3 +564,72 @@ textarea.field {
     transition: none;
   }
 }
+
+/* ---------- Site integration (the funnel is a PAGE OF porizo.co) ----------
+   Implementation reuses public/styles/main.css .nav--static header verbatim;
+   these mockup-local styles approximate it for design verification only. */
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: rgba(251, 247, 242, 0.92);
+  backdrop-filter: blur(14px) saturate(1.25);
+  box-shadow: 0 1px 0 var(--hairline);
+}
+.site-nav__inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--sp-3) var(--pad-x);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+}
+.site-nav__logo {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  color: var(--ink);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.site-nav__logo::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--coral-500);
+}
+.site-nav__links {
+  display: none;
+  gap: var(--sp-4);
+}
+.site-nav__links a {
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: var(--fs-small);
+}
+.site-nav__links a:hover {
+  color: var(--coral-700);
+}
+.site-nav__signin {
+  color: var(--coral-700);
+  font-weight: 500;
+  font-size: var(--fs-small);
+  text-decoration: none;
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+}
+@media (min-width: 720px) {
+  .site-nav__links {
+    display: flex;
+  }
+}
+/* Centering is a hard contract: the funnel column sits centered in the
+   viewport at every width. Guard against ancestor flex/width leaks. */
+.shell {
+  width: 100%;
+  margin-inline: auto;
+}

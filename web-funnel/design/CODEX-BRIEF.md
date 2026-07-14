@@ -19,6 +19,8 @@ You are implementing the **frontend** of the Porizo web funnel (units U8–U11 o
 6. **Price is never hardcoded** — offer screen renders `GET /web/products`. (Grep-able invariant: `19.99` must not appear in the SPA source.)
 7. **No new dependencies** beyond the U8 stack (Vite + React + TS) without asking. No UI libraries — base.css already is the component library.
 8. Standing brand bans: no voice-clone copy, no fake urgency/countdown, no "AI magic"/sparkle/robot iconography, no strikethrough pricing.
+9. **The funnel is a page of porizo.co** (spec §1): render under the site's `.nav--static` header (reuse `public/styles/main.css` classes — logo · How it works · Pricing · Blog) with the nav CTA swapped to a quiet "Sign in"; landing occasion pills and hero CTAs enter `/create` with `?occasion=` prefill; footer only on the entry state; dim pages reduce to brand mark. A funnel that looks like a standalone micro-app fails review.
+10. **The column is CENTERED at every viewport width** (`.shell` centering guard in base.css). Verify against `flow-stacked.html` rendered at 1440×900 before opening the PR — a left-anchored column is a review-failing bug (caught once already, 2026-07-15).
 
 ## Build order & acceptance (mirrors implementation-plan units)
 
