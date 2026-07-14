@@ -14,6 +14,19 @@
 - Never claim checks passed unless they were actually run.
 - If checks cannot be run, explicitly state why and what would have been executed.
 
+## Execution And Release Efficiency
+
+- Use the repo-local `porizo-execution-loop` skill for substantial implementation, refactoring, production, or release work.
+- Start with `npm run agent:preflight -- --scope <path>` for each intended ownership path. Use `--strict` before commit or release; it warns about unrelated dirty files and fails if any out-of-scope path is staged.
+- Work in bounded slices: 15-45 minutes for a small change, 45-90 minutes for a medium change, and 90-150 minutes for high-risk auth, billing, data, or release work. Split work that cannot produce a proof point inside one slice.
+- Wrap commands expected to run longer than two minutes with `npm run agent:watch -- --estimate-minutes <n> -- <command>`. The default watchdog reports every minute, warns after five silent minutes, and terminates at twice the estimate unless an explicit hard limit is supplied.
+- Use no more than three parallel agents. Assign disjoint files or read-only review lenses, require an initial result within 10 minutes, terminate at 20 minutes, and close each agent as soon as its output is integrated.
+- Apply the validation ladder in `docs/agent-execution-policy.md`. Client-only iOS work does not require the Node backend suite; backend contract or migration work does. A full gate that already passed is rerun only when later edits can affect it.
+- Run one consolidated adversarial review after integration. Do not stack repeated full reviews after every micro-fix; add a focused regression test for each accepted finding and run one final high-risk review.
+- Do not create a TestFlight or production candidate until focused tests, the affected suite, static review, and the stable-Xcode Release build are green. Prefer one integrated release candidate over serial uploads.
+- Keep authentication, Android, marketing, and architecture initiatives in separate branches/worktrees. Never stage the whole dirty tree; stage explicit paths and verify `git diff --cached --check`.
+- During work lasting more than 10 minutes, report phase, percentage, elapsed/expected time, current command or agent, and timeout action. Update the task plan at each completed proof point.
+
 ## SCM
 
 - Never use `git reset --hard` or force-push without explicit permission.
@@ -115,8 +128,7 @@
 
 ## Commit & Pull Request Guidelines
 
-- This directory is not currently a git repository, so there is no commit history to infer conventions.
-- If you initialize git, use clear, present-tense summaries (example: "Clarify enrollment workflow steps") and reference relevant spec sections in the body.
+- Use clear, present-tense summaries (example: "Clarify enrollment workflow steps") and reference relevant spec sections in the body.
 - PRs should include: a concise summary, a list of spec sections touched, and any new local commands. Add screenshots only if UI assets are introduced.
 
 ## Agent-Specific Instructions
