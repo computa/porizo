@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Porizo — Tell us one real memory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="base.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="shell-top">
+      <button class="back" aria-label="Back">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <nav class="dots" aria-label="Progress">
+        <i class="done"></i><i class="done"></i><i class="done"></i><i class="on"></i><i></i>
+      </nav>
+      <span style="width:44px"></span>
+    </header>
+
+    <main class="step">
+      <h1 class="q">Tell us one real memory.</h1>
+      <p class="hint">You don't need to be creative. Start with one real memory — the small detail only you two know.</p>
+      <label for="memory" style="position:absolute;left:-9999px">Your memory</label>
+      <textarea id="memory" class="field" placeholder="The road trip where the car broke down outside Broome, and she turned it into the best night of the year…"></textarea>
+      <div class="field-row">
+        <span class="hint" style="margin:0">Plain words beat perfect words.</span>
+        <span class="count">0 / 2000</span>
+      </div>
+
+      <div style="margin-top: var(--sp-4)">
+        <label for="phrase" style="display:block; font-size: var(--fs-small); color: var(--ink-3); margin-bottom: var(--sp-2)">Something she always says? (optional)</label>
+        <input id="phrase" class="field" type="text" placeholder='e.g. "we move!"' />
+      </div>
+    </main>
+
+    <div class="cta-bar">
+      <button class="btn-primary">Next</button>
+    </div>
+  </div>
+</body>
+</html>

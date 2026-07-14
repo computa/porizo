@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Someone made you a song — Porizo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500,1,9..144,400&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="base.css" />
+</head>
+<body class="dim dim-page">
+  <div class="shell" style="position:relative">
+    <header class="shell-top" style="justify-content:center">
+      <a class="brand" href="/">Porizo</a>
+    </header>
+
+    <!-- R0: the gift-open. Lyrics are hidden until play — no spoilers. -->
+    <main class="step" style="text-align:center; justify-content:center">
+      <p class="muted" style="font-size: var(--fs-small); margin-bottom: var(--sp-3)">For Sarah</p>
+      <h1 style="font-size: var(--fs-display); margin-bottom: var(--sp-3)">Someone made you<br />a song.</h1>
+      <p class="muted" style="margin-bottom: var(--sp-6)">
+        From <span style="font-family: var(--font-display); font-style: italic; color: var(--dim-text)">Daniel</span> · With Love ❤️
+      </p>
+
+      <button class="play-btn" aria-label="Play your song">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+      </button>
+      <p class="muted" style="margin-top: var(--sp-3); font-size: var(--fs-small)">Press play. Sound on.</p>
+    </main>
+  </div>
+
+  <!-- R2 (separate state, shown after >=1 full listen; stacked here for the mockup) -->
+  <div class="shell" style="position:relative; min-height:auto; padding-bottom: var(--sp-6)">
+    <div class="card" style="background: rgba(246, 237, 228, 0.06); box-shadow:none; border: 1px solid rgba(246,237,228,0.14)">
+      <h2 style="font-size: 1.375rem; color: var(--dim-text); margin-bottom: var(--sp-2)">Keep this song forever</h2>
+      <p class="muted" style="margin-bottom: var(--sp-3); font-size: var(--fs-small)">
+        It's yours. Save it in the Porizo app — and if you ever want to answer back, your first song starts from a memory too.
+      </p>
+      <button class="btn-primary" style="width:100%">Save it in the app</button>
+      <p class="muted" style="text-align:center; margin-top: var(--sp-3); font-size: var(--fs-micro)">
+        No rush — this link plays forever.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

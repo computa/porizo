@@ -1,0 +1,566 @@
+/* ================================================================
+   Porizo web funnel — base + components. Consumes tokens.css ONLY.
+   Mobile-first at 360px; --col column centers on wider viewports.
+   ================================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  color-scheme: light;
+}
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  background: var(--bg);
+  color: var(--ink-2);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--ink);
+  line-height: var(--lh-display);
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-wrap: balance;
+}
+p {
+  margin: 0;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ---------- Funnel shell ---------- */
+.shell {
+  max-width: var(--col);
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--pad-x);
+}
+.shell-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) 0;
+  min-height: 56px;
+}
+.brand {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+.back {
+  width: var(--tap-min);
+  height: var(--tap-min);
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-2);
+}
+.back:hover {
+  background: var(--bg-2);
+}
+
+/* Progress: warm dots, never numbered like a form */
+.dots {
+  display: flex;
+  gap: var(--sp-2);
+}
+.dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hairline-strong);
+}
+.dots i.on {
+  background: var(--coral-500);
+}
+.dots i.done {
+  background: var(--coral-300);
+}
+
+.step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--sp-4) 0 calc(var(--cta-h) + var(--sp-6));
+}
+.step .q {
+  font-size: var(--fs-question);
+  margin-bottom: var(--sp-2);
+}
+.step .hint {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  margin-bottom: var(--sp-4);
+}
+
+/* ---------- Primary CTA (bottom-fixed on mobile = thumb zone) ---------- */
+.cta-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--sp-3) var(--pad-x)
+    max(var(--sp-3), env(safe-area-inset-bottom));
+  background: linear-gradient(rgba(251, 247, 242, 0), var(--bg) 40%);
+  display: flex;
+  justify-content: center;
+  z-index: var(--z-sticky);
+}
+.cta-bar .btn-primary {
+  width: min(100%, calc(var(--col) - 2 * var(--pad-x)));
+}
+.btn-primary {
+  height: var(--cta-h);
+  border: 0;
+  border-radius: var(--r-cta);
+  background: var(--coral-500);
+  color: #fff;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  box-shadow: var(--shadow-card);
+  transition: background 120ms ease;
+}
+.btn-primary:hover {
+  background: var(--coral-600);
+}
+.btn-primary:active {
+  background: var(--coral-700);
+}
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-quiet {
+  background: none;
+  border: 0;
+  color: var(--coral-700);
+  font-weight: 500;
+  min-height: var(--tap-min);
+  border-radius: var(--r-cta);
+  padding: 0 var(--sp-3);
+}
+.btn-quiet:hover {
+  background: var(--coral-50);
+}
+
+/* ---------- Chips ---------- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-2);
+}
+.chip {
+  min-height: 48px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-chip);
+  border: 1.5px solid var(--hairline-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+.chip:hover {
+  border-color: var(--coral-300);
+}
+.chip[aria-pressed="true"] {
+  border-color: var(--coral-500);
+  background: var(--coral-50);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ---------- Fields ---------- */
+.field {
+  width: 100%;
+  border: 1.5px solid var(--hairline-strong);
+  border-radius: var(--r-field);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  padding: 14px var(--sp-3);
+  transition: border-color 120ms ease;
+}
+.field::placeholder {
+  color: var(--ink-3);
+}
+.field:focus {
+  border-color: var(--coral-500);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.field.big {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  padding: var(--sp-3);
+}
+textarea.field {
+  min-height: 168px;
+  resize: vertical;
+  line-height: var(--lh-body);
+}
+.field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: var(--sp-2);
+}
+.count {
+  color: var(--ink-3);
+  font-size: var(--fs-micro);
+}
+.error-text {
+  color: #b3261e;
+  font-size: var(--fs-small);
+  margin-top: var(--sp-2);
+}
+.field[aria-invalid="true"] {
+  border-color: #b3261e;
+}
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--sp-4);
+}
+
+/* ---------- Theater (generation wait) ---------- */
+.theater {
+  text-align: center;
+}
+.stage-label {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  min-height: 1.5em;
+}
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--coral-100);
+  overflow: hidden;
+  margin: var(--sp-3) 0 var(--sp-5);
+}
+.progress > i {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 2px;
+  background: var(--coral-500);
+  animation: prog 2.4s var(--ease-reveal) infinite;
+}
+@keyframes prog {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+.lyric-feed {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.lyric-feed .line {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  color: var(--ink);
+  opacity: 0;
+  transform: translateY(10px);
+  animation: rise var(--t-reveal) var(--ease-reveal) forwards;
+}
+.lyric-feed .line:nth-child(2) {
+  animation-delay: 0.9s;
+}
+.lyric-feed .line:nth-child(3) {
+  animation-delay: 1.8s;
+}
+.lyric-feed .line:nth-child(4) {
+  animation-delay: 2.7s;
+}
+@keyframes rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- The dim scene (playback) ---------- */
+.dim {
+  background: var(--ink-deep);
+  color: var(--dim-text);
+  position: relative;
+  min-height: 100dvh;
+}
+.dim::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--lamplight);
+  pointer-events: none;
+}
+.dim .shell-top .brand,
+.dim .back {
+  color: var(--dim-text);
+}
+.dim h1,
+.dim h2 {
+  color: var(--dim-text);
+}
+.dim .muted {
+  color: var(--dim-text-2);
+}
+.play-btn {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--coral-500);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  box-shadow: 0 0 48px rgba(224, 120, 80, 0.35);
+  transition: transform 160ms var(--ease-reveal);
+}
+.play-btn:hover {
+  transform: scale(1.04);
+}
+.play-btn svg {
+  width: 36px;
+  height: 36px;
+  margin-left: 4px;
+}
+.lyrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  line-height: 1.45;
+}
+.lyrics .past {
+  color: var(--dim-text-2);
+}
+.lyrics .now {
+  color: var(--karaoke);
+}
+.lyrics .next {
+  color: var(--dim-text-2);
+  opacity: 0.55;
+}
+.scrub {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(246, 237, 228, 0.18);
+}
+.scrub > i {
+  display: block;
+  height: 100%;
+  width: 38%;
+  border-radius: 2px;
+  background: var(--karaoke);
+}
+.timecode {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-micro);
+  color: var(--dim-text-2);
+  margin-top: var(--sp-2);
+}
+
+/* ---------- Offer ---------- */
+.price-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.price {
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  color: var(--ink);
+}
+.price-was {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+.bundle {
+  list-style: none;
+  margin: var(--sp-4) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.bundle li {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+}
+.bundle svg {
+  flex: 0 0 22px;
+  height: 22px;
+  color: var(--sage-deep);
+  margin-top: 2px;
+}
+.guarantee {
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.paymarks {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  color: var(--ink-3);
+  font-size: var(--fs-micro);
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .lyric-feed .line {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .progress > i {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- Desktop (the funnel stays a column; the room gets warmer) ---------- */
+@media (min-width: 720px) {
+  body:not(.dim-page) {
+    background:
+      radial-gradient(
+        ellipse 900px 600px at 80% -10%,
+        rgba(224, 120, 80, 0.07),
+        transparent 70%
+      ),
+      var(--bg);
+  }
+  .cta-bar {
+    position: static;
+    padding: var(--sp-4) 0;
+    background: none;
+    justify-content: flex-start;
+  }
+  .step {
+    padding-bottom: var(--sp-4);
+  }
+}
+
+/* ---------- Stacked collapsing flow (the funnel container model) ----------
+   Answered steps collapse to summary rows; the live question stays in a
+   stable focus zone. The page grows; the user never jumps. */
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+.step-done {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 52px;
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--hairline);
+  background: none;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  width: 100%;
+  text-align: left;
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.step-done .k {
+  flex: 0 0 auto;
+}
+.step-done .v {
+  color: var(--ink);
+  font-weight: 500;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.step-done svg {
+  flex: 0 0 18px;
+  height: 18px;
+  color: var(--ink-3);
+}
+.step-done:hover .v {
+  color: var(--coral-700);
+}
+.step-live {
+  padding: var(--sp-5) 0 var(--sp-4);
+  animation: settle var(--t-step) var(--ease-reveal);
+}
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* collapse: live step's content wrapper animates 1fr -> 0fr (280ms), then
+   the summary row fades in — total perceived motion ≤ 12px. */
+.collapse-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--t-step) var(--ease-reveal);
+}
+.collapse-wrap.closed {
+  grid-template-rows: 0fr;
+}
+.collapse-wrap > div {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-live {
+    animation: none;
+  }
+  .collapse-wrap {
+    transition: none;
+  }
+}

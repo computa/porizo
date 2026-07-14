@@ -1,0 +1,89 @@
+/* ================================================================
+   Porizo — Warm Canvas v3 · Storefront register
+   Extends Warm Canvas v2 (public/styles/main.css). This file is the
+   SINGLE token contract for the web funnel. Components consume only
+   these variables — no raw colors/sizes in component CSS.
+   ================================================================ */
+
+:root {
+  /* ---- Palette: base (inherited from v2, restated for standalone use) */
+  --bg: #fbf7f2; /* warm paper — quiet surfaces between moments */
+  --bg-2: #f5efe6;
+  --surface: #ffffff;
+  --ink: #1a1410; /* primary text — 15.9:1 on --bg */
+  --ink-2: #3a302a; /* body text — 10.6:1 on --bg */
+  --ink-3: #6b6560; /* secondary — 5.4:1 on --bg (AA) */
+
+  /* ---- Palette: coral ramp (v3 — Committed strategy at moments) */
+  --coral-50: #fdf1eb;
+  --coral-100: #f9dfd2;
+  --coral-300: #eda07c;
+  --coral-500: #e07850; /* brand anchor = v2 --gold. CTAs, fills. */
+  --coral-600: #c4602f;
+  --coral-700: #a34e26; /* text-safe on --bg: 4.9:1 */
+  --sage: #7b8f6b;
+  --sage-deep: #5c6f4d; /* AA on --bg for small accents */
+
+  /* ---- Palette: the dim scene (playback moments) */
+  --ink-deep: #14100c; /* dim-scene ground */
+  --dim-text: #f6ede4; /* 15.2:1 on --ink-deep */
+  --dim-text-2: #b9aa9c; /* 6.5:1 on --ink-deep */
+  --karaoke: #e8926e; /* active lyric sweep — 6.1:1 on --ink-deep */
+  --lamplight: radial-gradient(
+    ellipse 720px 560px at 50% 28%,
+    rgba(224, 120, 80, 0.16),
+    rgba(20, 16, 12, 0) 70%
+  );
+
+  /* ---- Lines, focus, shadow */
+  --hairline: rgba(26, 20, 16, 0.1);
+  --hairline-strong: rgba(26, 20, 16, 0.16);
+  --focus-ring: 0 0 0 3px rgba(224, 120, 80, 0.45);
+  --shadow-card: 0 1px 3px rgba(26, 20, 16, 0.08);
+  --shadow-float: 0 8px 24px -8px rgba(26, 20, 16, 0.18);
+
+  /* ---- Type. Display: Fraunces (opsz 9..144, wght 400/500).
+          UI/body: DM Sans (400/500). Loaded via Google Fonts. */
+  --font-display: "Fraunces", georgia, serif;
+  --font-body: "DM Sans", -apple-system, system-ui, sans-serif;
+  --fs-question: clamp(1.65rem, 5.5vw, 2.25rem); /* step questions */
+  --fs-display: clamp(2rem, 7vw, 3rem); /* reveal/landing moments */
+  --fs-body: 1.0625rem; /* 17px */
+  --fs-small: 0.9375rem; /* 15px */
+  --fs-micro: 0.8125rem; /* 13px — captions only, never body */
+  --lh-body: 1.6;
+  --lh-display: 1.15;
+
+  /* ---- Space (8px grid; 4 allowed for icon gaps) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 16px;
+  --sp-4: 24px;
+  --sp-5: 32px;
+  --sp-6: 48px;
+  --sp-7: 64px;
+
+  /* ---- Radii */
+  --r-chip: 999px;
+  --r-field: 16px;
+  --r-card: 20px;
+  --r-cta: 16px;
+
+  /* ---- Layout */
+  --col: 480px; /* funnel content column */
+  --pad-x: 20px; /* mobile horizontal padding */
+  --cta-h: 56px; /* primary CTA + chips-row height */
+  --tap-min: 44px;
+
+  /* ---- Motion (all with prefers-reduced-motion fallbacks) */
+  --ease-reveal: cubic-bezier(0.16, 1, 0.3, 1); /* ease-out-expo family */
+  --t-step: 280ms; /* step advance */
+  --t-reveal: 700ms; /* content reveals */
+  --t-dim: 900ms; /* the lights-dim transition */
+
+  /* ---- Z scale (semantic, never arbitrary) */
+  --z-sticky: 10;
+  --z-dim: 20;
+  --z-modal: 30;
+  --z-toast: 40;
+}

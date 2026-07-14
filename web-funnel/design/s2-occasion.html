@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Porizo — What's the moment?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="base.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="shell-top">
+      <button class="back" aria-label="Back">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <nav class="dots" aria-label="Progress">
+        <i class="done"></i><i class="done"></i><i class="on"></i><i></i><i></i>
+      </nav>
+      <span style="width:44px"></span>
+    </header>
+
+    <main class="step">
+      <h1 class="q">What's the moment?</h1>
+      <p class="hint">It doesn't need a date. "I Love You" songs get the biggest tears.</p>
+      <div class="chips" role="group" aria-label="Occasion">
+        <button class="chip" aria-pressed="true">❤️ I Love You</button>
+        <button class="chip" aria-pressed="false">🎉 Celebration</button>
+        <button class="chip" aria-pressed="false">🎂 Birthday</button>
+        <button class="chip" aria-pressed="false">🙏 Thank You</button>
+        <button class="chip" aria-pressed="false">💪 Encouragement</button>
+        <button class="chip" aria-pressed="false">💑 Anniversary</button>
+        <button class="chip" aria-pressed="false">💐 Mother's Day</button>
+        <button class="chip" aria-pressed="false">💒 Wedding</button>
+        <button class="chip" aria-pressed="false">🎓 Graduation</button>
+        <button class="chip" aria-pressed="false">👫 Friendship</button>
+        <button class="chip" aria-pressed="false">💊 Get Well</button>
+        <button class="chip" aria-pressed="false">✨ Custom</button>
+      </div>
+
+      <div style="margin-top: var(--sp-5)">
+        <label for="when" style="display:block; font-size: var(--fs-small); color: var(--ink-3); margin-bottom: var(--sp-2)">Is there a date? (optional)</label>
+        <input id="when" class="field" type="text" placeholder="e.g. July 26" style="max-width: 220px" />
+        <p class="hint" style="margin-top: var(--sp-2); margin-bottom: 0">Your song is ready in minutes — the date just helps us remind you to send it.</p>
+      </div>
+    </main>
+
+    <div class="cta-bar">
+      <button class="btn-primary">Next</button>
+    </div>
+  </div>
+</body>
+</html>
