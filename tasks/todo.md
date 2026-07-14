@@ -1,3 +1,23 @@
+# Intro video for Twitter / Facebook / TikTok (2026-07-14)
+
+## Round 2 — Hook-25 (user rejected V2 as "same as what I had")
+
+- [x] New `src/videos/Hook25.tsx`: 25s kinetic-type explainer (cold-open hook → gift roast → SONG turn → phone demo chips→progress→player → karaoke+reactions → value slam → end card), orientation-aware layout, lofi-beat continuous bed
+- [x] Registered `Hook-25` + `Hook-25-Landscape`; rendered + frame-verified both orientations (fixed phone scale 2.1x/1.15x, chat scale, caption sizes after first render review)
+- [x] Delivered: `out/tiktok/porizo-hook-25s.mp4`, `out/facebook/porizo-hook-25s-reel.mp4`, `out/twitter/porizo-hook-25s.mp4` (all 25.0s)
+- Lesson logged in tasks/lessons.md (creative ask ⇒ structural novelty, not copy swap)
+
+**Goal:** Ship a Porizo intro video for the three social platforms using the existing Remotion pipeline (`marketing/remotion/`).
+
+**Constraint (memory):** NO voice-clone positioning. Existing `IntroVideo.tsx` is built on "your voice" claims → must not ship. Rewrite copy to real wedge: real song from their story, in minutes.
+
+- [x] Create `src/videos/IntroVideoV2.tsx` — same proven 1200-frame (40s) timeline/components as IntroVideo, honest copy throughout, EndCard tagline overridden ("Song Gift Maker")
+- [x] Register `Intro-Video-V2` (1080x1920) + `Intro-Video-V2-Landscape` (1920x1080) in Root.tsx (old Intro-Video marked deprecated — do not publish)
+- [x] Render: `out/tiktok/porizo-intro-v2.mp4` + `out/facebook/porizo-intro-v2-reel.mp4` (vertical, 9.2MB), `out/twitter/porizo-intro-v2.mp4` (landscape)
+- [x] Verify: ffprobe — all three 40.0s, correct dimensions, AAC audio; frames extracted at 8 copy moments confirm honest copy renders in both orientations
+
+---
+
 # Magic-link legacy-account recovery (2026-07-13) — SERVER FIX DONE 2026-07-14
 
 **Bug:** Owner of an Apple+phone account requests a magic link for the same (unverified) email → server throws `LEGACY_ACCOUNT_RECOVERY_REQUIRED` (409) → iOS flashes Sign-in-with-Apple and strands the user. Verified in prod logs (txn `a6005367…`) + DB (`user_2bc191587da2551881aab8ba`: apple+phone providers, email contact `verified_at=NULL`).

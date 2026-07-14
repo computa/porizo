@@ -1,33 +1,71 @@
-import React from 'react';
-import {registerRoot, Composition} from 'remotion';
-import {Video1RememberWhen} from './videos/Video1RememberWhen';
-import {Video2SayItDifferent} from './videos/Video2SayItDifferent';
-import {Video3ThatSummer} from './videos/Video3ThatSummer';
-import {IntroVideo} from './videos/IntroVideo';
-import {Video1RememberWhenV2} from './videos/Video1RememberWhenV2';
-import {Video2SayItDifferentV2} from './videos/Video2SayItDifferentV2';
-import {Video3ThatSummerV2} from './videos/Video3ThatSummerV2';
-import {Video1RememberWhenV3} from './videos/Video1RememberWhenV3';
-import {Video2SayItDifferentV3} from './videos/Video2SayItDifferentV3';
-import {Video3ThatSummerV3} from './videos/Video3ThatSummerV3';
-import {AdCounselingYoung} from './videos/AdCounselingYoung';
-import {AdCounselingEstablished} from './videos/AdCounselingEstablished';
-import {AdDriveHome} from './videos/AdDriveHome';
-import {AdDriveHomeV2} from './videos/AdDriveHomeV2';
-import {AdDriveHomeV3} from './videos/AdDriveHomeV3';
-import {AdDriveHomeV4} from './videos/AdDriveHomeV4';
-import {AdDriveHomeV5} from './videos/AdDriveHomeV5';
-import {ProductDemo} from './videos/ProductDemo';
-import {ProductDemoProof} from './videos/ProductDemoProof';
-import {CompleteWalkthrough} from './videos/CompleteWalkthrough';
-import {CompleteWalkthroughSlideshow} from './videos/CompleteWalkthroughSlideshow';
-import {AdFathersDayProduct} from './videos/AdFathersDayProduct';
-import {dimensions, FPS} from './tokens';
+import React from "react";
+import { registerRoot, Composition } from "remotion";
+import { Video1RememberWhen } from "./videos/Video1RememberWhen";
+import { Video2SayItDifferent } from "./videos/Video2SayItDifferent";
+import { Video3ThatSummer } from "./videos/Video3ThatSummer";
+import { IntroVideo } from "./videos/IntroVideo";
+import { IntroVideoV2 } from "./videos/IntroVideoV2";
+import { Hook25 } from "./videos/Hook25";
+import { Video1RememberWhenV2 } from "./videos/Video1RememberWhenV2";
+import { Video2SayItDifferentV2 } from "./videos/Video2SayItDifferentV2";
+import { Video3ThatSummerV2 } from "./videos/Video3ThatSummerV2";
+import { Video1RememberWhenV3 } from "./videos/Video1RememberWhenV3";
+import { Video2SayItDifferentV3 } from "./videos/Video2SayItDifferentV3";
+import { Video3ThatSummerV3 } from "./videos/Video3ThatSummerV3";
+import { AdCounselingYoung } from "./videos/AdCounselingYoung";
+import { AdCounselingEstablished } from "./videos/AdCounselingEstablished";
+import { AdDriveHome } from "./videos/AdDriveHome";
+import { AdDriveHomeV2 } from "./videos/AdDriveHomeV2";
+import { AdDriveHomeV3 } from "./videos/AdDriveHomeV3";
+import { AdDriveHomeV4 } from "./videos/AdDriveHomeV4";
+import { AdDriveHomeV5 } from "./videos/AdDriveHomeV5";
+import { ProductDemo } from "./videos/ProductDemo";
+import { ProductDemoProof } from "./videos/ProductDemoProof";
+import { CompleteWalkthrough } from "./videos/CompleteWalkthrough";
+import { CompleteWalkthroughSlideshow } from "./videos/CompleteWalkthroughSlideshow";
+import { AdFathersDayProduct } from "./videos/AdFathersDayProduct";
+import { dimensions, FPS } from "./tokens";
 
 const RemotionRoot: React.FC = () => {
   return (
     <>
-      {/* ═══ INTRO: App Introduction Video ═══ */}
+      {/* ═══ HOOK 25: 25s attention-first explainer — kinetic type, gift roast, demo, payoff ═══ */}
+      <Composition
+        id="Hook-25"
+        component={Hook25}
+        durationInFrames={25 * FPS}
+        fps={FPS}
+        width={dimensions.vertical.width}
+        height={dimensions.vertical.height}
+      />
+      <Composition
+        id="Hook-25-Landscape"
+        component={Hook25}
+        durationInFrames={25 * FPS}
+        fps={FPS}
+        width={dimensions.landscape.width}
+        height={dimensions.landscape.height}
+      />
+
+      {/* ═══ INTRO V2: honest positioning — story→song in minutes, no voice-clone claims ═══ */}
+      <Composition
+        id="Intro-Video-V2"
+        component={IntroVideoV2}
+        durationInFrames={40 * FPS}
+        fps={FPS}
+        width={dimensions.vertical.width}
+        height={dimensions.vertical.height}
+      />
+      <Composition
+        id="Intro-Video-V2-Landscape"
+        component={IntroVideoV2}
+        durationInFrames={40 * FPS}
+        fps={FPS}
+        width={dimensions.landscape.width}
+        height={dimensions.landscape.height}
+      />
+
+      {/* ═══ INTRO: App Introduction Video (deprecated — voice-clone copy, do not publish) ═══ */}
       <Composition
         id="Intro-Video"
         component={IntroVideo}

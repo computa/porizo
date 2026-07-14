@@ -560,3 +560,8 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Rule:** When a native `.kt` bridge callback must reach Swift-only state (stores, inboxes, view callbacks), do NOT try to call a Swift type from the `#if SKIP` Kotlin func. Instead forward to a **bridged Swift method** — a func marked `/* SKIP @bridge */public func …` on a bridged object (e.g. the AppDelegate). That method runs as real Swift and can touch any Swift symbol. This is exactly how `onOpenURL` already crosses the boundary; `onNotificationTap` follows the same shape. Pattern: Kotlin listener → `AppDelegate.shared.onXxx(payload)` (bridged) → Swift store + `AndroidDeepLinkInbox.onLink?()`.
 
 **Corollary:** cross-boundary delivery (native→view) should reuse the proven UserDefaults-store + onLink-callback path (see lessons #6/#7), not @Observable signals or mutable globals.
+
+## 2026-07-14 — Conservative reskin ≠ creative ask
+- **Trigger:** User asked for an attention-grabbing intro video; I reused the existing 40s IntroVideo timeline with new copy.
+- **Mistake:** Optimized for low risk (proven pacing) when the deliverable's value WAS novelty. Result read as "same as what I had already."
+- **Rule:** When the ask is marketing impact / creativity, structural novelty is a requirement: new hook, new pacing, new visual language — not a copy swap on an existing skeleton. Design for the platform (TikTok: <2s hook, sound-off readable, cuts every ~1s, ≤30s).
