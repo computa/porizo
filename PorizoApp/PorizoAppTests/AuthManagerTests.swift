@@ -12,20 +12,80 @@ import Security
 private final class AuthManagerURLProtocolStub: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var response: (status: Int, data: Data)?
+    private nonisolated(unsafe) static var responseProvider: (@Sendable (URLRequest) -> (status: Int, data: Data))?
+    private nonisolated(unsafe) static var holdsResponses = false
+    private nonisolated(unsafe) static var heldRequests: [AuthManagerURLProtocolStub] = []
 
-    static func configure(status: Int = 200, data: Data) {
-        lock.withLock { response = (status, data) }
+    static func configure(status: Int = 200, data: Data, holdResponse: Bool = false) {
+        lock.withLock {
+            response = (status, data)
+            responseProvider = nil
+            holdsResponses = holdResponse
+        }
+    }
+
+    static func configure(
+        holdResponse: Bool = false,
+        responseProvider: @escaping @Sendable (URLRequest) -> (status: Int, data: Data)
+    ) {
+        lock.withLock {
+            response = nil
+            self.responseProvider = responseProvider
+            holdsResponses = holdResponse
+        }
     }
 
     static func reset() {
-        lock.withLock { response = nil }
+        let pending = lock.withLock { () -> [AuthManagerURLProtocolStub] in
+            response = nil
+            responseProvider = nil
+            holdsResponses = false
+            defer { heldRequests.removeAll() }
+            return heldRequests
+        }
+        pending.forEach { request in
+            request.client?.urlProtocol(request, didFailWithError: URLError(.cancelled))
+        }
+    }
+
+    static var heldRequestCount: Int {
+        lock.withLock { heldRequests.count }
+    }
+
+    static func allowNewRequests() {
+        lock.withLock { holdsResponses = false }
+    }
+
+    static func releaseHeldRequests(path: String? = nil) {
+        let release = lock.withLock { () -> [AuthManagerURLProtocolStub] in
+            holdsResponses = false
+            let matching = heldRequests.filter { path == nil || $0.request.url?.path == path }
+            heldRequests.removeAll { request in matching.contains { $0 === request } }
+            return matching
+        }
+        release.forEach { request in
+            guard let configured = configuredResponse(for: request.request) else { return }
+            request.deliver(configured)
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let configured = Self.lock.withLock({ Self.response }),
+        let configured = Self.lock.withLock { () -> (status: Int, data: Data)? in
+            if Self.holdsResponses {
+                Self.heldRequests.append(self)
+                return nil
+            }
+            return Self.configuredResponse(for: request)
+        }
+        guard let configured else { return }
+        deliver(configured)
+    }
+
+    private func deliver(_ configured: (status: Int, data: Data)) {
+        guard
               let url = request.url,
               let response = HTTPURLResponse(
                 url: url,
@@ -42,6 +102,10 @@ private final class AuthManagerURLProtocolStub: URLProtocol, @unchecked Sendable
     }
 
     override func stopLoading() {}
+
+    private static func configuredResponse(for request: URLRequest) -> (status: Int, data: Data)? {
+        responseProvider?(request) ?? response
+    }
 }
 
 private actor ControllableMagicLoginAPI: MagicLoginAPI {
@@ -173,9 +237,534 @@ final class AuthManagerTests: XCTestCase {
         KeychainHelper.delete(key: "porizo_token_expiry")
         KeychainHelper.delete(key: "porizo_auth_user_id")
         KeychainHelper.delete(key: "porizo_auth_provider")
+        KeychainHelper.delete(key: "porizo_apple_user_id")
+        KeychainHelper.delete(key: "porizo_auth_bundle_mutating")
         KeychainHelper.delete(key: "porizo_device_token")
         KeychainHelper.delete(key: "porizo_device_token_expiry")
         AuthManagerURLProtocolStub.reset()
+    }
+
+    @MainActor
+    func testAuthenticationCommitDoesNotPublishOrPersistBeforeValidation() async throws {
+        let userId = "user_delayed_commit"
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: userId, holdResponse: true))
+        let commit = Task { @MainActor in
+            try await authManager.commitAuthenticatedSession(
+                successfulAuthResponse(userId: userId),
+                provider: "email_magic"
+            )
+        }
+
+        let validationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(validationStarted)
+        XCTAssertTrue(authManager.isCommittingAuthenticationSession)
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNil(authManager.currentUser)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_auth_provider"))
+
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+        _ = try await commit.value
+
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertEqual(authManager.currentUser?.id, userId)
+        XCTAssertEqual(KeychainHelper.loadString(key: "porizo_access_token"), "issued_access_token")
+        XCTAssertEqual(KeychainHelper.loadString(key: "porizo_auth_provider"), "email_magic")
+    }
+
+    @MainActor
+    func testAuthenticationCommitFailurePersistsNothing() async throws {
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: "unused", status: 500))
+
+        do {
+            try await authManager.commitAuthenticatedSession(
+                successfulAuthResponse(userId: "rejected_user"),
+                provider: "apple",
+                appleUserIdentifier: "apple_user"
+            )
+            XCTFail("Expected validation to fail")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
+
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNil(authManager.currentUser)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_refresh_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_auth_provider"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_apple_user_id"))
+    }
+
+    @MainActor
+    func testAuthenticationCommitRejectsMismatchedValidatedUser() async throws {
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: "different_user"))
+
+        do {
+            try await authManager.commitAuthenticatedSession(
+                successfulAuthResponse(userId: "issued_user"),
+                provider: "email_magic"
+            )
+            XCTFail("Expected identity mismatch to fail")
+        } catch let error as AuthError {
+            guard case .serverError = error else {
+                return XCTFail("Expected identity mismatch serverError")
+            }
+        }
+
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_auth_provider"))
+    }
+
+    @MainActor
+    func testSupersededProviderOperationCannotPublishAuthentication() async throws {
+        let userId = "user_superseded_commit"
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: userId, holdResponse: true))
+        var operationIsCurrent = true
+        let commit = Task { @MainActor in
+            try await authManager.commitAuthenticatedSession(
+                successfulAuthResponse(userId: userId),
+                provider: "email_magic",
+                isOperationCurrent: { operationIsCurrent }
+            )
+        }
+
+        let validationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(validationStarted)
+        operationIsCurrent = false
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+
+        do {
+            _ = try await commit.value
+            XCTFail("Expected superseded provider operation to fail")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+    }
+
+    @MainActor
+    func testLogoutInvalidatesAuthenticationCommitWithoutClearingNewerState() async throws {
+        let userId = "user_logout_race"
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: userId, holdResponse: true))
+        let commit = Task { @MainActor in
+            try await authManager.commitAuthenticatedSession(
+                successfulAuthResponse(userId: userId),
+                provider: "email_magic"
+            )
+        }
+
+        let validationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(validationStarted)
+        authManager.logout()
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+
+        do {
+            _ = try await commit.value
+            XCTFail("Expected the invalidated commit to fail")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+    }
+
+    @MainActor
+    func testNewerAuthenticationCommitSupersedesOlderCommit() async throws {
+        let userId = "user_commit_owner"
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: userId, holdResponse: true))
+        let staleCommit = Task { @MainActor in
+            try await authManager.commitAuthenticatedSession(
+                successfulAuthResponse(userId: userId),
+                provider: "email_magic"
+            )
+        }
+
+        let validationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(validationStarted)
+
+        AuthManagerURLProtocolStub.allowNewRequests()
+        _ = try await authManager.commitAuthenticatedSession(
+            successfulAuthResponse(userId: userId),
+            provider: "email_magic"
+        )
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+        do {
+            _ = try await staleCommit.value
+            XCTFail("Expected the older commit to be superseded")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+    }
+
+    func testAuthenticationPresentationPolicyNeverFallsBackToEmailDuringCommit() {
+        XCTAssertEqual(
+            AuthenticationPresentationPolicy.content(
+                isCommitting: true,
+                hasPendingMagicLogin: false
+            ),
+            .progress
+        )
+        XCTAssertEqual(
+            AuthenticationPresentationPolicy.content(
+                isCommitting: true,
+                hasPendingMagicLogin: true
+            ),
+            .progress
+        )
+        XCTAssertEqual(
+            AuthenticationPresentationPolicy.content(
+                isCommitting: false,
+                hasPendingMagicLogin: true
+            ),
+            .pendingMagicLogin
+        )
+        XCTAssertEqual(
+            AuthenticationPresentationPolicy.content(
+                isCommitting: false,
+                hasPendingMagicLogin: false
+            ),
+            .emailEntry
+        )
+        XCTAssertFalse(AuthenticationPresentationPolicy.shouldRenderMain(
+            isAuthenticated: true,
+            isCommitting: true
+        ))
+        XCTAssertTrue(AuthenticationPresentationPolicy.shouldRenderMain(
+            isAuthenticated: true,
+            isCommitting: false
+        ))
+    }
+
+    @MainActor
+    func testOldRefreshCannotOverwriteNewlyCommittedAccount() async throws {
+        seedStoredSession(userId: "old_user", accessToken: "old_access", refreshToken: "old_refresh")
+        let session = makeRouteAwareAuthSession(holdResponse: true)
+        let authManager = AuthManager(session: session)
+
+        let refresh = Task { @MainActor in
+            try await authManager.refreshTokens()
+        }
+        let refreshStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(refreshStarted)
+
+        AuthManagerURLProtocolStub.allowNewRequests()
+        _ = try await authManager.commitAuthenticatedSession(
+            successfulAuthResponse(userId: "new_user"),
+            provider: "email_magic"
+        )
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+
+        do {
+            _ = try await refresh.value
+            XCTFail("Expected the old refresh to be cancelled")
+        } catch {
+            XCTAssertTrue(error is CancellationError || (error as? URLError)?.code == .cancelled)
+        }
+        XCTAssertEqual(KeychainHelper.loadString(key: "porizo_access_token"), "issued_access_token")
+        XCTAssertEqual(KeychainHelper.loadString(key: "porizo_refresh_token"), "issued_refresh_token")
+        XCTAssertEqual(authManager.currentUser?.id, "new_user")
+    }
+
+    @MainActor
+    func testOldRefreshCannotRestoreCredentialsAfterLogout() async throws {
+        seedStoredSession(userId: "old_user", accessToken: "old_access", refreshToken: "old_refresh")
+        let authManager = AuthManager(session: makeRouteAwareAuthSession(holdResponse: true))
+        let refresh = Task { @MainActor in
+            try await authManager.refreshTokens()
+        }
+        let refreshStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(refreshStarted)
+
+        authManager.logout()
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+        _ = try? await refresh.value
+
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_refresh_token"))
+        XCTAssertFalse(authManager.isAuthenticated)
+    }
+
+    @MainActor
+    func testLatePhoneRegistrationResponseCannotReplaceNewerLogin() async throws {
+        let session = makeRouteAwareAuthSession(holdResponse: true)
+        let authManager = AuthManager(session: session)
+        authManager.startPhoneAuth()
+        authManager.onPhoneCodeSent(phoneNumber: "+61400000000")
+        let operation = try XCTUnwrap(authManager.phoneVerificationOperation)
+        try await authManager.handlePhoneVerification(VerifyPhoneCodeResponse(
+            success: true,
+            verified: true,
+            registrationToken: "registration_token",
+            remainingAttempts: nil,
+            accessToken: nil,
+            refreshToken: nil,
+            userId: nil,
+            isNewUser: true
+        ), operation: operation)
+
+        let oldRegistration = Task { @MainActor in
+            try await authManager.completePhoneRegistration(displayName: "Old", email: "old@example.com")
+        }
+        let registrationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(registrationStarted)
+
+        AuthManagerURLProtocolStub.allowNewRequests()
+        _ = try await authManager.commitAuthenticatedSession(
+            successfulAuthResponse(userId: "new_user"),
+            provider: "email_magic"
+        )
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+
+        do {
+            try await oldRegistration.value
+            XCTFail("Expected stale registration response to be rejected")
+        } catch {
+            XCTAssertTrue(error is CancellationError || (error as? URLError)?.code == .cancelled)
+        }
+        XCTAssertEqual(authManager.currentUser?.id, "new_user")
+        XCTAssertEqual(KeychainHelper.loadString(key: "porizo_access_token"), "issued_access_token")
+    }
+
+    @MainActor
+    func testCancelledPhoneVerificationResponseCannotStartANewLogin() async throws {
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: "phone_user"))
+        authManager.startPhoneAuth()
+        authManager.onPhoneCodeSent(phoneNumber: "+61400000000")
+        let cancelledOperation = try XCTUnwrap(authManager.phoneVerificationOperation)
+        authManager.cancelPhoneAuth()
+
+        do {
+            try await authManager.handlePhoneVerification(VerifyPhoneCodeResponse(
+                success: true,
+                verified: true,
+                registrationToken: nil,
+                remainingAttempts: nil,
+                accessToken: "late_access",
+                refreshToken: "late_refresh",
+                userId: "phone_user",
+                isNewUser: false
+            ), operation: cancelledOperation)
+            XCTFail("Expected the cancelled verification response to be rejected")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+    }
+
+    @MainActor
+    func testCancellingPhoneFlowImmediatelyReleasesOwnedCommitState() async throws {
+        let authManager = AuthManager(session: makeCurrentUserSession(
+            userId: "phone_user",
+            holdResponse: true
+        ))
+        authManager.startPhoneAuth()
+        authManager.onPhoneCodeSent(phoneNumber: "+61400000000")
+        let operation = try XCTUnwrap(authManager.phoneVerificationOperation)
+
+        let verification = Task { @MainActor in
+            try await authManager.handlePhoneVerification(VerifyPhoneCodeResponse(
+                success: true,
+                verified: true,
+                registrationToken: nil,
+                remainingAttempts: nil,
+                accessToken: "phone_access",
+                refreshToken: "phone_refresh",
+                userId: "phone_user",
+                isNewUser: false
+            ), operation: operation)
+        }
+
+        let validationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(validationStarted)
+        XCTAssertTrue(authManager.isCommittingAuthenticationSession)
+
+        authManager.cancelPhoneAuth()
+
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertFalse(authManager.isAuthenticated)
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+
+        do {
+            try await verification.value
+            XCTFail("Expected the cancelled phone commit to be rejected")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+    }
+
+    @MainActor
+    func testStalePhoneVerificationCannotAdoptNewPhoneOperation() async throws {
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: "phone_user"))
+        authManager.startPhoneAuth()
+        authManager.onPhoneCodeSent(phoneNumber: "+61400000001")
+        let firstOperation = try XCTUnwrap(authManager.phoneVerificationOperation)
+
+        authManager.phoneAuthGoBack()
+        authManager.onPhoneCodeSent(phoneNumber: "+61400000002")
+        let secondOperation = try XCTUnwrap(authManager.phoneVerificationOperation)
+        XCTAssertNotEqual(firstOperation.generation, secondOperation.generation)
+
+        do {
+            try await authManager.handlePhoneVerification(VerifyPhoneCodeResponse(
+                success: true,
+                verified: true,
+                registrationToken: nil,
+                remainingAttempts: nil,
+                accessToken: "first_access",
+                refreshToken: "first_refresh",
+                userId: "phone_user",
+                isNewUser: false
+            ), operation: firstOperation)
+            XCTFail("Expected the first verification response to be rejected")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        XCTAssertEqual(
+            authManager.phoneVerificationOperation?.generation,
+            secondOperation.generation
+        )
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+    }
+
+    @MainActor
+    func testAppleRecoveryResponseKeepsProgressUntilValidationAndClearsMagicPresentation() async throws {
+        let transactionId = "txn_legacy_apple_recovery"
+        try seedPendingMagicLogin(transactionId: transactionId, purpose: .login)
+        let authManager = AuthManager(session: makeCurrentUserSession(userId: "legacy_user", holdResponse: true))
+        let operation = authManager.beginAuthenticationOperation()
+        let response = try JSONEncoder().encode(successfulAuthResponse(userId: "legacy_user"))
+
+        let recovery = Task { @MainActor in
+            try await authManager.processSocialAuthenticationResponse(
+                data: response,
+                statusCode: 200,
+                provider: "apple",
+                requestBody: ["provider": "apple"],
+                appleUserIdentifier: "apple_legacy_user",
+                operation: operation
+            )
+        }
+
+        let validationStarted = await waitUntil { AuthManagerURLProtocolStub.heldRequestCount == 1 }
+        XCTAssertTrue(validationStarted)
+        XCTAssertTrue(authManager.isCommittingAuthenticationSession)
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNotNil(authManager.pendingMagicLoginPresentation)
+        XCTAssertEqual(
+            AuthenticationPresentationPolicy.content(
+                isCommitting: authManager.isCommittingAuthenticationSession,
+                hasPendingMagicLogin: authManager.pendingMagicLoginPresentation != nil
+            ),
+            .progress
+        )
+
+        AuthManagerURLProtocolStub.releaseHeldRequests()
+        try await recovery.value
+
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertFalse(authManager.isCommittingAuthenticationSession)
+        XCTAssertNil(authManager.pendingMagicLoginPresentation)
+        XCTAssertNil(MagicLoginPresentationStore.load())
+        XCTAssertNil(PendingMagicLoginStore.load(transactionId: transactionId))
+    }
+
+    @MainActor
+    func testConfirmedSocialLinkClearsPersistedMagicRecoveryPresentation() async throws {
+        let transactionId = "txn_confirmed_social_recovery"
+        let userId = "confirmed_social_user"
+        try seedPendingMagicLogin(transactionId: transactionId, purpose: .login)
+        AuthManagerURLProtocolStub.configure { request in
+            switch request.url?.path {
+            case "/auth/social":
+                return (200, Data("""
+                {
+                  "user_id": "\(userId)",
+                  "access_token": "issued_access_token",
+                  "refresh_token": "issued_refresh_token",
+                  "expires_in": 900,
+                  "is_new_user": false
+                }
+                """.utf8))
+            case "/auth/me":
+                return (200, Self.currentUserJSON(userId: userId))
+            default:
+                return (404, Data("{}".utf8))
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthManagerURLProtocolStub.self]
+        let authManager = AuthManager(session: URLSession(configuration: configuration))
+        let operation = authManager.beginAuthenticationOperation()
+        let confirmationRequired = Data("""
+        {
+          "requires_link_confirmation": true,
+          "existing_account_email": "p***@example.com",
+          "provider": "apple"
+        }
+        """.utf8)
+
+        do {
+            try await authManager.processSocialAuthenticationResponse(
+                data: confirmationRequired,
+                statusCode: 200,
+                provider: "apple",
+                requestBody: ["provider": "apple", "identity_token": "token"],
+                appleUserIdentifier: "apple_user",
+                operation: operation
+            )
+            XCTFail("Expected link confirmation to be required")
+        } catch let error as AuthError {
+            guard case .requiresLinkConfirmation = error else {
+                return XCTFail("Expected requiresLinkConfirmation")
+            }
+        }
+
+        XCTAssertNotNil(authManager.pendingMagicLoginPresentation)
+        try await authManager.confirmPendingSocialLink()
+
+        XCTAssertTrue(authManager.isAuthenticated)
+        XCTAssertEqual(authManager.magicLoginState, .success)
+        XCTAssertNil(authManager.pendingSocialLinkRequest)
+        XCTAssertNil(authManager.pendingMagicLoginPresentation)
+        XCTAssertNil(MagicLoginPresentationStore.load())
+        XCTAssertNil(PendingMagicLoginStore.load(transactionId: transactionId))
+    }
+
+    @MainActor
+    func testInterruptedAuthenticationBundleIsNeverRestored() async {
+        seedStoredSession(userId: "mixed_user", accessToken: "mixed_access", refreshToken: "mixed_refresh")
+        XCTAssertTrue(KeychainHelper.saveString(
+            key: "porizo_auth_bundle_mutating",
+            value: "interrupted"
+        ))
+
+        let authManager = AuthManager()
+        let cleanupCompleted = await waitUntil {
+            KeychainHelper.loadString(key: "porizo_auth_bundle_mutating") == nil
+        }
+
+        XCTAssertTrue(cleanupCompleted)
+        XCTAssertFalse(authManager.isAuthenticated)
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_access_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_refresh_token"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_auth_user_id"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_auth_bundle_mutating"))
     }
 
     // MARK: - Identity helpers
@@ -757,7 +1346,21 @@ final class AuthManagerTests: XCTestCase {
         )
     }
 
-    private func makeCurrentUserSession(userId: String) -> URLSession {
+    private func successfulAuthResponse(userId: String) -> AuthResponse {
+        AuthResponse(
+            userId: userId,
+            accessToken: "issued_access_token",
+            refreshToken: "issued_refresh_token",
+            expiresIn: 900,
+            isNewUser: false
+        )
+    }
+
+    private func makeCurrentUserSession(
+        userId: String,
+        status: Int = 200,
+        holdResponse: Bool = false
+    ) -> URLSession {
         let json = """
         {
           "user_id": "\(userId)",
@@ -771,10 +1374,65 @@ final class AuthManagerTests: XCTestCase {
           "missing_profile_requirements": []
         }
         """
-        AuthManagerURLProtocolStub.configure(data: Data(json.utf8))
+        AuthManagerURLProtocolStub.configure(
+            status: status,
+            data: Data(json.utf8),
+            holdResponse: holdResponse
+        )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AuthManagerURLProtocolStub.self]
         return URLSession(configuration: configuration)
+    }
+
+    private func makeRouteAwareAuthSession(holdResponse: Bool) -> URLSession {
+        AuthManagerURLProtocolStub.configure(holdResponse: holdResponse) { request in
+            switch request.url?.path {
+            case "/auth/refresh":
+                return (200, Data(#"{"access_token":"stale_access","refresh_token":"stale_refresh","expires_in":900}"#.utf8))
+            case "/auth/phone/register":
+                return (201, Data(#"{"user_id":"old_user","access_token":"old_registration_access","refresh_token":"old_registration_refresh","expires_in":900,"is_new_user":true}"#.utf8))
+            case "/auth/me":
+                let bearer = request.value(forHTTPHeaderField: "Authorization") ?? ""
+                let userId = bearer.contains("old_registration_access") ? "old_user" : "new_user"
+                return (200, Self.currentUserJSON(userId: userId))
+            default:
+                return (200, Data("{}".utf8))
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthManagerURLProtocolStub.self]
+        return URLSession(configuration: configuration)
+    }
+
+    private func seedStoredSession(
+        userId: String,
+        accessToken: String,
+        refreshToken: String
+    ) {
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_access_token", value: accessToken))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_refresh_token", value: refreshToken))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_auth_user_id", value: userId))
+        XCTAssertTrue(KeychainHelper.saveString(
+            key: "porizo_token_expiry",
+            value: String(Date.now.addingTimeInterval(-60).timeIntervalSince1970)
+        ))
+        XCTAssertTrue(KeychainHelper.saveString(key: "porizo_auth_provider", value: "email_magic"))
+    }
+
+    private static func currentUserJSON(userId: String) -> Data {
+        Data("""
+        {
+          "user_id": "\(userId)",
+          "email": "person@example.com",
+          "email_verified": true,
+          "providers": ["email"],
+          "created_at": "2026-07-14T00:00:00Z",
+          "needs_profile_completion": false,
+          "auth_methods": [],
+          "contacts": [],
+          "missing_profile_requirements": []
+        }
+        """.utf8)
     }
 
     private func waitUntil(

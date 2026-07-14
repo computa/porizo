@@ -353,9 +353,4 @@ final class IdentityModelContractTests: XCTestCase {
         XCTAssertTrue(user.needsProfileCompletion)
     }
 
-    func testProfileCompletion_recognizesBothAppleRelayDomainsCaseInsensitively() {
-        XCTAssertTrue(ProfileCompletionView.isAppleRelayEmail("user@privaterelay.appleid.com"))
-        XCTAssertTrue(ProfileCompletionView.isAppleRelayEmail(" USER@PRIVATE.ICLOUD.COM "))
-        XCTAssertFalse(ProfileCompletionView.isAppleRelayEmail("user@icloud.com"))
-    }
 }

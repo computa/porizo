@@ -17,7 +17,7 @@ struct PhoneVerificationView: View {
     let phoneNumber: String
 
     /// Called when verification succeeds with response containing tokens or registration_token
-    let onVerified: (VerifyPhoneCodeResponse) -> Void
+    let onVerified: (VerifyPhoneCodeResponse) async throws -> Void
 
     /// Called when user taps back button
     let onBack: () -> Void
@@ -255,11 +255,11 @@ struct PhoneVerificationView: View {
                 )
             }
 
-            isVerifying = false
-
             if response.verified {
-                onVerified(response)
+                try await onVerified(response)
+                isVerifying = false
             } else {
+                isVerifying = false
                 // Verification failed
                 remainingAttempts = response.remainingAttempts
                 if let remaining = response.remainingAttempts, remaining == 0 {
@@ -300,7 +300,7 @@ struct PhoneVerificationView: View {
         } catch {
             isVerifying = false
             code = ""
-            self.error = "Something went wrong. Please try again."
+            self.error = ErrorHandler.friendlyMessage(for: error, context: "Finishing phone sign-in")
         }
     }
 

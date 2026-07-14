@@ -364,19 +364,6 @@ extension APIClient {
         return try decodeResponse(AuthUser.self, from: data)
     }
 
-    /// Skip profile completion for now
-    func skipProfileCompletion() async throws {
-        var request = try await makeRequest(
-            url: URL(string: "\(baseURL)/auth/profile/skip-completion")!,
-            method: "POST",
-            requiresAuth: true
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let (_, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: Data())
-    }
-
     // MARK: - Email Verification
 
     /// Resend verification email to the user's current email address

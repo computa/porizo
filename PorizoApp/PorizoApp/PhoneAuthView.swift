@@ -341,21 +341,20 @@ struct PhoneAuthFlowView: View {
                 }
             )
         case .phoneVerification(let phoneNumber):
-            PhoneVerificationView(
-                phoneNumber: phoneNumber,
-                onVerified: { response in
-                    Task {
-                        do {
-                            try await authManager.handlePhoneVerification(response)
-                        } catch {
-                            // PhoneVerificationView handles UI errors; keep flow state.
-                        }
+            if let operation = authManager.phoneVerificationOperation {
+                PhoneVerificationView(
+                    phoneNumber: phoneNumber,
+                    onVerified: { response in
+                        try await authManager.handlePhoneVerification(
+                            response,
+                            operation: operation
+                        )
+                    },
+                    onBack: {
+                        authManager.phoneAuthGoBack()
                     }
-                },
-                onBack: {
-                    authManager.phoneAuthGoBack()
-                }
-            )
+                )
+            }
         case .profileEntry(_, let phoneNumber):
             PhoneProfileEntryView(
                 phoneNumber: phoneNumber,

@@ -144,6 +144,25 @@ final class AnalyticsService: @unchecked Sendable {
     // MARK: - Event Logging
 
     func log(_ event: AnalyticsEvent, properties: [String: String]? = nil) {
+        log(event, properties: properties, authenticatedAccessToken: nil)
+    }
+
+    /// Logs an event whose backend attribution must remain bound to the session
+    /// that produced it even if the user logs out or switches accounts before
+    /// the fire-and-forget request starts.
+    func logAuthenticated(
+        _ event: AnalyticsEvent,
+        properties: [String: String]? = nil,
+        accessToken: String
+    ) {
+        log(event, properties: properties, authenticatedAccessToken: accessToken)
+    }
+
+    private func log(
+        _ event: AnalyticsEvent,
+        properties: [String: String]?,
+        authenticatedAccessToken: String?
+    ) {
         // Firebase
         Analytics.logEvent(event.rawValue, parameters: properties)
 
@@ -171,7 +190,8 @@ final class AnalyticsService: @unchecked Sendable {
             eventName: event.rawValue,
             properties: properties,
             resourceType: mapping.type,
-            resourceId: mapping.id
+            resourceId: mapping.id,
+            accessTokenOverride: authenticatedAccessToken
         )
     }
 
@@ -370,7 +390,8 @@ final class AnalyticsService: @unchecked Sendable {
         eventName: String,
         properties: [String: String]?,
         resourceType: String?,
-        resourceId: String?
+        resourceId: String?,
+        accessTokenOverride: String? = nil
     ) {
         guard let config = currentConfig() else { return }
 
@@ -388,9 +409,19 @@ final class AnalyticsService: @unchecked Sendable {
 
         Task.detached(priority: .utility) {
             // Attempt 1
-            if await Self.sendOnce(url: url, body: bodyData, config: config) == .retryableFailure {
+            if await Self.sendOnce(
+                url: url,
+                body: bodyData,
+                config: config,
+                accessTokenOverride: accessTokenOverride
+            ) == .retryableFailure {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
-                _ = await Self.sendOnce(url: url, body: bodyData, config: config)
+                _ = await Self.sendOnce(
+                    url: url,
+                    body: bodyData,
+                    config: config,
+                    accessTokenOverride: accessTokenOverride
+                )
             }
         }
     }
@@ -404,9 +435,16 @@ final class AnalyticsService: @unchecked Sendable {
     private static func sendOnce(
         url: URL,
         body: Data,
-        config: (baseURL: String, tokenProvider: AnalyticsTokenProvider, session: URLSession)
+        config: (baseURL: String, tokenProvider: AnalyticsTokenProvider, session: URLSession),
+        accessTokenOverride: String?
     ) async -> ForwardResult {
-        guard let token = await config.tokenProvider(), !token.isEmpty else {
+        let token: String?
+        if let accessTokenOverride {
+            token = accessTokenOverride
+        } else {
+            token = await config.tokenProvider()
+        }
+        guard let token, !token.isEmpty else {
             return .terminal  // no token means pre-auth; nothing we can retry
         }
 

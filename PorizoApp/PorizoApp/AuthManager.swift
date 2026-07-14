@@ -222,6 +222,11 @@ enum MagicLoginState: Equatable, Sendable {
 @MainActor
 @Observable
 class AuthManager {
+    struct AuthenticationOperation {
+        let generation: UInt64
+        let sessionGeneration: UInt64
+    }
+
     struct PendingSocialLinkRequest {
         let provider: String
         let body: [String: Any]
@@ -237,7 +242,7 @@ class AuthManager {
     private(set) var needsProfileCompletion: Bool = false
     private(set) var magicLoginState: MagicLoginState = .idle
     private(set) var pendingMagicLoginPresentation: MagicLoginPresentation?
-    private(set) var isCommittingMagicLoginSession = false
+    private(set) var isCommittingAuthenticationSession = false
 
     /// Phone authentication flow state
     private(set) var phoneAuthState: PhoneAuthState = .idle
@@ -303,6 +308,7 @@ class AuthManager {
     private static let deviceTokenExpiryKey = "porizo_device_token_expiry"
     private static let appleUserIdKey = "porizo_apple_user_id"
     private static let authProviderKey = "porizo_auth_provider"
+    private static let authBundleMutationMarkerKey = "porizo_auth_bundle_mutating"
     private static let pendingPhoneLinkKey = "porizo_pending_phone_link"
     private static let pendingPhoneLinkExpiryKey = "porizo_pending_phone_link_expiry"
 
@@ -341,6 +347,15 @@ class AuthManager {
     @ObservationIgnored private var deferredMagicLoginURL: URL?
     @ObservationIgnored private var magicOperationGeneration: UInt64 = 0
     @ObservationIgnored private var authSessionGeneration: UInt64 = 0
+    @ObservationIgnored private var authenticationOperationGeneration: UInt64 = 0
+    @ObservationIgnored private var activeAuthenticationCommitID: UUID?
+    @ObservationIgnored private var activeAuthenticationOperationGeneration: UInt64?
+    @ObservationIgnored private var phoneAuthenticationOperation: AuthenticationOperation?
+
+    var phoneVerificationOperation: AuthenticationOperation? {
+        phoneAuthenticationOperation
+    }
+    @ObservationIgnored private var refreshTaskID: UUID?
     @ObservationIgnored private var isMagicRequestInFlight = false
     @ObservationIgnored private var initialAuthRestorationCompleted = false
 
@@ -801,22 +816,21 @@ class AuthManager {
             generation,
             sessionGeneration: sessionGeneration
         ) else { throw CancellationError() }
-        let committedSessionGeneration = try saveTokens(authResponse)
-        setAuthProvider("email_magic")
-        isCommittingMagicLoginSession = true
-        defer { isCommittingMagicLoginSession = false }
-        try await fetchCurrentUser(
-            expectedUserId: response.userId,
-            sessionGeneration: committedSessionGeneration,
-            accessTokenOverride: accessToken
+        try await commitAuthenticatedSession(
+            authResponse,
+            provider: "email_magic",
+            expectedSessionGeneration: sessionGeneration,
+            isOperationCurrent: { [weak self] in
+                self?.isCurrentMagicOperation(
+                    generation,
+                    sessionGeneration: sessionGeneration
+                ) == true
+            },
+            onCommitted: { [weak self] in
+                self?.clearMagicLoginPresentation(transactionId: pending.transactionId)
+                self?.magicLoginState = .success
+            }
         )
-        guard isCurrentMagicOperation(
-            generation,
-            sessionGeneration: committedSessionGeneration
-        ) else { throw CancellationError() }
-        isAuthenticated = true
-        clearMagicLoginPresentation(transactionId: pending.transactionId)
-        magicLoginState = .success
     }
 
     private func clearMagicLoginPresentation(transactionId: String) {
@@ -1013,6 +1027,12 @@ class AuthManager {
     /// Must be called on MainActor
     @MainActor
     private func performKeychainAuthLoad() {
+        if KeychainHelper.loadString(key: Self.authBundleMutationMarkerKey) != nil {
+            print("[Auth] Interrupted authentication bundle mutation detected - clearing credentials")
+            clearIncompleteRestoredAuthState()
+            finishInitialAuthRestoration()
+            return
+        }
         let accessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
         let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey)
         let tokenExpiry = KeychainHelper.loadString(key: Self.tokenExpiryKey).flatMap(Double.init)
@@ -1083,11 +1103,13 @@ class AuthManager {
             hasValidatedSession = false
             isLoading = false
             // Validate session in the background; only definitive failures should log out
+            let validationSessionGeneration = authSessionGeneration
             Task {
                 do {
-                    try await fetchCurrentUser()
+                    try await fetchCurrentUser(sessionGeneration: validationSessionGeneration)
                     print("[Auth] Session validated on launch")
                 } catch {
+                    guard validationSessionGeneration == authSessionGeneration else { return }
                     handleLaunchValidationError(error)
                 }
             }
@@ -1104,14 +1126,22 @@ class AuthManager {
     /// pending magic-login transaction. There is no complete session to revoke,
     /// and the transaction may be waiting for this cleanup to finish.
     private func clearIncompleteRestoredAuthState() {
-        KeychainHelper.delete(key: Self.accessTokenKey)
-        KeychainHelper.delete(key: Self.refreshTokenKey)
-        KeychainHelper.delete(key: Self.tokenExpiryKey)
-        KeychainHelper.delete(key: Self.userIdKey)
-        KeychainHelper.delete(key: Self.deviceTokenKey)
-        KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
-        KeychainHelper.delete(key: Self.appleUserIdKey)
-        KeychainHelper.delete(key: Self.authProviderKey)
+        let credentialKeys = [
+            Self.accessTokenKey,
+            Self.refreshTokenKey,
+            Self.tokenExpiryKey,
+            Self.userIdKey,
+            Self.deviceTokenKey,
+            Self.deviceTokenExpiryKey,
+            Self.appleUserIdKey,
+            Self.authProviderKey,
+        ]
+        let cleared = credentialKeys.reduce(true) { result, key in
+            KeychainHelper.delete(key: key) && result
+        }
+        if cleared {
+            KeychainHelper.delete(key: Self.authBundleMutationMarkerKey)
+        }
         tokenLock.withLock {
             cachedAccessToken = nil
             cachedRefreshToken = nil
@@ -1300,12 +1330,17 @@ class AuthManager {
     /// Also validates Apple credential per WWDC20 guidance (check on every foreground)
     func refreshTokensIfNeeded() async {
         guard isAuthenticated else { return }
+        let expectedSessionGeneration = authSessionGeneration
 
         // Apple's WWDC20 requirement: validate credential on every foreground transition
         // getCredentialState is LOCAL (no network) so this is fast
         if KeychainHelper.loadString(key: Self.authProviderKey) == "apple",
            let appleUserId = KeychainHelper.loadString(key: Self.appleUserIdKey) {
             let credentialValid = await validateAppleCredential(appleUserId: appleUserId)
+            guard expectedSessionGeneration == authSessionGeneration,
+                  appleUserId == KeychainHelper.loadString(key: Self.appleUserIdKey) else {
+                return
+            }
             if !credentialValid {
                 print("[Auth] Apple credential invalid on foreground - logging out")
                 logout()
@@ -1320,8 +1355,10 @@ class AuthManager {
 
         do {
             try await refreshTokens()
+            guard expectedSessionGeneration == authSessionGeneration else { return }
             print("[Auth] Foreground token refresh successful")
         } catch {
+            guard expectedSessionGeneration == authSessionGeneration else { return }
             // Only force logout on definitive auth failures.
             if let authError = error as? AuthError {
                 switch authError {
@@ -1384,6 +1421,7 @@ class AuthManager {
 
     /// Handle Sign in with Apple
     func handleAppleSignIn(authorization: ASAuthorization, nonce: String) async throws {
+        let operation = beginAuthenticationOperation()
         pendingSocialLinkRequest = nil
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
               let identityToken = credential.identityToken,
@@ -1437,12 +1475,32 @@ class AuthManager {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
+        guard isAuthenticationOperationCurrent(operation) else { throw CancellationError() }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AuthError.networkError("Invalid response")
         }
 
-        switch httpResponse.statusCode {
+        try await processSocialAuthenticationResponse(
+            data: data,
+            statusCode: httpResponse.statusCode,
+            provider: "apple",
+            requestBody: body,
+            appleUserIdentifier: credential.user,
+            operation: operation
+        )
+    }
+
+    func processSocialAuthenticationResponse(
+        data: Data,
+        statusCode: Int,
+        provider: String,
+        requestBody: [String: Any],
+        appleUserIdentifier: String?,
+        operation: AuthenticationOperation
+    ) async throws {
+        guard isAuthenticationOperationCurrent(operation) else { throw CancellationError() }
+        switch statusCode {
         case 200, 201:
             if let existing = try? JSONDecoder().decode(SocialAccountExistsResponse.self, from: data),
                existing.accountExists,
@@ -1457,9 +1515,9 @@ class AuthManager {
             if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
                linkResponse.requiresLinkConfirmation == true {
                 pendingSocialLinkRequest = PendingSocialLinkRequest(
-                    provider: "apple",
-                    body: body,
-                    appleUserIdentifier: credential.user.isEmpty ? nil : credential.user
+                    provider: provider,
+                    body: requestBody,
+                    appleUserIdentifier: appleUserIdentifier?.isEmpty == false ? appleUserIdentifier : nil
                 )
                 throw AuthError.requiresLinkConfirmation(
                     provider: linkResponse.provider ?? "apple",
@@ -1467,32 +1525,40 @@ class AuthManager {
                 )
             } else {
                 let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-                try saveTokens(authResponse)
+                try await commitAuthenticatedSession(
+                    authResponse,
+                    provider: provider,
+                    appleUserIdentifier: appleUserIdentifier,
+                    operationGeneration: operation.generation,
+                    expectedSessionGeneration: operation.sessionGeneration,
+                    isOperationCurrent: { [weak self] in
+                        self?.isAuthenticationOperationCurrent(operation) == true
+                    },
+                    onCommitted: { [weak self] in
+                        self?.clearPendingMagicLoginAfterRecovery()
+                    }
+                )
             }
-
-            // Store Apple userIdentifier for credential validation on launch (Apple's WWDC20 requirement)
-            // This is the key to persistent sessions - we use this to call getCredentialState() on each launch
-            if !credential.user.isEmpty {
-                let saved = KeychainHelper.saveString(key: Self.appleUserIdKey, value: credential.user)
-                print("[Auth] Apple userIdentifier saved to Keychain: \(saved)")
-            }
-            setAuthProvider("apple")
-
-            isAuthenticated = true
-            try await fetchCurrentUser()
 
         case 400:
             throw AuthError.serverError("Invalid Apple token")
 
         default:
-            throw AuthError.serverError("Apple sign-in failed (HTTP \(httpResponse.statusCode))")
+            throw AuthError.serverError("\(provider.capitalized) sign-in failed (HTTP \(statusCode))")
         }
+    }
+
+    private func clearPendingMagicLoginAfterRecovery() {
+        guard let transactionId = pendingMagicLoginPresentation?.transactionId else { return }
+        clearMagicLoginPresentation(transactionId: transactionId)
+        magicLoginState = .success
     }
 
     func confirmPendingSocialLink() async throws {
         guard let pending = pendingSocialLinkRequest else {
             throw AuthError.serverError("No pending link confirmation request found.")
         }
+        let operation = beginAuthenticationOperation()
 
         isLoading = true
         defer { isLoading = false }
@@ -1507,6 +1573,7 @@ class AuthManager {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
+        guard isAuthenticationOperationCurrent(operation) else { throw CancellationError() }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AuthError.networkError("Invalid response")
         }
@@ -1515,20 +1582,24 @@ class AuthManager {
         }
 
         let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-        try saveTokens(authResponse)
-
-        if let appleUserIdentifier = pending.appleUserIdentifier {
-            let saved = KeychainHelper.saveString(key: Self.appleUserIdKey, value: appleUserIdentifier)
-            print("[Auth] Apple userIdentifier saved after confirmed link: \(saved)")
-        }
-
-        setAuthProvider(pending.provider)
-        pendingSocialLinkRequest = nil
-        isAuthenticated = true
-        try await fetchCurrentUser()
+        try await commitAuthenticatedSession(
+            authResponse,
+            provider: pending.provider,
+            appleUserIdentifier: pending.appleUserIdentifier,
+            operationGeneration: operation.generation,
+            expectedSessionGeneration: operation.sessionGeneration,
+            isOperationCurrent: { [weak self] in
+                self?.isAuthenticationOperationCurrent(operation) == true
+            },
+            onCommitted: { [weak self] in
+                self?.pendingSocialLinkRequest = nil
+                self?.clearPendingMagicLoginAfterRecovery()
+            }
+        )
     }
 
     func cancelPendingSocialLink() {
+        invalidateAuthenticationOperations()
         pendingSocialLinkRequest = nil
     }
 
@@ -1537,6 +1608,9 @@ class AuthManager {
     /// Start the phone authentication flow
     /// Sets phoneAuthState to .phoneEntry
     func startPhoneAuth() {
+        cancelPhoneAuthenticationCommit()
+        invalidateAuthenticationOperations()
+        phoneAuthenticationOperation = nil
         phoneNumber = ""
         registrationToken = nil
         phoneAuthState = .phoneEntry
@@ -1545,6 +1619,9 @@ class AuthManager {
 
     /// Cancel the phone authentication flow and return to idle
     func cancelPhoneAuth() {
+        cancelPhoneAuthenticationCommit()
+        invalidateAuthenticationOperations()
+        phoneAuthenticationOperation = nil
         phoneNumber = ""
         registrationToken = nil
         phoneAuthState = .idle
@@ -1555,6 +1632,7 @@ class AuthManager {
     /// Transitions from phoneEntry to phoneVerification state
     /// - Parameter phoneNumber: Phone number in E.164 format (e.g., +15551234567)
     func onPhoneCodeSent(phoneNumber: String) {
+        phoneAuthenticationOperation = beginAuthenticationOperation()
         self.phoneNumber = phoneNumber
         phoneAuthState = .phoneVerification(phoneNumber: phoneNumber)
         print("[Auth] Phone code sent to \(phoneNumber)")
@@ -1564,7 +1642,14 @@ class AuthManager {
     /// Handle phone verification result.
     /// Existing user → login with tokens.
     /// New user → create account directly (no username step).
-    func handlePhoneVerification(_ response: VerifyPhoneCodeResponse) async throws {
+    func handlePhoneVerification(
+        _ response: VerifyPhoneCodeResponse,
+        operation: AuthenticationOperation
+    ) async throws {
+        guard phoneAuthenticationOperation?.generation == operation.generation,
+              isAuthenticationOperationCurrent(operation) else {
+            throw CancellationError()
+        }
         guard response.verified else {
             throw AuthError.phoneVerificationFailed("Verification failed")
         }
@@ -1583,12 +1668,20 @@ class AuthManager {
                 isNewUser: response.isNewUser
             )
 
-            try saveTokens(authResponse)
-            setAuthProvider("phone")
-            phoneAuthState = .idle
-            registrationToken = nil
-            isAuthenticated = true
-            try await fetchCurrentUser()
+            try await commitAuthenticatedSession(
+                authResponse,
+                provider: "phone",
+                operationGeneration: operation.generation,
+                expectedSessionGeneration: operation.sessionGeneration,
+                isOperationCurrent: { [weak self] in
+                    self?.isAuthenticationOperationCurrent(operation) == true
+                },
+                onCommitted: { [weak self] in
+                    self?.phoneAuthState = .idle
+                    self?.registrationToken = nil
+                    self?.phoneAuthenticationOperation = nil
+                }
+            )
             print("[Auth] Phone login successful for existing user")
             return
         }
@@ -1597,6 +1690,7 @@ class AuthManager {
         if let regToken = response.registrationToken {
             print("[Auth] Phone verification: new phone, prompting account check")
             registrationToken = regToken
+            phoneAuthenticationOperation = nil
             phoneAuthState = .profileEntry(registrationToken: regToken, phoneNumber: phoneNumber)
             return
         }
@@ -1606,6 +1700,8 @@ class AuthManager {
 
     /// Create phone account with name and optional email
     private func completePhoneRegistrationDirect(registrationToken: String, displayName: String? = nil, email: String? = nil) async throws {
+        let operation = beginAuthenticationOperation()
+        phoneAuthenticationOperation = operation
         let url = URL(string: "\(baseURL)/auth/phone/register")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1628,6 +1724,7 @@ class AuthManager {
         let (data, httpResponse) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "phoneRegistration") {
             try await self.session.data(for: request)
         }
+        guard isAuthenticationOperationCurrent(operation) else { throw CancellationError() }
         guard let response = httpResponse as? HTTPURLResponse else {
             throw AuthError.networkError("Invalid response")
         }
@@ -1661,14 +1758,21 @@ class AuthManager {
         }
 
         let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-        try saveTokens(authResponse)
-        setAuthProvider("phone")
-
-        phoneAuthState = .idle
-        phoneNumber = ""
-        self.registrationToken = nil
-        isAuthenticated = true
-        try await fetchCurrentUser()
+        try await commitAuthenticatedSession(
+            authResponse,
+            provider: "phone",
+            operationGeneration: operation.generation,
+            expectedSessionGeneration: operation.sessionGeneration,
+            isOperationCurrent: { [weak self] in
+                self?.isAuthenticationOperationCurrent(operation) == true
+            },
+            onCommitted: { [weak self] in
+                self?.phoneAuthState = .idle
+                self?.phoneNumber = ""
+                self?.registrationToken = nil
+                self?.phoneAuthenticationOperation = nil
+            }
+        )
         print("[Auth] Phone registration completed successfully (no username)")
     }
 
@@ -1688,6 +1792,9 @@ class AuthManager {
 
     /// Go back one step in phone auth flow
     func phoneAuthGoBack() {
+        cancelPhoneAuthenticationCommit()
+        invalidateAuthenticationOperations()
+        phoneAuthenticationOperation = nil
         switch phoneAuthState {
         case .idle:
             break
@@ -1728,13 +1835,16 @@ class AuthManager {
         // Create a new refresh task with background execution protection
         // This prevents iOS from suspending the app mid-refresh, which would
         // leave tokens in an inconsistent state
+        let taskID = UUID()
+        let expectedSessionGeneration = authSessionGeneration
         let task = Task<String, Error> {
             try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "tokenRefresh") {
-                try await self.performRefresh()
+                try await self.performRefresh(expectedSessionGeneration: expectedSessionGeneration)
             }
         }
         refreshLock.withLock {
             refreshTask = task
+            refreshTaskID = taskID
         }
 
         // Await the refresh and clear the task reference AFTER completion
@@ -1742,20 +1852,16 @@ class AuthManager {
         // allowing duplicate tasks to be created during execution
         do {
             let refreshedToken = try await task.value
-            refreshLock.withLock {
-                refreshTask = nil
-            }
+            clearRefreshTask(ifOwnedBy: taskID)
             return refreshedToken
         } catch {
-            refreshLock.withLock {
-                refreshTask = nil
-            }
+            clearRefreshTask(ifOwnedBy: taskID)
             throw error
         }
     }
 
     /// Internal refresh implementation - called only by the deduplicated wrapper
-    private func performRefresh() async throws -> String {
+    private func performRefresh(expectedSessionGeneration: UInt64) async throws -> String {
         // Never rotate server-side tokens if keychain writes may fail (locked device).
         // Rotating without persisting the replacement token can orphan the session.
         if !UIApplication.shared.isProtectedDataAvailable {
@@ -1815,6 +1921,11 @@ class AuthManager {
             // Network error - don't logout, token might still be valid
             throw AuthError.networkError("Refresh request failed: \(error.localizedDescription)")
         }
+        try Task.checkCancellation()
+        guard expectedSessionGeneration == authSessionGeneration,
+              currentRefreshToken() == refreshToken else {
+            throw CancellationError()
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AuthError.networkError("Invalid response")
@@ -1824,7 +1935,11 @@ class AuthManager {
         case 200:
             let refreshResponse = try JSONDecoder().decode(RefreshResponse.self, from: data)
             do {
-                try saveRefreshedTokens(refreshResponse)
+                try saveRefreshedTokens(
+                    refreshResponse,
+                    expectedRefreshToken: refreshToken,
+                    expectedSessionGeneration: expectedSessionGeneration
+                )
             } catch AuthError.keychainSaveFailed {
                 print("[Auth] Failed to persist refreshed tokens - forcing re-auth")
                 throw AuthError.notAuthenticated
@@ -1945,6 +2060,11 @@ class AuthManager {
         #endif
 
         authSessionGeneration &+= 1
+        invalidateAuthenticationOperations()
+        cancelRefreshTask()
+        activeAuthenticationCommitID = nil
+        activeAuthenticationOperationGeneration = nil
+        isCommittingAuthenticationSession = false
 
         // Call logout endpoint (fire and forget)
         let accessTokenForLogout = tokenLock.withLock { () -> String? in
@@ -1974,6 +2094,7 @@ class AuthManager {
         KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
         KeychainHelper.delete(key: Self.appleUserIdKey)
         KeychainHelper.delete(key: Self.authProviderKey)
+        KeychainHelper.delete(key: Self.authBundleMutationMarkerKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
         cancelMagicOperations()
@@ -1998,8 +2119,6 @@ class AuthManager {
         // Disassociate device from OneSignal user so marketing pushes stop
         OneSignal.logout()
 
-        // Reset profile-skip so next user on this device sees the prompt
-        UserDefaults.standard.removeObject(forKey: "hasSkippedProfileCompletion")
     }
 
     // MARK: - Current User
@@ -2029,63 +2148,43 @@ class AuthManager {
             token = storedToken
         }
 
-        let url = URL(string: "\(baseURL)/auth/me")!
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthError.networkError("Invalid response")
-        }
-
-        if httpResponse.statusCode == 200 {
-            let user = try JSONDecoder().decode(AuthUser.self, from: data)
+        do {
+            let user = try await fetchValidatedUser(
+                accessToken: token,
+                expectedUserId: expectedUserId
+            )
             guard expectedSessionGeneration == authSessionGeneration else {
                 throw CancellationError()
             }
-            if let expectedUserId {
-                guard authenticatedUserId == expectedUserId,
-                      user.id == expectedUserId else {
-                    throw CancellationError()
-                }
-            }
-            currentUser = user
-            needsProfileCompletion = user.needsProfileCompletion
-            hasValidatedSession = true
-            // Clear pending phone link after successful auth (it was sent in the request)
-            pendingPhoneLink = nil
-            // Link OneSignal external ID so marketing pushes target this user
+            publishValidatedUser(user)
             OneSignal.login(user.id)
             await LocalNotificationService.shared.ensureAuthorizedForAuthenticatedUser()
             print("[Auth] fetchCurrentUser success: user=\(user.id)")
-        } else if httpResponse.statusCode == 401 {
+        } catch AuthError.notAuthenticated {
             // A just-issued magic-login token must validate as issued. Do not
             // enter the normal refresh path before the new session is public.
             guard accessTokenOverride == nil else {
                 throw AuthError.notAuthenticated
             }
+            guard expectedSessionGeneration == authSessionGeneration else {
+                throw CancellationError()
+            }
             // Token expired, try refresh
             print("[Auth] fetchCurrentUser got 401 (attempt \(retryCount + 1)/2), attempting refresh")
             try await refreshTokens()
+            guard expectedSessionGeneration == authSessionGeneration else {
+                throw CancellationError()
+            }
             try await fetchCurrentUser(
                 retryCount: retryCount + 1,
                 expectedUserId: expectedUserId,
                 sessionGeneration: expectedSessionGeneration,
                 accessTokenOverride: nil
             )
-        } else {
-            print("[Auth] fetchCurrentUser unexpected status: \(httpResponse.statusCode)")
-            throw AuthError.serverError("Failed to fetch user (HTTP \(httpResponse.statusCode))")
         }
     }
 
     // MARK: - Profile Completion
-
-    /// Dismiss the profile completion prompt without saving
-    func dismissProfileCompletion() {
-        needsProfileCompletion = false
-    }
 
     /// Update current user after a successful profile update
     func updateCurrentUser(_ user: AuthUser) {
@@ -2143,21 +2242,185 @@ class AuthManager {
 
     // MARK: - Private Helpers
 
-    /// Saves tokens atomically using tokenLock to prevent race conditions
+    func beginAuthenticationOperation() -> AuthenticationOperation {
+        authenticationOperationGeneration &+= 1
+        return AuthenticationOperation(
+            generation: authenticationOperationGeneration,
+            sessionGeneration: authSessionGeneration
+        )
+    }
+
+    private func invalidateAuthenticationOperations() {
+        authenticationOperationGeneration &+= 1
+    }
+
+    private func cancelPhoneAuthenticationCommit() {
+        guard let operation = phoneAuthenticationOperation,
+              activeAuthenticationOperationGeneration == operation.generation else { return }
+        activeAuthenticationCommitID = nil
+        activeAuthenticationOperationGeneration = nil
+        isCommittingAuthenticationSession = false
+    }
+
+    private func isAuthenticationOperationCurrent(_ operation: AuthenticationOperation) -> Bool {
+        !Task.isCancelled
+            && operation.generation == authenticationOperationGeneration
+            && operation.sessionGeneration == authSessionGeneration
+    }
+
+    private func currentRefreshToken() -> String? {
+        tokenLock.withLock {
+            if let cachedRefreshToken, !cachedRefreshToken.isEmpty {
+                return cachedRefreshToken
+            }
+            let stored = KeychainHelper.loadString(key: Self.refreshTokenKey)
+            cachedRefreshToken = stored
+            return stored
+        }
+    }
+
+    private func cancelRefreshTask() {
+        let task = refreshLock.withLock { () -> Task<String, Error>? in
+            let task = refreshTask
+            refreshTask = nil
+            refreshTaskID = nil
+            return task
+        }
+        task?.cancel()
+    }
+
+    private func clearRefreshTask(ifOwnedBy taskID: UUID) {
+        refreshLock.withLock {
+            guard refreshTaskID == taskID else { return }
+            refreshTask = nil
+            refreshTaskID = nil
+        }
+    }
+
+    /// Validates newly issued credentials and publishes them as one owned session.
+    /// No durable or observable authentication state changes before `/auth/me`
+    /// confirms that the access token belongs to the expected user.
     @discardableResult
-    private func saveTokens(_ response: AuthResponse) throws -> UInt64 {
+    func commitAuthenticatedSession(
+        _ response: AuthResponse,
+        provider: String,
+        appleUserIdentifier: String? = nil,
+        operationGeneration: UInt64? = nil,
+        expectedSessionGeneration: UInt64? = nil,
+        isOperationCurrent: () -> Bool = { true },
+        onCommitted: () -> Void = {}
+    ) async throws -> UInt64 {
+        let startingSessionGeneration = expectedSessionGeneration ?? authSessionGeneration
+        guard startingSessionGeneration == authSessionGeneration, isOperationCurrent() else {
+            throw CancellationError()
+        }
+
+        // The latest valid sign-in attempt owns publication. Replacing this ID
+        // makes an older validator fail its post-await ownership check without
+        // allowing its defer to clear the newer attempt's resolving state.
+        let commitID = UUID()
+        activeAuthenticationCommitID = commitID
+        activeAuthenticationOperationGeneration = operationGeneration
+        isCommittingAuthenticationSession = true
+        defer {
+            if activeAuthenticationCommitID == commitID {
+                activeAuthenticationCommitID = nil
+                activeAuthenticationOperationGeneration = nil
+                isCommittingAuthenticationSession = false
+            }
+        }
+
+        let user = try await fetchValidatedUser(
+            accessToken: response.accessToken,
+            expectedUserId: response.userId
+        )
+        try Task.checkCancellation()
+        guard activeAuthenticationCommitID == commitID,
+              startingSessionGeneration == authSessionGeneration,
+              isOperationCurrent() else {
+            throw CancellationError()
+        }
+
+        cancelRefreshTask()
+        let committedSessionGeneration = try saveAuthenticationBundle(
+            response,
+            provider: provider,
+            appleUserIdentifier: appleUserIdentifier
+        )
+        onCommitted()
+        publishValidatedUser(user)
+        isAuthenticated = true
+
+        AnalyticsService.shared.logAuthenticated(
+            .authCompleted,
+            properties: ["method": provider, "userId": user.id],
+            accessToken: response.accessToken
+        )
+        OneSignal.login(user.id)
+        Task {
+            await LocalNotificationService.shared.ensureAuthorizedForAuthenticatedUser()
+        }
+        return committedSessionGeneration
+    }
+
+    private func fetchValidatedUser(
+        accessToken: String,
+        expectedUserId: String?
+    ) async throws -> AuthUser {
+        let url = URL(string: "\(baseURL)/auth/me")!
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AuthError.networkError("Invalid response")
+        }
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 401 {
+                throw AuthError.notAuthenticated
+            }
+            throw AuthError.serverError("Failed to fetch user (HTTP \(httpResponse.statusCode))")
+        }
+
+        let user = try JSONDecoder().decode(AuthUser.self, from: data)
+        if let expectedUserId, user.id != expectedUserId {
+            throw AuthError.serverError("Authenticated account did not match the issued session.")
+        }
+        return user
+    }
+
+    private func publishValidatedUser(_ user: AuthUser) {
+        currentUser = user
+        needsProfileCompletion = user.needsProfileCompletion
+        hasValidatedSession = true
+        pendingPhoneLink = nil
+    }
+
+    /// Saves the complete restorable identity atomically. Provider metadata is
+    /// part of the credential bundle because cold-start validation depends on it.
+    @discardableResult
+    private func saveAuthenticationBundle(
+        _ response: AuthResponse,
+        provider: String,
+        appleUserIdentifier: String?
+    ) throws -> UInt64 {
+        if provider == "apple" && (appleUserIdentifier?.isEmpty != false) {
+            throw AuthError.keychainSaveFailed
+        }
         try tokenLock.withLock {
-            // Write all auth values with rollback to avoid partial-keychain state.
             let expiry = Date.now.addingTimeInterval(TimeInterval(response.expiresIn))
-            let values: [(String, String)] = [
+            let values: [(String, String?)] = [
                 (Self.accessTokenKey, response.accessToken),
                 (Self.refreshTokenKey, response.refreshToken),
                 (Self.userIdKey, response.userId),
-                (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
+                (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970)),
+                (Self.authProviderKey, provider),
+                (Self.appleUserIdKey, provider == "apple" ? appleUserIdentifier : nil)
             ]
 
-            guard saveAuthValuesWithRollback(values) else {
-                print("[Auth] ERROR: Failed to save tokens to keychain")
+            guard saveAuthChangesWithRollback(values) else {
+                print("[Auth] ERROR: Failed to save authentication bundle to keychain")
                 throw AuthError.keychainSaveFailed
             }
 
@@ -2167,22 +2430,31 @@ class AuthManager {
             cachedUserId = response.userId
         }
 
-        // Transfer observable ownership only after the complete credential set
-        // is durable. A failed Keychain write rolls back to the previous session
-        // and must not invalidate that session's in-flight work.
         authSessionGeneration &+= 1
         currentUser = nil
         hasValidatedSession = false
         needsProfileCompletion = false
 
-        print("[Auth] All tokens saved successfully")
+        print("[Auth] Authentication bundle saved successfully")
         return authSessionGeneration
     }
 
     /// Saves refreshed tokens atomically using tokenLock
     /// This prevents race conditions where another thread reads partial state
-    private func saveRefreshedTokens(_ response: RefreshResponse) throws {
+    private func saveRefreshedTokens(
+        _ response: RefreshResponse,
+        expectedRefreshToken: String,
+        expectedSessionGeneration: UInt64
+    ) throws {
+        guard expectedSessionGeneration == authSessionGeneration else {
+            throw CancellationError()
+        }
         try tokenLock.withLock {
+            let currentRefreshToken = cachedRefreshToken
+                ?? KeychainHelper.loadString(key: Self.refreshTokenKey)
+            guard currentRefreshToken == expectedRefreshToken else {
+                throw CancellationError()
+            }
             let expiry = Date.now.addingTimeInterval(TimeInterval(response.expiresIn))
             let values: [(String, String)] = [
                 (Self.accessTokenKey, response.accessToken),
@@ -2206,6 +2478,16 @@ class AuthManager {
     /// Saves a batch of auth values and restores previous values if any write fails.
     /// Must be called with `tokenLock` already held.
     private func saveAuthValuesWithRollback(_ values: [(String, String)]) -> Bool {
+        saveAuthChangesWithRollback(values.map { ($0.0, Optional($0.1)) })
+    }
+
+    private func saveAuthChangesWithRollback(_ values: [(String, String?)]) -> Bool {
+        guard KeychainHelper.saveString(
+            key: Self.authBundleMutationMarkerKey,
+            value: UUID().uuidString
+        ) else {
+            return false
+        }
         var previousValues: [String: String?] = [:]
         previousValues.reserveCapacity(values.count)
 
@@ -2214,34 +2496,38 @@ class AuthManager {
         }
 
         for (key, value) in values {
-            guard KeychainHelper.saveString(key: key, value: value) else {
+            let saved: Bool
+            if let value {
+                saved = KeychainHelper.saveString(key: key, value: value)
+            } else {
+                saved = KeychainHelper.delete(key: key)
+            }
+            guard saved else {
                 print("[Auth] Keychain write failed for \(key), restoring previous auth values")
-                for (rollbackKey, previousValue) in previousValues {
-                    if let previousValue {
-                        _ = KeychainHelper.saveString(key: rollbackKey, value: previousValue)
-                    } else {
-                        KeychainHelper.delete(key: rollbackKey)
-                    }
+                if restoreAuthValues(previousValues) {
+                    KeychainHelper.delete(key: Self.authBundleMutationMarkerKey)
                 }
                 return false
             }
         }
 
+        guard KeychainHelper.delete(key: Self.authBundleMutationMarkerKey) else {
+            _ = restoreAuthValues(previousValues)
+            return false
+        }
         return true
     }
 
-    private func setAuthProvider(_ provider: String) {
-        let saved = KeychainHelper.saveString(key: Self.authProviderKey, value: provider)
-        if !saved {
-            print("[Auth] ERROR: Failed to save auth provider \(provider)")
+    private func restoreAuthValues(_ values: [String: String?]) -> Bool {
+        values.reduce(true) { restored, item in
+            let itemRestored: Bool
+            if let previousValue = item.value {
+                itemRestored = KeychainHelper.saveString(key: item.key, value: previousValue)
+            } else {
+                itemRestored = KeychainHelper.delete(key: item.key)
+            }
+            return restored && itemRestored
         }
-        // Funnel analytics: called from fresh sign-in paths only (apple / phone /
-        // social), not from keychain session restoration — gives strict
-        // conversion semantics in Amplitude/Firebase.
-        AnalyticsService.shared.log(
-            .authCompleted,
-            properties: ["method": provider]
-        )
     }
 }
 

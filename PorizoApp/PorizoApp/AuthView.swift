@@ -11,6 +11,24 @@ import AuthenticationServices
 import Security
 import UIKit
 
+enum AuthenticationPresentationPolicy {
+    enum Content: Equatable {
+        case progress
+        case pendingMagicLogin
+        case emailEntry
+    }
+
+    static func content(isCommitting: Bool, hasPendingMagicLogin: Bool) -> Content {
+        if isCommitting { return .progress }
+        if hasPendingMagicLogin { return .pendingMagicLogin }
+        return .emailEntry
+    }
+
+    static func shouldRenderMain(isAuthenticated: Bool, isCommitting: Bool) -> Bool {
+        isAuthenticated && !isCommitting
+    }
+}
+
 // MARK: - AuthView
 
 /// Sign-in view with platform-bound passwordless email authentication.
@@ -37,7 +55,11 @@ struct AuthView: View {
             DesignTokens.background.ignoresSafeArea()
 
             ScrollView {
-                if authManager.isCommittingMagicLoginSession {
+                switch AuthenticationPresentationPolicy.content(
+                    isCommitting: authManager.isCommittingAuthenticationSession,
+                    hasPendingMagicLogin: loginPresentation != nil
+                ) {
+                case .progress:
                     VStack(spacing: DesignTokens.spacing16) {
                         Spacer(minLength: 120)
                         ProgressView()
@@ -46,8 +68,15 @@ struct AuthView: View {
                         Spacer(minLength: 120)
                     }
                     .frame(maxWidth: .infinity)
-                } else if let presentation = loginPresentation {
+                case .pendingMagicLogin:
+                    if let presentation = loginPresentation {
                     VStack(spacing: DesignTokens.spacing16) {
+                        if let error = errorMessage {
+                            errorBanner(error)
+                                .padding(.horizontal, DesignTokens.spacing20)
+                                .padding(.top, DesignTokens.spacing16)
+                        }
+
                         CheckEmailView(
                             context: presentation,
                             state: authManager.magicLoginState,
@@ -64,7 +93,8 @@ struct AuthView: View {
                             .padding(.horizontal, DesignTokens.spacing20)
                             .padding(.bottom, DesignTokens.spacing32)
                     }
-                } else {
+                    }
+                case .emailEntry:
                     VStack(spacing: 0) {
                         Spacer(minLength: 24)
 

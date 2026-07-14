@@ -178,7 +178,6 @@ struct RootView: View {
     // Persists across cold launches so tapping "Later" on the recommended-update
     // sheet actually suppresses re-prompts until a newer version arrives.
     @AppStorage("dismissedRecommendedUpdateVersion") private var dismissedRecommendedUpdateVersion: String = ""
-    @State private var profileCompletionContext: ProfileCompletionContext?
     @AppStorage("onboardingCompletionVersion") private var onboardingCompletionVersion = 0
     @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
     @AppStorage("pendingOccasion") private var pendingOccasion = ""
@@ -199,9 +198,6 @@ struct RootView: View {
     @State private var launchFlashShownAt: Date?
     @State private var previousScenePhase: ScenePhase = .active
     @Environment(\.scenePhase) private var scenePhase
-    // Persists across cold launches so dismissing the sheet suppresses it for 7 days
-    // instead of re-firing every app start. Stored as Unix epoch; 0 means never skipped.
-    @AppStorage("profileCompletionSkippedAtEpoch") private var profileCompletionSkippedAtEpoch: Double = 0
     @State private var appConfigState = RootAppConfigState()
 
     // Configuration
@@ -263,11 +259,6 @@ struct RootView: View {
         let contentKind: String
     }
 
-    struct ProfileCompletionContext: Identifiable {
-        let id = UUID()
-        let apiClient: APIClient
-    }
-
     var body: some View {
         Group {
             switch renderedAppState {
@@ -293,8 +284,6 @@ struct RootView: View {
                         apiClient = client
                         apiClientReady = true
                         apiWrapper = APIClientWrapper(client: client)
-                        syncProfileCompletionContext()
-
                         // Initialize STT router with the authenticated API client
                         let router = STTRouter(apiClient: client)
                         sttRouter = router
@@ -467,15 +456,6 @@ struct RootView: View {
             )
             .environment(authManager)
         }
-        .sheet(item: $profileCompletionContext, onDismiss: {
-            if authManager.needsProfileCompletion {
-                profileCompletionSkippedAtEpoch = Date().timeIntervalSince1970
-                authManager.dismissProfileCompletion()
-            }
-        }) { context in
-            ProfileCompletionView(apiClient: context.apiClient)
-                .environment(authManager)
-        }
         .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
             // Handle render completion at app level (e.g., from push notification)
             // Views like MySongsView will also receive this and refresh their data
@@ -507,8 +487,6 @@ struct RootView: View {
                         isAuthenticated: true
                     )
                 }
-                profileCompletionSkippedAtEpoch = 0
-                syncProfileCompletionContext()
                 authContextMessage = nil
                 if appState == .launchFlash {
                     dismissLaunchFlash(reason: "auth_change", routeOverride: .main, shouldLog: true)
@@ -518,14 +496,13 @@ struct RootView: View {
                     self.pendingShareId = nil
                     self.pendingShareIsPoem = false
                 }
-                if appState == .auth && !authManager.isCommittingMagicLoginSession {
+                if appState == .auth && !authManager.isCommittingAuthenticationSession {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         appState = .main
                     }
                 }
             } else if hasCompletedOnboardingFlow && !skipAuth && appState != .auth {
                 clearPendingCreateContext()
-                profileCompletionContext = nil
                 authContextMessage = nil
                 if appState == .launchFlash {
                     dismissLaunchFlash(reason: "auth_change", routeOverride: .auth, shouldLog: true)
@@ -536,10 +513,7 @@ struct RootView: View {
                 }
             }
         }
-        .onChange(of: authManager.needsProfileCompletion) { _, _ in
-            syncProfileCompletionContext()
-        }
-        .onChange(of: authManager.isCommittingMagicLoginSession) { _, isCommitting in
+        .onChange(of: authManager.isCommittingAuthenticationSession) { _, isCommitting in
             guard !isCommitting,
                   authManager.isAuthenticated,
                   appState == .auth else { return }
@@ -548,7 +522,6 @@ struct RootView: View {
             }
         }
         .onChange(of: apiClientReady) { _, _ in
-            syncProfileCompletionContext()
             Task {
                 await AppleAdsAttributionService.submitPendingIfPossible(
                     using: apiClient,
@@ -618,8 +591,10 @@ struct RootView: View {
     /// for an animation frame after a session has already been committed.
     private var renderedAppState: RootState {
         if appState == .auth,
-           authManager.isAuthenticated,
-           !authManager.isCommittingMagicLoginSession {
+           AuthenticationPresentationPolicy.shouldRenderMain(
+               isAuthenticated: authManager.isAuthenticated,
+               isCommitting: authManager.isCommittingAuthenticationSession
+           ) {
             return .main
         }
         return appState
@@ -698,7 +673,6 @@ struct RootView: View {
                 appState = .auth
             }
         }
-        syncProfileCompletionContext()
     }
 
     private func skipOnboardingV2(_ partial: PartialOnboardingResult?) {
@@ -940,7 +914,6 @@ struct RootView: View {
                 let completed = await authManager.refreshMagicLoginStatus()
                 if completed && authManager.isAuthenticated {
                     authContextMessage = nil
-                    profileCompletionContext = nil
                     appState = .main
                 }
             }
@@ -987,31 +960,6 @@ struct RootView: View {
         appState = nextStateAfterSplash()
     }
 
-    private func syncProfileCompletionContext() {
-        // Suppress the sheet for 7 days after the user dismisses it, so users who
-        // genuinely have nothing on file still have a path to "skip and get on with it"
-        // without being re-prompted on every cold launch.
-        let skipWindowSeconds: TimeInterval = 7 * 24 * 60 * 60
-        let secondsSinceSkip = Date().timeIntervalSince1970 - profileCompletionSkippedAtEpoch
-        // Reject negative deltas (device clock moved backward) so a rollback can't
-        // indefinitely extend the suppression.
-        let isWithinSkipWindow = profileCompletionSkippedAtEpoch > 0
-            && secondsSinceSkip >= 0
-            && secondsSinceSkip < skipWindowSeconds
-
-        guard receiverClaimContext == nil,
-              authManager.needsProfileCompletion,
-              !isWithinSkipWindow,
-              let client = apiClient else {
-            profileCompletionContext = nil
-            return
-        }
-
-        if profileCompletionContext == nil {
-            profileCompletionContext = ProfileCompletionContext(apiClient: client)
-        }
-    }
-
     private var legacyHasCompletedOnboarding: Bool {
         UserDefaults.standard.object(forKey: "hasCompletedOnboarding") as? Bool ?? false
     }
@@ -1055,7 +1003,6 @@ struct RootView: View {
             do {
                 try await client.verifyEmailToken(token)
                 try? await authManager.fetchCurrentUser()
-                profileCompletionContext = nil
                 ToastService.shared.success("Email verified!")
             } catch let error as APIClientError {
                 if case .serverError(_, let code, _) = error, code == "E119_EMAIL_CONFLICT" {
@@ -1080,7 +1027,6 @@ struct RootView: View {
                 _ = await authManager.handleMagicLoginURL(url)
                 if authManager.isAuthenticated {
                     authContextMessage = nil
-                    profileCompletionContext = nil
                     appState = .main
                 } else if appState != .auth {
                     authContextMessage = "Finish signing in with the email link you requested on this device."
@@ -1097,7 +1043,6 @@ struct RootView: View {
                 )
                 if completed && authManager.isAuthenticated {
                     authContextMessage = nil
-                    profileCompletionContext = nil
                     appState = .main
                 } else if !authManager.isAuthenticated && appState != .auth {
                     authContextMessage = "Finish signing in from the link you opened on this device."
@@ -1179,7 +1124,6 @@ struct RootView: View {
                 return
             }
 
-            profileCompletionContext = nil
             authContextMessage = nil
             if appState == .launchFlash {
                 dismissLaunchFlash(reason: "receiver_deep_link", routeOverride: routeToMainOrAuth(), shouldLog: true)
@@ -1221,7 +1165,6 @@ struct RootView: View {
         // This routes splash → main/auth instead of onboardingV2; the claim sheet then
         // presents over it (sign-in happens inside the sheet for new users).
         markOnboardingCompleted()
-        profileCompletionContext = nil
         receiverClaimContext = ReceiverClaimContext(
             claimToken: draft.claimToken,
             receiverSessionId: draft.receiverSessionId,
