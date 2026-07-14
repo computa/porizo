@@ -270,7 +270,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            switch appState {
+            switch renderedAppState {
             case .splash:
                 SplashView()
                     .onAppear {
@@ -518,7 +518,7 @@ struct RootView: View {
                     self.pendingShareId = nil
                     self.pendingShareIsPoem = false
                 }
-                if appState == .auth {
+                if appState == .auth && !authManager.isCommittingMagicLoginSession {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         appState = .main
                     }
@@ -538,6 +538,14 @@ struct RootView: View {
         }
         .onChange(of: authManager.needsProfileCompletion) { _, _ in
             syncProfileCompletionContext()
+        }
+        .onChange(of: authManager.isCommittingMagicLoginSession) { _, isCommitting in
+            guard !isCommitting,
+                  authManager.isAuthenticated,
+                  appState == .auth else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                appState = .main
+            }
         }
         .onChange(of: apiClientReady) { _, _ in
             syncProfileCompletionContext()
@@ -603,6 +611,18 @@ struct RootView: View {
             )
             .presentationDetents([.medium])
         }
+    }
+
+    /// Authentication is the authoritative routing signal. `appState` catches
+    /// up through its observer, but rendering must not leave AuthView mounted
+    /// for an animation frame after a session has already been committed.
+    private var renderedAppState: RootState {
+        if appState == .auth,
+           authManager.isAuthenticated,
+           !authManager.isCommittingMagicLoginSession {
+            return .main
+        }
+        return appState
     }
 
     // MARK: - Computed Bindings (extracted from presentation modifiers)

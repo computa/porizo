@@ -119,7 +119,7 @@ describe("magic login service", () => {
     assert.equal(replay.status, "invalid");
   });
 
-  it("recovers a committed result once for the original requester", async () => {
+  it("keeps a committed result recoverable for the original requester during the recovery window", async () => {
     const created = await service.createTransaction({
       email: "person@example.com",
       platform: "android",
@@ -148,16 +148,14 @@ describe("magic login service", () => {
       status: "recovered",
       result: { sessionId: "session-recover" },
     });
-    assert.equal(
-      (
-        await service.exchange({
-          transactionId: created.transactionId,
-          platform: "android",
-          linkSecret: created.linkSecret,
-          requestSecret: created.requestSecret,
-        })
-      ).status,
-      "invalid",
+    assert.deepEqual(
+      await service.exchange({
+        transactionId: created.transactionId,
+        platform: "android",
+        linkSecret: created.linkSecret,
+        requestSecret: created.requestSecret,
+      }),
+      recovered,
     );
   });
 
@@ -242,6 +240,14 @@ describe("magic login service", () => {
       status: "recovered",
       result: { sessionId: "session-response-loss" },
     });
+    assert.deepEqual(await service.completeApproved({
+      transactionId: created.transactionId,
+      platform: "ios",
+      requestSecret: created.requestSecret,
+    }), {
+      status: "recovered",
+      result: { sessionId: "session-response-loss" },
+    });
   });
 
   it("does not approve with the wrong link factor", async () => {
@@ -289,6 +295,40 @@ describe("magic login service", () => {
     assert.equal(
       await repository.countActive({ emailNormalized: "caps@example.com" }, now.toISOString()),
       0,
+    );
+  });
+
+  it("requires account and session binding together for add-email transactions", async () => {
+    await assert.rejects(
+      service.createTransaction({
+        email: "binding@example.com",
+        platform: "ios",
+        purpose: "add_email",
+        requesterKey: "binding-device",
+        accountId: "account-only",
+      }),
+      /INVALID_MAGIC_LOGIN_SESSION_BINDING/,
+    );
+  });
+
+  it("rejects oversized transaction and secret values before repository work", async () => {
+    assert.deepEqual(
+      await service.exchange({
+        transactionId: "x".repeat(129),
+        platform: "ios",
+        linkSecret: "link",
+        requestSecret: "request",
+      }),
+      { status: "invalid" },
+    );
+    assert.deepEqual(
+      await service.exchange({
+        transactionId: "valid-id",
+        platform: "ios",
+        linkSecret: "x".repeat(513),
+        requestSecret: "request",
+      }),
+      { status: "invalid" },
     );
   });
 });

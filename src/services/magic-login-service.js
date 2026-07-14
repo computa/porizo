@@ -5,6 +5,8 @@ const crypto = require("node:crypto");
 const MAGIC_LOGIN_TTL_MS = 15 * 60 * 1000;
 const MAGIC_LOGIN_RECOVERY_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 5;
+const MAX_TRANSACTION_ID_LENGTH = 128;
+const MAX_SECRET_LENGTH = 512;
 const PLATFORMS = new Set(["ios", "android", "web"]);
 const PURPOSES = new Set(["login", "register", "add_email"]);
 
@@ -21,10 +23,22 @@ function normalizeEmail(email) {
 }
 
 function requireSecret(value) {
-  if (typeof value !== "string" || value.length === 0) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_SECRET_LENGTH
+  ) {
     return null;
   }
   return hashValue(value);
+}
+
+function validTransactionId(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_TRANSACTION_ID_LENGTH
+  );
 }
 
 function recoveryKey() {
@@ -97,11 +111,15 @@ function createMagicLoginService({
     requesterKey,
     ipAddress = null,
     accountId = null,
+    authorizingSessionId = null,
   }) {
     if (!PLATFORMS.has(platform)) throw new Error("INVALID_MAGIC_LOGIN_PLATFORM");
     if (!PURPOSES.has(purpose)) throw new Error("INVALID_MAGIC_LOGIN_PURPOSE");
     if ((purpose === "add_email") !== Boolean(accountId)) {
       throw new Error("INVALID_MAGIC_LOGIN_ACCOUNT_BINDING");
+    }
+    if ((purpose === "add_email") !== Boolean(authorizingSessionId)) {
+      throw new Error("INVALID_MAGIC_LOGIN_SESSION_BINDING");
     }
 
     const createdAtDate = now();
@@ -117,6 +135,7 @@ function createMagicLoginService({
       purpose,
       emailNormalized: normalizeEmail(email),
       accountId,
+      authorizingSessionId,
       linkSecretHash: hashValue(linkSecret),
       requestSecretHash: hashValue(requestSecret),
       requesterKeyHash: hashRequesterKey(requesterKey),
@@ -141,7 +160,9 @@ function createMagicLoginService({
     requestSecret,
     consume = async () => ({}),
   }) {
-    if (!transactionId || !PLATFORMS.has(platform)) return { status: "invalid" };
+    if (!validTransactionId(transactionId) || !PLATFORMS.has(platform)) {
+      return { status: "invalid" };
+    }
     const linkSecretHash = requireSecret(linkSecret);
     const requestSecretHash = requireSecret(requestSecret);
     if (!linkSecretHash || !requestSecretHash) return { status: "invalid" };
@@ -207,7 +228,11 @@ function createMagicLoginService({
   }
 
   async function approve({ transactionId, platform, linkSecret }) {
-    if (!transactionId || !PLATFORMS.has(platform) || platform === "web") {
+    if (
+      !validTransactionId(transactionId) ||
+      !PLATFORMS.has(platform) ||
+      platform === "web"
+    ) {
       return { status: "invalid" };
     }
     const linkSecretHash = requireSecret(linkSecret);
@@ -234,7 +259,11 @@ function createMagicLoginService({
   }
 
   async function status({ transactionId, platform, requestSecret }) {
-    if (!transactionId || !PLATFORMS.has(platform) || platform === "web") {
+    if (
+      !validTransactionId(transactionId) ||
+      !PLATFORMS.has(platform) ||
+      platform === "web"
+    ) {
       return { status: "invalid" };
     }
     const requestSecretHash = requireSecret(requestSecret);
@@ -266,7 +295,11 @@ function createMagicLoginService({
     requestSecret,
     consume = async () => ({}),
   }) {
-    if (!transactionId || !PLATFORMS.has(platform) || platform === "web") {
+    if (
+      !validTransactionId(transactionId) ||
+      !PLATFORMS.has(platform) ||
+      platform === "web"
+    ) {
       return { status: "invalid" };
     }
     const requestSecretHash = requireSecret(requestSecret);

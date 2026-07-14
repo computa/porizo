@@ -421,6 +421,20 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
     request,
   ) {
     if (transaction.purpose === "add_email") {
+      const txSessionRepository = createAuthSessionRepository(
+        transactionRepository.db,
+      );
+      const authorizingSession =
+        transaction.authorizingSessionId &&
+        (await txSessionRepository.findActiveSession({
+          userId: transaction.accountId,
+          sessionId: transaction.authorizingSessionId,
+        }));
+      if (!authorizingSession) {
+        const error = new Error("MAGIC_LOGIN_AUTHORIZATION_EXPIRED");
+        error.code = "MAGIC_LOGIN_AUTHORIZATION_EXPIRED";
+        throw error;
+      }
       const txIdentityRepository = createIdentityRepository(
         transactionRepository.db,
       );
@@ -781,6 +795,7 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
         requesterKey,
         ipAddress: getClientIp(request),
         accountId: request.userId,
+        authorizingSessionId: request.sessionId,
       });
       if (emailService.isConfigured()) {
         emailService
@@ -2460,6 +2475,10 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       await authService.revokeAllRefreshTokensForUser(payload.sub);
 
       await authRouteSessionRepository.revokeActiveSessionsForUser(payload.sub);
+      await magicLoginRepository.expirePendingAddEmailForAccount({
+        accountId: payload.sub,
+        expiredAt: new Date().toISOString(),
+      });
 
       // Log logout
       await authService.logAuthEvent({
@@ -3302,6 +3321,10 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       }
 
       await authService.revokeSession(sessionId);
+      await magicLoginRepository.expirePendingAddEmailForSession({
+        sessionId,
+        expiredAt: new Date().toISOString(),
+      });
 
       return reply.send({ message: "Session revoked successfully." });
     },

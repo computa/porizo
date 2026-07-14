@@ -14,6 +14,7 @@ function mapTransaction(row) {
     purpose: row.purpose,
     emailNormalized: row.email_normalized,
     accountId: row.account_id,
+    authorizingSessionId: row.authorizing_session_id,
     linkSecretHash: row.link_secret_hash,
     requestSecretHash: row.request_secret_hash,
     requesterKeyHash: row.requester_key_hash,
@@ -48,15 +49,17 @@ function createMagicLoginRepository(db) {
       db,
       `INSERT INTO magic_login_transactions (
          id, platform, purpose, email_normalized, account_id,
+         authorizing_session_id,
          link_secret_hash, request_secret_hash, requester_key_hash,
          ip_address_hash, max_attempts, created_at, expires_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         transaction.id,
         transaction.platform,
         transaction.purpose,
         transaction.emailNormalized,
         transaction.accountId,
+        transaction.authorizingSessionId,
         transaction.linkSecretHash,
         transaction.requestSecretHash,
         transaction.requesterKeyHash,
@@ -182,39 +185,30 @@ function createMagicLoginRepository(db) {
     requestSecretHash,
     claimedAt,
   }) {
-    const result = await dbRun(
-      db,
-      `UPDATE magic_login_transactions
-          SET recovery_claimed_at = ?
-        WHERE id = ? AND platform = ? AND status = 'consumed'
-          AND link_secret_hash = ? AND recovery_request_hash = ?
-          AND recovery_result_json IS NOT NULL
-          AND recovery_expires_at > ? AND recovery_claimed_at IS NULL`,
-      [
-        claimedAt,
-        id,
-        platform,
-        linkSecretHash,
-        requestSecretHash,
-        claimedAt,
-      ],
+    return mapTransaction(
+      await dbGet(
+        db,
+        `SELECT * FROM magic_login_transactions
+          WHERE id = ? AND platform = ? AND status = 'consumed'
+            AND link_secret_hash = ? AND recovery_request_hash = ?
+            AND recovery_result_json IS NOT NULL
+            AND recovery_expires_at > ?`,
+        [id, platform, linkSecretHash, requestSecretHash, claimedAt],
+      ),
     );
-    if (result.changes !== 1) return null;
-    return findById(id);
   }
 
   async function claimNativeRecovery({ id, platform, requestSecretHash, claimedAt }) {
-    const result = await dbRun(
-      db,
-      `UPDATE magic_login_transactions
-          SET recovery_claimed_at = ?
-        WHERE id = ? AND platform = ? AND status = 'consumed'
-          AND recovery_request_hash = ? AND recovery_result_json IS NOT NULL
-          AND recovery_expires_at > ? AND recovery_claimed_at IS NULL`,
-      [claimedAt, id, platform, requestSecretHash, claimedAt],
+    return mapTransaction(
+      await dbGet(
+        db,
+        `SELECT * FROM magic_login_transactions
+          WHERE id = ? AND platform = ? AND status = 'consumed'
+            AND recovery_request_hash = ? AND recovery_result_json IS NOT NULL
+            AND recovery_expires_at > ?`,
+        [id, platform, requestSecretHash, claimedAt],
+      ),
     );
-    if (result.changes !== 1) return null;
-    return findById(id);
   }
 
   async function countActive(filters, at) {
@@ -281,6 +275,28 @@ function createMagicLoginRepository(db) {
     return marked.changes;
   }
 
+  async function expirePendingAddEmailForSession({ sessionId, expiredAt }) {
+    return dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET status = 'expired', expires_at = ?
+        WHERE purpose = 'add_email' AND status = 'pending'
+          AND authorizing_session_id = ?`,
+      [expiredAt, sessionId],
+    );
+  }
+
+  async function expirePendingAddEmailForAccount({ accountId, expiredAt }) {
+    return dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET status = 'expired', expires_at = ?
+        WHERE purpose = 'add_email' AND status = 'pending'
+          AND account_id = ?`,
+      [expiredAt, accountId],
+    );
+  }
+
   async function withTransaction(callback) {
     return db.transaction(async (query) => {
       const transactionDb = createPreparedDbFromQuery(query, db);
@@ -303,6 +319,8 @@ function createMagicLoginRepository(db) {
     countActive,
     findRecentActive,
     cleanupExpired,
+    expirePendingAddEmailForSession,
+    expirePendingAddEmailForAccount,
     withTransaction,
   };
 }

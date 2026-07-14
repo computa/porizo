@@ -35,7 +35,9 @@ struct MagicLoginLink: Equatable, Sendable {
               queryItems.count == 1,
               fragmentItems.count == 1,
               !transactionValues[0].isEmpty,
-              !secretValues[0].isEmpty else { return nil }
+              transactionValues[0].count <= 128,
+              !secretValues[0].isEmpty,
+              secretValues[0].count <= 512 else { return nil }
         return MagicLoginLink(transactionId: transactionValues[0], linkSecret: secretValues[0])
     }
 }
@@ -59,7 +61,8 @@ struct MagicLoginResumeLink: Equatable, Sendable {
             .compactMap(\.value)
         guard queryItems.count == 1,
               transactionValues.count == 1,
-              !transactionValues[0].isEmpty else { return nil }
+              !transactionValues[0].isEmpty,
+              transactionValues[0].count <= 128 else { return nil }
         return MagicLoginResumeLink(transactionId: transactionValues[0])
     }
 }
@@ -234,6 +237,7 @@ class AuthManager {
     private(set) var needsProfileCompletion: Bool = false
     private(set) var magicLoginState: MagicLoginState = .idle
     private(set) var pendingMagicLoginPresentation: MagicLoginPresentation?
+    private(set) var isCommittingMagicLoginSession = false
 
     /// Phone authentication flow state
     private(set) var phoneAuthState: PhoneAuthState = .idle
@@ -288,7 +292,7 @@ class AuthManager {
 
     @ObservationIgnored private let baseURL: String
     @ObservationIgnored private let session: URLSession
-    @ObservationIgnored private lazy var magicAPIClient = APIClient(baseURL: baseURL)
+    @ObservationIgnored private let magicAPIClient: any MagicLoginAPI
 
     // Keychain keys
     private static let accessTokenKey = "porizo_access_token"
@@ -330,10 +334,15 @@ class AuthManager {
     @ObservationIgnored private var credentialRevokedObserver: NSObjectProtocol?
     @ObservationIgnored private var protectedDataObserver: NSObjectProtocol?
     @ObservationIgnored private var magicStatusTask: Task<Bool, Never>?
-    @ObservationIgnored private var isDirectMagicExchangeInFlight = false
+    @ObservationIgnored private var magicStatusTaskId: UUID?
+    @ObservationIgnored private var directMagicExchangeTask: Task<Bool, Never>?
+    @ObservationIgnored private var directMagicExchangeTaskId: UUID?
+    @ObservationIgnored private var directMagicExchangeLink: MagicLoginLink?
+    @ObservationIgnored private var deferredMagicLoginURL: URL?
+    @ObservationIgnored private var magicOperationGeneration: UInt64 = 0
+    @ObservationIgnored private var authSessionGeneration: UInt64 = 0
     @ObservationIgnored private var isMagicRequestInFlight = false
     @ObservationIgnored private var initialAuthRestorationCompleted = false
-    @ObservationIgnored private var initialAuthRestorationWaiters: [CheckedContinuation<Void, Never>] = []
 
     // MARK: - Protected Data Handling (iOS 15+ Fix)
 
@@ -378,8 +387,9 @@ class AuthManager {
 
     // MARK: - Initialization
 
-    init(baseURL: String? = nil) {
+    init(baseURL: String? = nil, magicAPIClient: (any MagicLoginAPI)? = nil) {
         self.baseURL = baseURL ?? AppConfig.apiBaseURL
+        self.magicAPIClient = magicAPIClient ?? APIClient(baseURL: self.baseURL)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
@@ -424,7 +434,9 @@ class AuthManager {
         }
         isMagicRequestInFlight = true
         defer { isMagicRequestInFlight = false }
-        cancelMagicStatusRefresh()
+        cancelMagicOperations()
+        let generation = magicOperationGeneration
+        let sessionGeneration = authSessionGeneration
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard normalizedEmail.contains("@") else {
             magicLoginState = .serverError
@@ -435,12 +447,14 @@ class AuthManager {
 
         do {
             let bearer = purpose == .addEmail ? try await getAccessToken() : nil
+            guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return }
             let response = try await magicAPIClient.requestMagicLogin(
                 email: normalizedEmail,
                 purpose: purpose,
                 requesterKey: requesterKey,
                 bearerToken: bearer
             )
+            guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return }
             guard let expiresAt = Self.parseServerDate(response.expiresAt) else {
                 throw AuthError.serverError("The sign-in link had an invalid expiry.")
             }
@@ -473,7 +487,13 @@ class AuthManager {
             }
             pendingMagicLoginPresentation = presentation
             magicLoginState = .sent(email: normalizedEmail)
+            if let deferredURL = deferredMagicLoginURL {
+                deferredMagicLoginURL = nil
+                isMagicRequestInFlight = false
+                _ = await handleMagicLoginURL(deferredURL)
+            }
         } catch {
+            guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return }
             magicLoginState = Self.magicFailureState(for: error)
             throw error
         }
@@ -482,21 +502,64 @@ class AuthManager {
     @discardableResult
     func handleMagicLoginURL(_ url: URL) async -> Bool {
         guard let link = MagicLoginLink.parse(url) else { return false }
-        // A scene-phase status poll is frequently in flight when the link is
-        // tapped. Cancel it and drain it so it cannot mutate state underneath
-        // us — but NEVER let its result short-circuit this handler. The link
-        // secret is the authoritative sign-in signal, so an opened URL must
-        // always proceed to the direct exchange below. (Previously a poll that
-        // happened to resolve "terminal" made the FIRST tap return early
-        // without exchanging, so the user had to tap twice.)
-        if let magicStatusTask {
-            magicStatusTask.cancel()
-            _ = await magicStatusTask.value
-            self.magicStatusTask = nil
+
+        // The requester secret is persisted only when /request returns. An
+        // unusually fast email tap can beat that response, so retain the URL
+        // and consume it immediately after the request transaction is durable.
+        if isMagicRequestInFlight {
+            deferredMagicLoginURL = url
+            return true
         }
-        guard !isDirectMagicExchangeInFlight else { return true }
-        isDirectMagicExchangeInFlight = true
-        defer { isDirectMagicExchangeInFlight = false }
+
+        if let activeTask = directMagicExchangeTask {
+            if directMagicExchangeLink == link {
+                return await activeTask.value
+            }
+
+            // Exchanges are side-effecting server transactions. Serialize a
+            // different link behind the current one instead of cancelling a
+            // request that the server may already have consumed.
+            let activeTaskId = directMagicExchangeTaskId
+            _ = await activeTask.value
+            if directMagicExchangeTaskId == activeTaskId {
+                directMagicExchangeTask = nil
+                directMagicExchangeTaskId = nil
+                directMagicExchangeLink = nil
+            }
+            if isAuthenticated { return true }
+        }
+
+        cancelMagicOperations()
+        let generation = magicOperationGeneration
+        let sessionGeneration = authSessionGeneration
+        let taskId = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.performDirectMagicLoginExchange(
+                link,
+                generation: generation,
+                sessionGeneration: sessionGeneration
+            )
+        }
+        directMagicExchangeTask = task
+        directMagicExchangeTaskId = taskId
+        directMagicExchangeLink = link
+
+        let result = await task.value
+        if directMagicExchangeTaskId == taskId {
+            directMagicExchangeTask = nil
+            directMagicExchangeTaskId = nil
+            directMagicExchangeLink = nil
+        }
+        return result
+    }
+
+    private func performDirectMagicLoginExchange(
+        _ link: MagicLoginLink,
+        generation: UInt64,
+        sessionGeneration: UInt64
+    ) async -> Bool {
+        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return true }
         magicLoginState = .opening
         guard let pending = PendingMagicLoginStore.load(transactionId: link.transactionId) else {
             if let presentation = pendingMagicLoginPresentation,
@@ -504,14 +567,22 @@ class AuthManager {
                presentation.expiresAt <= .now {
                 clearMagicLoginPresentation(transactionId: link.transactionId)
                 magicLoginState = .expired
-            } else {
+            } else if pendingMagicLoginPresentation == nil {
                 magicLoginState = .wrongDeviceOrPlatform
+            } else if let presentation = pendingMagicLoginPresentation {
+                magicLoginState = .sent(email: presentation.email)
             }
             return true
         }
         if pending.purpose == .login {
-            await awaitInitialAuthRestoration()
+            guard await awaitInitialAuthRestoration() else {
+                if isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) {
+                    magicLoginState = .serverError
+                }
+                return true
+            }
         }
+        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return true }
         guard canCompleteMagicLogin(pending) else { return true }
 
         magicLoginState = .exchanging
@@ -521,8 +592,14 @@ class AuthManager {
                 linkSecret: link.linkSecret,
                 requestSecret: pending.requestSecret
             )
-            try await finishMagicLogin(response, pending: pending)
+            guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return true }
+            try await finishMagicLogin(
+                response,
+                pending: pending,
+                generation: generation
+            )
         } catch {
+            guard isCurrentMagicOperation(generation), !isAuthenticated else { return true }
             magicLoginState = Self.magicFailureState(for: error)
         }
         return true
@@ -530,21 +607,38 @@ class AuthManager {
 
     @discardableResult
     func refreshMagicLoginStatus(transactionId: String? = nil) async -> Bool {
-        guard !isDirectMagicExchangeInFlight else { return false }
+        guard directMagicExchangeTask == nil, !isMagicRequestInFlight else { return false }
         if let magicStatusTask {
             return await magicStatusTask.value
         }
+        magicOperationGeneration &+= 1
+        let generation = magicOperationGeneration
+        let sessionGeneration = authSessionGeneration
+        let taskId = UUID()
         let task = Task { @MainActor [weak self] in
             guard let self else { return false }
-            return await self.performMagicLoginStatusRefresh(transactionId: transactionId)
+            return await self.performMagicLoginStatusRefresh(
+                transactionId: transactionId,
+                generation: generation,
+                sessionGeneration: sessionGeneration
+            )
         }
         magicStatusTask = task
+        magicStatusTaskId = taskId
         let result = await task.value
-        magicStatusTask = nil
+        if magicStatusTaskId == taskId {
+            magicStatusTask = nil
+            magicStatusTaskId = nil
+        }
         return result
     }
 
-    private func performMagicLoginStatusRefresh(transactionId: String?) async -> Bool {
+    private func performMagicLoginStatusRefresh(
+        transactionId: String?,
+        generation: UInt64,
+        sessionGeneration: UInt64
+    ) async -> Bool {
+        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
         // Once a terminal recovery/error state has been reached (e.g. the direct
         // exchange returned LEGACY_ACCOUNT_RECOVERY_REQUIRED), a racing refresh —
         // typically the scene-phase `.active` trigger — must not re-enter or
@@ -553,9 +647,11 @@ class AuthManager {
         // presentation and flip the state to `.wrongDeviceOrPlatform`, collapsing
         // the recovery screen back to email entry.
         if Self.isTerminalMagicState(magicLoginState) { return true }
-        guard let presentation = pendingMagicLoginPresentation,
-              transactionId == nil || transactionId == presentation.transactionId else {
+        guard let presentation = pendingMagicLoginPresentation else {
             if transactionId != nil { magicLoginState = .wrongDeviceOrPlatform }
+            return false
+        }
+        guard transactionId == nil || transactionId == presentation.transactionId else {
             return false
         }
         guard let pending = PendingMagicLoginStore.load(transactionId: presentation.transactionId) else {
@@ -564,8 +660,14 @@ class AuthManager {
             return true
         }
         if pending.purpose == .login {
-            await awaitInitialAuthRestoration()
+            guard await awaitInitialAuthRestoration() else {
+                if isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) {
+                    magicLoginState = .serverError
+                }
+                return true
+            }
         }
+        guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
         guard canCompleteMagicLogin(pending) else { return true }
 
         do {
@@ -573,7 +675,7 @@ class AuthManager {
                 transactionId: pending.transactionId,
                 requestSecret: pending.requestSecret
             )
-            guard !Task.isCancelled else { return false }
+            guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
             switch response.status {
             case .pending:
                 if magicLoginState != .cooldown(email: pending.email) {
@@ -586,8 +688,12 @@ class AuthManager {
                     transactionId: pending.transactionId,
                     requestSecret: pending.requestSecret
                 )
-                guard !Task.isCancelled else { return false }
-                try await finishMagicLogin(completion, pending: pending)
+                guard isCurrentMagicOperation(generation, sessionGeneration: sessionGeneration) else { return false }
+                try await finishMagicLogin(
+                    completion,
+                    pending: pending,
+                    generation: generation
+                )
                 return true
             case .expired:
                 clearMagicLoginPresentation(transactionId: pending.transactionId)
@@ -601,7 +707,7 @@ class AuthManager {
                 return true
             }
         } catch {
-            guard !Task.isCancelled else { return false }
+            guard isCurrentMagicOperation(generation), !isAuthenticated else { return false }
             magicLoginState = Self.magicFailureState(for: error)
             switch magicLoginState {
             case .expired, .locked, .conflict, .legacyRecovery,
@@ -615,7 +721,7 @@ class AuthManager {
     }
 
     func cancelMagicLogin() {
-        cancelMagicStatusRefresh()
+        cancelMagicOperations()
         if let transactionId = pendingMagicLoginPresentation?.transactionId {
             PendingMagicLoginStore.remove(transactionId: transactionId)
         }
@@ -630,14 +736,16 @@ class AuthManager {
 
     private func finishMagicLogin(
         _ response: MagicLoginExchangeResponse,
-        pending: PendingMagicLogin
+        pending: PendingMagicLogin,
+        generation: UInt64
     ) async throws {
         if pending.purpose == .addEmail {
             guard response.contactVerified == true else {
                 throw AuthError.serverError("The email could not be verified.")
             }
-            clearMagicLoginPresentation(transactionId: pending.transactionId)
             try await fetchCurrentUser()
+            guard isCurrentMagicOperation(generation) else { throw CancellationError() }
+            clearMagicLoginPresentation(transactionId: pending.transactionId)
             magicLoginState = .success
             return
         }
@@ -654,10 +762,13 @@ class AuthManager {
             isNewUser: response.isNewUser ?? false
         )
         try saveTokens(authResponse)
-        clearMagicLoginPresentation(transactionId: pending.transactionId)
         setAuthProvider("email_magic")
+        isCommittingMagicLoginSession = true
+        defer { isCommittingMagicLoginSession = false }
+        try await fetchCurrentUser(expectedUserId: response.userId)
+        guard isCurrentMagicOperation(generation) else { throw CancellationError() }
         isAuthenticated = true
-        try await fetchCurrentUser()
+        clearMagicLoginPresentation(transactionId: pending.transactionId)
         magicLoginState = .success
     }
 
@@ -681,28 +792,42 @@ class AuthManager {
         return true
     }
 
-    private func awaitInitialAuthRestoration() async {
-        guard !initialAuthRestorationCompleted else { return }
-        await withCheckedContinuation { continuation in
-            if initialAuthRestorationCompleted {
-                continuation.resume()
-            } else {
-                initialAuthRestorationWaiters.append(continuation)
-            }
+    private func awaitInitialAuthRestoration() async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(6))
+        while !initialAuthRestorationCompleted {
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(50))
         }
+        return true
     }
 
     private func finishInitialAuthRestoration() {
         guard !initialAuthRestorationCompleted else { return }
         initialAuthRestorationCompleted = true
-        let waiters = initialAuthRestorationWaiters
-        initialAuthRestorationWaiters.removeAll()
-        waiters.forEach { $0.resume() }
     }
 
-    private func cancelMagicStatusRefresh() {
+    private func cancelMagicOperations() {
+        magicOperationGeneration &+= 1
         magicStatusTask?.cancel()
         magicStatusTask = nil
+        magicStatusTaskId = nil
+        directMagicExchangeTask?.cancel()
+        directMagicExchangeTask = nil
+        directMagicExchangeTaskId = nil
+        directMagicExchangeLink = nil
+        deferredMagicLoginURL = nil
+    }
+
+    private func isCurrentMagicOperation(_ generation: UInt64) -> Bool {
+        !Task.isCancelled && generation == magicOperationGeneration
+    }
+
+    private func isCurrentMagicOperation(
+        _ generation: UInt64,
+        sessionGeneration: UInt64
+    ) -> Bool {
+        isCurrentMagicOperation(generation)
+            && sessionGeneration == authSessionGeneration
     }
 
     private static func parseServerDate(_ value: String) -> Date? {
@@ -933,9 +1058,7 @@ class AuthManager {
             cachedAccessToken = storedToken
             return storedToken
         }
-        if let t = token {
-            print("[Auth] getAccessToken returning: \(String(t.prefix(20)))...")
-        } else {
+        if token == nil {
             print("[Auth] getAccessToken: Keychain returned nil!")
         }
         return token
@@ -1018,7 +1141,6 @@ class AuthManager {
             throw AuthError.notAuthenticated
         }
 
-        print("[Auth] ensureValidAccessToken returning: \(String(validToken.prefix(20)))...")
         return validToken
     }
 
@@ -1706,6 +1828,8 @@ class AuthManager {
         Thread.callStackSymbols.prefix(8).forEach { print("[Auth] Stack: \($0)") }
         #endif
 
+        authSessionGeneration &+= 1
+
         // Call logout endpoint (fire and forget)
         let accessTokenForLogout = tokenLock.withLock { () -> String? in
             if let cachedAccessToken, !cachedAccessToken.isEmpty {
@@ -1736,7 +1860,7 @@ class AuthManager {
         KeychainHelper.delete(key: Self.authProviderKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
         KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
-        cancelMagicStatusRefresh()
+        cancelMagicOperations()
         PendingMagicLoginStore.removeAll()
         MagicLoginPresentationStore.remove()
         pendingMagicLoginPresentation = nil
@@ -1766,7 +1890,12 @@ class AuthManager {
 
     /// Fetch current user details
     /// - Parameter retryCount: Internal retry counter to prevent infinite recursion (max 2 attempts)
-    func fetchCurrentUser(retryCount: Int = 0) async throws {
+    func fetchCurrentUser(
+        retryCount: Int = 0,
+        expectedUserId: String? = nil,
+        sessionGeneration: UInt64? = nil
+    ) async throws {
+        let expectedSessionGeneration = sessionGeneration ?? authSessionGeneration
         // Prevent infinite recursion if server returns corrupted tokens
         guard retryCount < 2 else {
             print("[Auth] fetchCurrentUser exceeded retry limit (\(retryCount) attempts)")
@@ -1788,6 +1917,15 @@ class AuthManager {
 
         if httpResponse.statusCode == 200 {
             let user = try JSONDecoder().decode(AuthUser.self, from: data)
+            guard expectedSessionGeneration == authSessionGeneration else {
+                throw CancellationError()
+            }
+            if let expectedUserId {
+                guard authenticatedUserId == expectedUserId,
+                      user.id == expectedUserId else {
+                    throw CancellationError()
+                }
+            }
             currentUser = user
             needsProfileCompletion = user.needsProfileCompletion
             hasValidatedSession = true
@@ -1801,7 +1939,11 @@ class AuthManager {
             // Token expired, try refresh
             print("[Auth] fetchCurrentUser got 401 (attempt \(retryCount + 1)/2), attempting refresh")
             try await refreshTokens()
-            try await fetchCurrentUser(retryCount: retryCount + 1)
+            try await fetchCurrentUser(
+                retryCount: retryCount + 1,
+                expectedUserId: expectedUserId,
+                sessionGeneration: expectedSessionGeneration
+            )
         } else {
             print("[Auth] fetchCurrentUser unexpected status: \(httpResponse.statusCode)")
             throw AuthError.serverError("Failed to fetch user (HTTP \(httpResponse.statusCode))")
@@ -1894,6 +2036,14 @@ class AuthManager {
             cachedUserId = response.userId
         }
 
+        // Transfer observable ownership only after the complete credential set
+        // is durable. A failed Keychain write rolls back to the previous session
+        // and must not invalidate that session's in-flight work.
+        authSessionGeneration &+= 1
+        currentUser = nil
+        hasValidatedSession = false
+        needsProfileCompletion = false
+
         print("[Auth] All tokens saved successfully")
     }
 
@@ -1918,9 +2068,7 @@ class AuthManager {
             cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
         }
 
-        // Log token preview for debugging (first 20 chars only)
-        let tokenPreview = String(response.accessToken.prefix(20))
-        print("[Auth] Refreshed tokens saved: \(tokenPreview)..., expires in \(response.expiresIn)s")
+        print("[Auth] Refreshed tokens saved; expires in \(response.expiresIn)s")
     }
 
     /// Saves a batch of auth values and restores previous values if any write fails.

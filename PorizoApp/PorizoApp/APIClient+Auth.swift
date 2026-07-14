@@ -99,6 +99,33 @@ struct MagicLoginExchangeResponse: Codable, Sendable {
     }
 }
 
+protocol MagicLoginAPI: Sendable {
+    func requestMagicLogin(
+        email: String,
+        purpose: MagicLoginPurpose,
+        requesterKey: String,
+        bearerToken: String?
+    ) async throws -> MagicLoginRequestResponse
+
+    func exchangeMagicLogin(
+        transactionId: String,
+        linkSecret: String,
+        requestSecret: String
+    ) async throws -> MagicLoginExchangeResponse
+
+    func magicLoginNativeStatus(
+        transactionId: String,
+        requestSecret: String
+    ) async throws -> MagicLoginNativeStatusResponse
+
+    func completeApprovedMagicLogin(
+        transactionId: String,
+        requestSecret: String
+    ) async throws -> MagicLoginExchangeResponse
+}
+
+extension APIClient: MagicLoginAPI {}
+
 extension APIClient {
 
     // MARK: - Platform-bound Magic Login

@@ -9,6 +9,107 @@ import XCTest
 import Security
 @testable import PorizoApp
 
+private actor ControllableMagicLoginAPI: MagicLoginAPI {
+    enum TestError: Error {
+        case intentionalExchangeFailure
+        case unsupported
+    }
+
+    private var statusContinuation: CheckedContinuation<MagicLoginNativeStatusResponse, Error>?
+    private var statusStarted = false
+    private var requestContinuation: CheckedContinuation<MagicLoginRequestResponse, Error>?
+    private var requestStarted = false
+    private var exchangeContinuations: [CheckedContinuation<MagicLoginExchangeResponse, Error>] = []
+    private var exchangeStarted = false
+    private(set) var exchangeCallCount = 0
+    private(set) var exchangeLinkSecrets: [String] = []
+    var holdExchange = false
+
+    func requestMagicLogin(
+        email: String,
+        purpose: MagicLoginPurpose,
+        requesterKey: String,
+        bearerToken: String?
+    ) async throws -> MagicLoginRequestResponse {
+        requestStarted = true
+        return try await withCheckedThrowingContinuation { continuation in
+            requestContinuation = continuation
+        }
+    }
+
+    func exchangeMagicLogin(
+        transactionId: String,
+        linkSecret: String,
+        requestSecret: String
+    ) async throws -> MagicLoginExchangeResponse {
+        exchangeCallCount += 1
+        exchangeLinkSecrets.append(linkSecret)
+        exchangeStarted = true
+        if holdExchange {
+            return try await withCheckedThrowingContinuation { continuation in
+                exchangeContinuations.append(continuation)
+            }
+        }
+        throw TestError.intentionalExchangeFailure
+    }
+
+    func magicLoginNativeStatus(
+        transactionId: String,
+        requestSecret: String
+    ) async throws -> MagicLoginNativeStatusResponse {
+        statusStarted = true
+        return try await withCheckedThrowingContinuation { continuation in
+            statusContinuation = continuation
+        }
+    }
+
+    func completeApprovedMagicLogin(
+        transactionId: String,
+        requestSecret: String
+    ) async throws -> MagicLoginExchangeResponse {
+        throw TestError.unsupported
+    }
+
+    func hasStatusStarted() -> Bool {
+        statusStarted
+    }
+
+    func hasRequestStarted() -> Bool {
+        requestStarted
+    }
+
+    func hasExchangeStarted() -> Bool {
+        exchangeStarted
+    }
+
+    func setHoldExchange(_ value: Bool) {
+        holdExchange = value
+    }
+
+    func releaseStatus(as status: MagicLoginNativeStatus) {
+        statusContinuation?.resume(returning: MagicLoginNativeStatusResponse(
+            status: status,
+            expiresAt: nil
+        ))
+        statusContinuation = nil
+    }
+
+    func releaseRequest(transactionId: String) {
+        requestContinuation?.resume(returning: MagicLoginRequestResponse(
+            transactionId: transactionId,
+            requestSecret: "request_secret",
+            expiresAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(600))
+        ))
+        requestContinuation = nil
+    }
+
+    func failHeldExchange() {
+        let continuations = exchangeContinuations
+        exchangeContinuations.removeAll()
+        continuations.forEach { $0.resume(throwing: TestError.intentionalExchangeFailure) }
+    }
+}
+
 final class AuthManagerTests: XCTestCase {
 
     override func tearDown() {
@@ -324,6 +425,161 @@ final class AuthManagerTests: XCTestCase {
             purpose: .addEmail,
             isAuthenticated: true
         ))
+    }
+
+    @MainActor
+    func testMagicLinkExchangeStartsWithoutWaitingForCancelledStatusPoll() async throws {
+        let api = ControllableMagicLoginAPI()
+        let transactionId = "race_tx"
+        try seedPendingMagicLogin(transactionId: transactionId)
+        let authManager = AuthManager(magicAPIClient: api)
+
+        let statusTask = Task { @MainActor in
+            await authManager.refreshMagicLoginStatus(transactionId: transactionId)
+        }
+        let statusStarted = await waitUntil { await api.hasStatusStarted() }
+        XCTAssertTrue(statusStarted)
+
+        let link = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=link_secret"
+        ))
+        let handled = await authManager.handleMagicLoginURL(link)
+
+        XCTAssertTrue(handled)
+        let exchangeCount = await api.exchangeCallCount
+        XCTAssertEqual(exchangeCount, 1)
+        XCTAssertEqual(authManager.magicLoginState, .serverError)
+
+        await api.releaseStatus(as: .expired)
+        _ = await statusTask.value
+        XCTAssertEqual(
+            authManager.magicLoginState,
+            .serverError,
+            "A cancelled stale poll must not overwrite the direct exchange result."
+        )
+    }
+
+    @MainActor
+    func testRepeatedTapForSameMagicLinkSharesOneExchange() async throws {
+        let api = ControllableMagicLoginAPI()
+        await api.setHoldExchange(true)
+        let transactionId = "duplicate_tx"
+        try seedPendingMagicLogin(transactionId: transactionId)
+        let authManager = AuthManager(magicAPIClient: api)
+        let link = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=link_secret"
+        ))
+
+        let first = Task { @MainActor in await authManager.handleMagicLoginURL(link) }
+        let exchangeStarted = await waitUntil { await api.hasExchangeStarted() }
+        XCTAssertTrue(exchangeStarted)
+        let second = Task { @MainActor in await authManager.handleMagicLoginURL(link) }
+
+        let exchangeCountBeforeRelease = await api.exchangeCallCount
+        XCTAssertEqual(exchangeCountBeforeRelease, 1)
+        await api.failHeldExchange()
+        let firstHandled = await first.value
+        let secondHandled = await second.value
+        XCTAssertTrue(firstHandled)
+        XCTAssertTrue(secondHandled)
+        let exchangeCountAfterRelease = await api.exchangeCallCount
+        XCTAssertEqual(exchangeCountAfterRelease, 1)
+    }
+
+    @MainActor
+    func testDifferentSecretForSameTransactionWaitsForInFlightExchange() async throws {
+        let api = ControllableMagicLoginAPI()
+        await api.setHoldExchange(true)
+        let transactionId = "reopened_tx"
+        try seedPendingMagicLogin(transactionId: transactionId)
+        let authManager = AuthManager(magicAPIClient: api)
+        let staleLink = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=stale_secret"
+        ))
+        let validLink = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=valid_secret"
+        ))
+
+        let staleTask = Task { @MainActor in await authManager.handleMagicLoginURL(staleLink) }
+        let staleExchangeStarted = await waitUntil { await api.exchangeCallCount == 1 }
+        XCTAssertTrue(staleExchangeStarted)
+        let validTask = Task { @MainActor in await authManager.handleMagicLoginURL(validLink) }
+        try? await Task.sleep(for: .milliseconds(50))
+        let exchangeCountWhileFirstIsHeld = await api.exchangeCallCount
+        XCTAssertEqual(exchangeCountWhileFirstIsHeld, 1)
+
+        await api.failHeldExchange()
+        let validExchangeStarted = await waitUntil { await api.exchangeCallCount == 2 }
+        XCTAssertTrue(validExchangeStarted)
+
+        let secrets = await api.exchangeLinkSecrets
+        XCTAssertEqual(secrets, ["stale_secret", "valid_secret"])
+        await api.failHeldExchange()
+        let staleHandled = await staleTask.value
+        let validHandled = await validTask.value
+        XCTAssertTrue(staleHandled)
+        XCTAssertTrue(validHandled)
+        XCTAssertEqual(authManager.magicLoginState, .serverError)
+    }
+
+    @MainActor
+    func testMagicLinkOpenedBeforeRequestResponseIsProcessedAfterPersistence() async throws {
+        let api = ControllableMagicLoginAPI()
+        let transactionId = "early_link_tx"
+        let authManager = AuthManager(magicAPIClient: api)
+        let requestTask = Task { @MainActor in
+            try await authManager.requestMagicLogin(
+                email: "person@example.com",
+                purpose: .login
+            )
+        }
+        let requestStarted = await waitUntil { await api.hasRequestStarted() }
+        XCTAssertTrue(requestStarted)
+
+        let link = try XCTUnwrap(URL(
+            string: "https://auth.porizo.co/auth/magic/ios?transaction_id=\(transactionId)#secret=link_secret"
+        ))
+        let handled = await authManager.handleMagicLoginURL(link)
+        XCTAssertTrue(handled)
+        await api.releaseRequest(transactionId: transactionId)
+        try await requestTask.value
+
+        let exchangeStarted = await waitUntil { await api.exchangeCallCount == 1 }
+        XCTAssertTrue(exchangeStarted)
+        XCTAssertEqual(authManager.magicLoginState, .serverError)
+    }
+
+    private func seedPendingMagicLogin(transactionId: String) throws {
+        let now = Date()
+        let pending = PendingMagicLogin(
+            transactionId: transactionId,
+            requestSecret: "request_secret",
+            requesterKey: "requester_key",
+            email: "person@example.com",
+            purpose: .addEmail,
+            expiresAt: now.addingTimeInterval(600),
+            createdAt: now
+        )
+        XCTAssertTrue(PendingMagicLoginStore.save(pending))
+        XCTAssertTrue(MagicLoginPresentationStore.save(MagicLoginPresentation(
+            transactionId: transactionId,
+            email: pending.email,
+            purpose: pending.purpose,
+            expiresAt: pending.expiresAt,
+            createdAt: pending.createdAt
+        )))
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        condition: @escaping () async -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if await condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return await condition()
     }
 
     func testLegacyRecoveryIsTerminalSoBackgroundRefreshCannotClobberIt() {

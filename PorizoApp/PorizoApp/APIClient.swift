@@ -281,7 +281,7 @@ actor APIClient {
                 let token = try await proactiveProvider()
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 #if DEBUG
-                print("[APIClient] Applied proactive token: \(String(token.prefix(20)))...")
+                print("[APIClient] Applied proactive authorization")
                 #endif
                 return
             } catch AuthError.notAuthenticated {
@@ -300,7 +300,7 @@ actor APIClient {
             if let token = authResult.token {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 #if DEBUG
-                print("[APIClient] Applied fallback token: \(String(token.prefix(20)))...")
+                print("[APIClient] Applied fallback authorization")
                 #endif
                 return
             }
@@ -624,8 +624,7 @@ actor APIClient {
     private func applyBearerToken(_ token: String, to request: inout URLRequest) {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         #if DEBUG
-        let preview = String(token.prefix(20))
-        print("[APIClient] Retry using token: Bearer \(preview)...")
+        print("[APIClient] Retrying with refreshed authorization")
         #endif
     }
 

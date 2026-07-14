@@ -175,12 +175,22 @@ describe("platform-bound magic login API", () => {
 
   it("links a magic-verified email as both contact and login credential without issuing replacement tokens", async () => {
     const userId = "user_magic_add_email";
+    const sessionId = "session_magic_add_email";
     const email = "magic-add-email@example.com";
     await db
       .prepare(
         "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP)",
       )
       .run(userId);
+    await db
+      .prepare(
+        `INSERT INTO user_sessions
+         (id, user_id, created_at, last_active_at, auth_method, platform,
+          authenticated_at, idle_expires_at, absolute_expires_at, last_rotated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'email_magic', 'ios',
+          CURRENT_TIMESTAMP, datetime('now', '+90 days'), datetime('now', '+365 days'), CURRENT_TIMESTAMP)`,
+      )
+      .run(sessionId, userId);
     const created = await createMagicLoginService({
       repository: createMagicLoginRepository(db),
     }).createTransaction({
@@ -189,6 +199,7 @@ describe("platform-bound magic login API", () => {
       purpose: "add_email",
       requesterKey: "add-email-requester-key",
       accountId: userId,
+      authorizingSessionId: sessionId,
     });
 
     const response = await app.inject({
@@ -218,6 +229,57 @@ describe("platform-bound magic login API", () => {
       )
       .get(userId, email);
     assert.equal(identity?.status, "active");
+  });
+
+  it("rejects add-email exchange after the authorizing session is revoked", async () => {
+    const userId = "user_magic_add_email_revoked";
+    const sessionId = "session_magic_add_email_revoked";
+    const email = "magic-add-email-revoked@example.com";
+    await db
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP)")
+      .run(userId);
+    await db
+      .prepare(
+        `INSERT INTO user_sessions
+         (id, user_id, created_at, last_active_at, auth_method, platform,
+          authenticated_at, idle_expires_at, absolute_expires_at, last_rotated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'email_magic', 'ios',
+          CURRENT_TIMESTAMP, datetime('now', '+90 days'), datetime('now', '+365 days'), CURRENT_TIMESTAMP)`,
+      )
+      .run(sessionId, userId);
+    const created = await createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    }).createTransaction({
+      email,
+      platform: "ios",
+      purpose: "add_email",
+      requesterKey: "add-email-revoked-requester-key",
+      accountId: userId,
+      authorizingSessionId: sessionId,
+    });
+    await db
+      .prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(sessionId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/magic/exchange",
+      payload: {
+        transaction_id: created.transactionId,
+        platform: "ios",
+        link_secret: created.linkSecret,
+        request_secret: created.requestSecret,
+      },
+    });
+
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().error, "INVALID_MAGIC_LOGIN");
+    const contact = await db
+      .prepare(
+        "SELECT id FROM user_contacts WHERE user_id = ? AND type = 'email' AND value_normalized = ?",
+      )
+      .get(userId, email);
+    assert.equal(contact, undefined);
   });
 
   it("creates an account only after an unknown email completes the two-secret exchange", async () => {
