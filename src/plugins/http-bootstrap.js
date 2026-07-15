@@ -1,3 +1,4 @@
+const fs = require("fs");
 const path = require("path");
 const fastify = require("fastify");
 const {
@@ -33,14 +34,85 @@ function registerFormUrlEncodedParser(app) {
   );
 }
 
-function registerStaticFileServing(app, { enableDebugRoutes }) {
-  // Register static file serving for debug page (guarded)
-  if (enableDebugRoutes) {
-    app.register(require("@fastify/static"), {
-      root: path.join(PROJECT_ROOT, "public"),
-      prefix: "/",
-    });
+function registerWebFunnel(app, {
+  webFunnelRoot = path.join(PROJECT_ROOT, "web-funnel", "dist"),
+  requireWebFunnelBuild = false,
+} = {}) {
+  const shellPath = path.join(webFunnelRoot, "index.html");
+  if (!fs.existsSync(shellPath)) {
+    if (requireWebFunnelBuild) {
+      throw new Error(
+        `Web funnel build is missing at ${shellPath}. Run npm run web-funnel:build before starting the server.`,
+      );
+    }
+    return;
   }
+
+  const shell = fs.readFileSync(shellPath);
+  const sendShell = async (_request, reply) =>
+    reply
+      .header("Cache-Control", "public, max-age=0, must-revalidate")
+      .type("text/html; charset=utf-8")
+      .send(shell);
+
+  for (const route of [
+    "/create",
+    "/create/",
+    "/create/success",
+    "/create/success/",
+  ]) {
+    app.get(route, sendShell);
+  }
+
+  app.register(require("@fastify/static"), {
+    root: webFunnelRoot,
+    prefix: "/create/",
+    decorateReply: false,
+    index: false,
+    wildcard: false,
+    setHeaders(response, filePath) {
+      const relativePath = path.relative(webFunnelRoot, filePath);
+      const normalizedPath = relativePath.split(path.sep).join("/");
+      const isFingerprintedAsset =
+        normalizedPath.startsWith("assets/") &&
+        /-[a-zA-Z0-9_-]{8,}\.[^.]+$/.test(normalizedPath);
+
+      response.setHeader(
+        "Cache-Control",
+        isFingerprintedAsset
+          ? "public, max-age=31536000, immutable"
+          : "public, max-age=300, must-revalidate",
+      );
+    },
+  });
+}
+
+function registerStaticFileServing(
+  app,
+  { enableDebugRoutes, webFunnelRoot, requireWebFunnelBuild = false },
+) {
+  // Debug pages are an explicit allowlist. Mounting the whole public directory
+  // here either creates a root wildcard or duplicates routes owned by the
+  // landing/legal plugins (for example /apple-touch-icon.png).
+  if (enableDebugRoutes) {
+    const publicRoot = path.join(PROJECT_ROOT, "public");
+    app.register(require("@fastify/static"), {
+      root: publicRoot,
+      serve: false,
+    });
+    for (const [route, fileName] of [
+      ["/debug.html", "debug.html"],
+      ["/debug.js", "debug.js"],
+      ["/debug-og.html", "debug-og.html"],
+      ["/debug-story.html", "debug-story.html"],
+    ]) {
+      app.get(route, async (_request, reply) =>
+        reply.sendFile(fileName),
+      );
+    }
+  }
+
+  registerWebFunnel(app, { webFunnelRoot, requireWebFunnelBuild });
 
   // Register web-player static files
   app.register(require("@fastify/static"), {
@@ -140,8 +212,15 @@ function registerAudioBodyParser(app) {
   );
 }
 
-function registerStaticAndSecurityBootstrap(app, { enableDebugRoutes }) {
-  registerStaticFileServing(app, { enableDebugRoutes });
+function registerStaticAndSecurityBootstrap(
+  app,
+  { enableDebugRoutes, webFunnelRoot, requireWebFunnelBuild = false },
+) {
+  registerStaticFileServing(app, {
+    enableDebugRoutes,
+    webFunnelRoot,
+    requireWebFunnelBuild,
+  });
   registerAppleAppSiteAssociation(app);
   registerCoreHttpPlugins(app);
   registerAudioBodyParser(app);
@@ -154,5 +233,6 @@ module.exports = {
   registerFormUrlEncodedParser,
   registerStaticAndSecurityBootstrap,
   registerStaticFileServing,
+  registerWebFunnel,
   registerAppleAppSiteAssociation,
 };

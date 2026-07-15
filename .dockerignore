@@ -59,3 +59,6 @@ specs/
 dist/
 build/
 .cache/
+web-funnel/*.tsbuildinfo
+web-funnel/vite.config.js
+web-funnel/vite.config.d.ts

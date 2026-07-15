@@ -5,6 +5,10 @@ export default [
   {
     ignores: [
       "node_modules/",
+      ".agents/",
+      ".claude/skills/",
+      ".kiro/skills/",
+      ".qoder/skills/",
       ".worktrees/",
       "storage/",
       "PorizoApp/",
@@ -14,6 +18,7 @@ export default [
       "build/",
       "data/",
       "test-output/",
+      "web-funnel/",
       "public/admin/assets/",
       "marketing/archive/",
       "marketing/appstore/screenshots/**/dist/",

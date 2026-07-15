@@ -56,6 +56,7 @@ before(async () => {
     UPLOAD_SIGNING_SECRET: "test-upload-secret",
     UPLOAD_URL_TTL_SEC: 900,
     ALLOW_ANON_USER_ID: true,
+    ENABLE_DEBUG_ROUTES: true,
   };
   storage = createStorageProvider(config);
   db = await initDb({
@@ -182,11 +183,18 @@ describe("Static File Serving", () => {
       url: "/debug.html",
     });
 
-    // Note: This test will fail until we implement static serving
-    // When implemented, it should return 200 with HTML content
-    assert.ok(
-      res.statusCode === 200 || res.statusCode === 404,
-      "Should either serve file or return 404"
-    );
+    assert.equal(res.statusCode, 200);
+    assert.match(res.headers["content-type"], /text\/html/);
+  });
+
+  test("GET /debug/og-preview retains the static sendFile decorator", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/debug/og-preview",
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.match(res.headers["content-type"], /text\/html/);
+    assert.match(res.body, /OG Image Preview/i);
   });
 });

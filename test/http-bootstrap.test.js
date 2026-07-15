@@ -3,6 +3,7 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
+const path = require("node:path");
 const { afterEach, test } = require("node:test");
 
 const {
@@ -12,10 +13,14 @@ const {
 } = require("../src/plugins/http-bootstrap");
 
 let app = null;
+const temporaryDirectories = [];
 
 afterEach(async () => {
   await app?.close();
   app = null;
+  for (const directory of temporaryDirectories.splice(0)) {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function restoreEnv(name, previous) {
@@ -35,6 +40,149 @@ function buildBootstrappedApp(options = {}) {
   });
   return app;
 }
+
+function createWebFunnelFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-web-funnel-"));
+  temporaryDirectories.push(root);
+  fs.mkdirSync(path.join(root, "assets"));
+  fs.mkdirSync(path.join(root, "fonts"));
+  fs.mkdirSync(path.join(root, "audio"));
+  fs.writeFileSync(
+    path.join(root, "index.html"),
+    '<!doctype html><html><body><main>Who\u2019s this song for?</main></body></html>',
+  );
+  fs.writeFileSync(path.join(root, "assets", "app-a1b2c3d4.js"), "window.PORIZO = true;");
+  fs.writeFileSync(path.join(root, "fonts", "brand.woff2"), Buffer.from("font-fixture"));
+  fs.writeFileSync(path.join(root, "audio", "preview.mp3"), Buffer.from("audio-fixture"));
+  return root;
+}
+
+async function assertWebFunnelContract({ enableDebugRoutes }) {
+  const webFunnelRoot = createWebFunnelFixture();
+  buildBootstrappedApp({
+    enableDebugRoutes,
+    webFunnelRoot,
+    requireWebFunnelBuild: true,
+  });
+  if (enableDebugRoutes) {
+    // Landing/legal routes own non-debug files in public/. Registering one
+    // here reproduces the route ownership used by the complete server.
+    app.get("/apple-touch-icon.png", async (_request, reply) =>
+      reply.type("image/png").send(Buffer.from("icon-fixture")),
+    );
+  }
+
+  for (const url of [
+    "/create",
+    "/create/",
+    "/create?occasion=Birthday",
+    "/create/success?session_id=a.b",
+    "/create/success/",
+  ]) {
+    const response = await app.inject({ method: "GET", url });
+    assert.equal(response.statusCode, 200, url);
+    assert.match(response.headers["content-type"], /text\/html/, url);
+    assert.match(response.body, /Who\u2019s this song for\?/, url);
+    assert.equal(
+      response.headers["cache-control"],
+      "public, max-age=0, must-revalidate",
+      url,
+    );
+  }
+
+  const script = await app.inject({
+    method: "GET",
+    url: "/create/assets/app-a1b2c3d4.js?cache=1",
+  });
+  assert.equal(script.statusCode, 200);
+  assert.match(script.headers["content-type"], /javascript/);
+  assert.equal(script.body, "window.PORIZO = true;");
+  assert.equal(
+    script.headers["cache-control"],
+    "public, max-age=31536000, immutable",
+  );
+
+  for (const [url, type] of [
+    ["/create/fonts/brand.woff2", /font\/woff2/],
+    ["/create/audio/preview.mp3?cache=1", /audio\/mpeg/],
+  ]) {
+    const response = await app.inject({ method: "GET", url });
+    assert.equal(response.statusCode, 200, url);
+    assert.match(response.headers["content-type"], type, url);
+    assert.equal(
+      response.headers["cache-control"],
+      "public, max-age=300, must-revalidate",
+      url,
+    );
+  }
+
+  for (const url of [
+    "/create/assets/missing",
+    "/create/assets/missing.js",
+    "/create/fonts/missing",
+    "/create/audio/missing",
+    "/create/unknown",
+  ]) {
+    const response = await app.inject({ method: "GET", url });
+    assert.equal(response.statusCode, 404, url);
+    assert.doesNotMatch(response.body, /Who\u2019s this song for\?/, url);
+  }
+
+  const post = await app.inject({ method: "POST", url: "/create/success" });
+  assert.equal(post.statusCode, 404);
+
+  for (const url of ["/create", "/create/assets/app-a1b2c3d4.js"]) {
+    const response = await app.inject({ method: "HEAD", url });
+    assert.equal(response.statusCode, 200, url);
+    assert.equal(response.body, "", url);
+  }
+
+  const player = await app.inject({ method: "GET", url: "/web-player/index.html" });
+  assert.equal(player.statusCode, 200);
+  if (enableDebugRoutes) {
+    const debug = await app.inject({ method: "GET", url: "/debug-og.html" });
+    assert.equal(debug.statusCode, 200);
+    const icon = await app.inject({ method: "GET", url: "/apple-touch-icon.png" });
+    assert.equal(icon.statusCode, 200);
+    assert.equal(icon.body, "icon-fixture");
+  }
+}
+
+test("HTTP bootstrap serves the web funnel from the main origin", async () => {
+  await assertWebFunnelContract({ enableDebugRoutes: false });
+});
+
+test("debug static routes do not shadow the web funnel", async () => {
+  await assertWebFunnelContract({ enableDebugRoutes: true });
+});
+
+test("web funnel serving is independent of process cwd", async () => {
+  const webFunnelRoot = createWebFunnelFixture();
+  const previousCwd = process.cwd();
+  process.chdir(os.tmpdir());
+  try {
+    buildBootstrappedApp({ webFunnelRoot, requireWebFunnelBuild: true });
+    const response = await app.inject({ method: "GET", url: "/create/" });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body, /Who\u2019s this song for\?/);
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
+test("required web funnel build fails startup with a recovery command", () => {
+  const missingRoot = path.join(os.tmpdir(), "porizo-missing-web-funnel");
+  app = createFastifyApp();
+  assert.throws(
+    () =>
+      registerStaticAndSecurityBootstrap(app, {
+        enableDebugRoutes: false,
+        webFunnelRoot: missingRoot,
+        requireWebFunnelBuild: true,
+      }),
+    /npm run web-funnel:build/,
+  );
+});
 
 test("HTTP bootstrap serves static assets independent of process cwd", async () => {
   const previousCwd = process.cwd();

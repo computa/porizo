@@ -1,15 +1,22 @@
 # Local Development (MVP Scaffold)
 
-## Run the API
+## Run the integrated site and API
+
+Install both the root runtime dependencies and the nested funnel build dependencies once:
+
 ```
 npm install
+npm --prefix web-funnel ci
 npm run dev
 ```
 
-`npm run dev` starts both the API server and the job worker. If you want them separately:
+`npm run dev` builds the React funnel, then starts the Fastify site and API with the inline development job runner. Verify the landing page at `http://localhost:3000/` and the integrated funnel at `http://localhost:3000/create`; no second Vite server is required.
+
+For frontend HMR while iterating on the funnel alone, use `npm --prefix web-funnel run dev`. To start the API without rebuilding the funnel, build it once and then use:
+
 ```
+npm run web-funnel:build
 npm run api
-npm run worker
 ```
 
 The API listens on `http://localhost:3000` by default. Use `PORT` to change it.
@@ -134,7 +141,7 @@ Set `PREVIEW_ONLY=true` to block full renders.
 - `S3_ENDPOINT` for S3-compatible storage (optional).
 - `S3_FORCE_PATH_STYLE` set to `true` for path-style endpoints.
 - `S3_URL_EXPIRES_SEC` presigned URL TTL for S3 (default 900).
-- `INLINE_JOB_RUNNER` set to `false` to avoid starting the in-process job runner inside the API server (default `true`). `npm run dev` sets this to `false` for the API process so the standalone worker handles job processing.
+- `INLINE_JOB_RUNNER` set to `false` to avoid starting the in-process job runner inside the API server (default `true`). `npm run dev` leaves the inline runner enabled and starts one API process; run a standalone worker only when explicitly testing that topology.
 
 ## Tests
 ```

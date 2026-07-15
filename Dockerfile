@@ -1,7 +1,17 @@
-# Production Dockerfile for Porizo API
-# Optimized for Railway deployment with long-running render jobs
+# Production Dockerfile for Porizo API and integrated web funnel
 
-FROM node:20-slim
+FROM node:20.19-slim AS web-funnel-builder
+
+WORKDIR /app
+
+COPY web-funnel/package*.json ./web-funnel/
+RUN npm ci --prefix web-funnel
+
+COPY web-funnel ./web-funnel
+COPY public/styles/main.css ./public/styles/main.css
+RUN npm --prefix web-funnel run build
+
+FROM node:20.19-slim
 
 # Install FFmpeg for audio processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,6 +28,10 @@ RUN npm ci --only=production
 
 # Copy application code
 COPY . .
+
+# The funnel is a generated runtime artifact, not a second source deployment.
+RUN rm -rf web-funnel
+COPY --from=web-funnel-builder /app/web-funnel/dist ./web-funnel/dist
 
 # Create storage directory (will be overridden by S3 in production)
 RUN mkdir -p storage

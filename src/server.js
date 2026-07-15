@@ -369,6 +369,8 @@ function buildServer({
       : (config.ALLOW_ANON_USER_ID ?? false));
   const enableDebugRoutes =
     appConfig.ENABLE_DEBUG_ROUTES ?? config.ENABLE_DEBUG_ROUTES ?? false;
+  const requireWebFunnelBuild =
+    appConfig.REQUIRE_WEB_FUNNEL_BUILD ?? false;
   const enableV3OrchestrationRoutes =
     appConfig.ENABLE_V3_ORCHESTRATION_ROUTES ??
     config.ENABLE_V3_ORCHESTRATION_ROUTES ??
@@ -472,7 +474,10 @@ function buildServer({
   // In-process lock table to dedupe concurrent poem TTS generation per poem.
   const poemAudioGenerationLocks = new Map();
 
-  registerStaticAndSecurityBootstrap(app, { enableDebugRoutes });
+  registerStaticAndSecurityBootstrap(app, {
+    enableDebugRoutes,
+    requireWebFunnelBuild,
+  });
 
   // ============ Authentication Routes ============
   registerLegalRoutes(app, { db });
@@ -3037,7 +3042,12 @@ async function start() {
 
   const app = buildServer({
     db,
-    config: { ...config, providerConfig, providerStatus },
+    config: {
+      ...config,
+      providerConfig,
+      providerStatus,
+      REQUIRE_WEB_FUNNEL_BUILD: true,
+    },
     storage,
     billingServices,
   });

@@ -5,6 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
+    "web-funnel:build": "npm --prefix web-funnel run build",
+    "predev": "npm run web-funnel:build",
     "dev": "node -r dotenv/config scripts/dev.js",
     "api": "node -r dotenv/config src/server.js",
     "worker": "node -r dotenv/config src/worker.js",
