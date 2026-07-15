@@ -136,17 +136,20 @@ button {
   border: 0;
   border-radius: var(--r-cta);
   background: var(--coral-500);
-  color: #fff;
+  color: var(--ink); /* 6.05:1 on --coral-500 (AA) */
   font-size: var(--fs-body);
   font-weight: 500;
   box-shadow: var(--shadow-card);
-  transition: background 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 .btn-primary:hover {
-  background: var(--coral-600);
+  background: var(--coral-300);
 }
 .btn-primary:active {
   background: var(--coral-700);
+  color: var(--surface);
 }
 .btn-primary:disabled {
   opacity: 0.45;
@@ -170,6 +173,21 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2) var(--sp-2);
+}
+.choice-rail {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+  scrollbar-width: none;
+}
+.choice-rail::-webkit-scrollbar {
+  display: none;
+}
+.choice-rail .chip {
+  flex: 0 0 auto;
+  min-height: var(--tap-min);
+  scroll-snap-align: start;
 }
 .chip {
   min-height: 48px;
@@ -345,7 +363,7 @@ textarea.field {
   border-radius: 50%;
   border: 0;
   background: var(--coral-500);
-  color: #fff;
+  color: var(--ink);
   display: grid;
   place-items: center;
   margin: 0 auto;
@@ -376,7 +394,7 @@ textarea.field {
 }
 .lyrics .next {
   color: var(--dim-text-2);
-  opacity: 0.55;
+  opacity: 0.7; /* 4.66:1 composited on --ink-deep (AA) */
 }
 .scrub {
   height: 4px;
@@ -456,7 +474,7 @@ textarea.field {
   }
   .progress > i {
     animation: none;
-    width: 100%;
+    width: 50%;
     opacity: 0.5;
   }
   * {
@@ -492,6 +510,7 @@ textarea.field {
 .stack {
   display: flex;
   flex-direction: column;
+  padding-bottom: calc(var(--cta-h) + var(--sp-6) + env(safe-area-inset-bottom));
 }
 .step-done {
   display: flex;
@@ -529,6 +548,23 @@ textarea.field {
 .step-done:hover .v {
   color: var(--coral-700);
 }
+.step-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--summary-h);
+  padding: var(--sp-1) 0;
+  border-bottom: var(--line-w) solid var(--hairline);
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+.step-waiting .k {
+  flex: 0 0 auto;
+}
+.step-waiting .v {
+  color: var(--ink-2);
+  font-weight: 500;
+}
 .step-live {
   padding: var(--sp-5) 0 var(--sp-4);
   animation: settle var(--t-step) var(--ease-reveal);
@@ -562,6 +598,12 @@ textarea.field {
   }
   .collapse-wrap {
     transition: none;
+  }
+}
+
+@media (min-width: 720px) {
+  .stack {
+    padding-bottom: 0;
   }
 }
 

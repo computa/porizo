@@ -64,7 +64,7 @@ export function Success({ order, elapsedMs }: SuccessProps) {
       <h1 className="q">{order?.recipient_name ? `${recipient}'s song is ready.` : "Your song is ready."}</h1>
       <p className="hint">Sent to your email too, with your receipt.</p>
       <section className="card link-card">
-        <p className="eyebrow">Their gift link</p>
+        <p className="context-label">Their gift link</p>
         <p className="share-link">{link}</p>
         <button
           className="btn-primary"

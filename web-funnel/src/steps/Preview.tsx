@@ -24,6 +24,7 @@ export function Preview({
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [listenCount, setListenCount] = useState(0);
+  const [playbackError, setPlaybackError] = useState(false);
   const endedForPlay = useRef(false);
   const manualScrollUntil = useRef(0);
   const activeLine = Math.max(0, Math.min(lines.length - 1, Math.floor(progress * lines.length)));
@@ -33,12 +34,19 @@ export function Preview({
     lyricRefs.current[activeLine]?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [activeLine]);
 
-  function togglePlayback() {
+  async function togglePlayback() {
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
       endedForPlay.current = false;
-      void audio.play().then(() => setPlaying(true));
+      setPlaybackError(false);
+      try {
+        await audio.play();
+        setPlaying(true);
+      } catch {
+        setPlaying(false);
+        setPlaybackError(true);
+      }
     } else {
       audio.pause();
       setPlaying(false);
@@ -48,7 +56,6 @@ export function Preview({
   return (
     <main className="dim-scene">
       <div className="preview-inner">
-        <p className="eyebrow dim-copy">For {recipient}</p>
         <h1>{recipient}'s song</h1>
         <p className="muted">This is the chorus — the full song runs about 90 seconds.</p>
         <audio
@@ -62,6 +69,10 @@ export function Preview({
           }}
           onPause={() => setPlaying(false)}
           onPlay={() => setPlaying(true)}
+          onError={() => {
+            setPlaying(false);
+            setPlaybackError(true);
+          }}
           onEnded={() => {
             if (endedForPlay.current) return;
             endedForPlay.current = true;
@@ -69,9 +80,14 @@ export function Preview({
             setListenCount((count) => count + 1);
           }}
         />
-        <button className="play-btn" type="button" onClick={togglePlayback} aria-label={playing ? "Pause preview" : "Play preview"}>
+        <button className="play-btn" type="button" onClick={() => void togglePlayback()} aria-label={playing ? "Pause preview" : playbackError ? "Try preview again" : "Play preview"}>
           <PlayIcon paused={playing} />
         </button>
+        {playbackError && (
+          <p className="playback-error" role="alert">
+            The preview didn't play. Check your connection, then try again.
+          </p>
+        )}
         <div
           className="lyrics karaoke-window"
           onScroll={() => {
@@ -89,7 +105,17 @@ export function Preview({
             </p>
           ))}
         </div>
-        <div className="scrub" aria-label={`Preview ${Math.round(progress * 100)} percent complete`}><i style={{ transform: `scaleX(${progress})` }} /></div>
+        <div
+          className="scrub"
+          role="progressbar"
+          aria-label="Preview playback position"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          aria-valuetext={`${Math.round(progress * 100)} percent complete`}
+        >
+          <i style={{ transform: `scaleX(${progress})` }} />
+        </div>
         {generations < 2 && (
           <button className="btn-quiet preview-edit" type="button" onClick={onChangeLyrics}>
             Change something in the lyrics

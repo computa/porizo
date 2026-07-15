@@ -26,8 +26,7 @@ export function LyricSheet({
 
   return (
     <main className="step lyric-sheet">
-      <p className="eyebrow">For {recipient}</p>
-      <h1 className="q">These are the words.</h1>
+      <h1 className="q">These are {recipient}'s words.</h1>
       <p className="hint">Read them once. The song comes next.</p>
       {editing ? (
         <>

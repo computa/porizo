@@ -5,6 +5,8 @@ import {
   type FunnelState,
 } from "./funnel";
 
+const demoPreviewUrl = "/create/audio/sample-mothers-day-2026.mp3";
+
 const OCCASION_PREFILLS = [
   "I Love You ❤️",
   "Celebration 🎉",
@@ -77,7 +79,7 @@ export function resolveInitialState(
     artifacts: {
       previewGenerations: 1,
       lyrics: DEMO_LYRICS,
-      previewUrl: "/create/demo-preview.m4a",
+      previewUrl: demoPreviewUrl,
     },
   };
 }

@@ -63,6 +63,7 @@ Mechanics (CSS shipped in `base.css`):
 ### S4 `s4-sound.html` — genre/mood/voice (each single-select)
 
 - Three groups, group labels in `--fs-small`/`--ink-3`. Defaults preselected (Acoustic · Warm · Female voice) so CTA is always enabled — momentum over completeness.
+- **Compact choice rails (Ambrose, 2026-07-15):** Style is one horizontally scrollable, single-line chip rail rather than a wrapped chip cloud. Mood also stays on one line and scrolls only where the viewport cannot fit all four choices; Voice remains fully visible. Keep the selected chip visible, preserve 44px touch targets, and hide only the scrollbar — never the focus ring. Use `--sp-3` between S4 groups.
 - CTA "Write Sarah's song" fires the full API sequence (track create → version → lyrics). Failures: moderation → S3 error state; rate-limit/`FUNNEL_PAUSED` → holding card ("We're at capacity — leave your email and we'll hold your place", email field + quiet submit); network → inline retry.
 
 ### S5 `s5-theater.html` — generation theater

@@ -1,0 +1,6 @@
+{
+  "files": ["web-funnel/index.html"],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}

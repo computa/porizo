@@ -13,6 +13,8 @@ describe("offer", () => {
       />,
     );
     expect(screen.getByText("€17,42")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Unlock for €17,42" })).toBeEnabled();
+    const cta = screen.getByRole("button", { name: "Unlock for €17,42" });
+    expect(cta).toBeEnabled();
+    expect(cta.closest(".cta-bar")).not.toBeNull();
   });
 });

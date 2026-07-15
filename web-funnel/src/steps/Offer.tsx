@@ -55,13 +55,15 @@ export function Offer({
             <li key={item}><CheckIcon /><span>{item}</span></li>
           ))}
         </ul>
+        {error && <p className="error-text" role="alert">{error}</p>}
+        <p className="guarantee">If it doesn't make them feel something, we'll refund it.</p>
+      </section>
+      <p className="paymarks offer-paymarks">Apple Pay · Google Pay · Card · Secured by Stripe</p>
+      <div className="cta-bar">
         <button className="btn-primary" type="button" disabled={!product || loading} onClick={onCheckout}>
           {loading ? "Opening secure checkout…" : product ? `Unlock for ${product.localized_price}` : "Loading price…"}
         </button>
-        {error && <p className="error-text" role="alert">{error}</p>}
-        <p className="guarantee">If it doesn't make them feel something, we'll refund it.</p>
-        <p className="paymarks">Apple Pay · Google Pay · Card · Secured by Stripe</p>
-      </section>
+      </div>
     </main>
   );
 }

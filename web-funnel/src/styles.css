@@ -38,6 +38,7 @@
 }
 
 .nav__cta--quiet {
+  min-height: var(--tap-min);
   border: 0;
   background: transparent;
   color: var(--coral-700);
@@ -144,16 +145,51 @@
 
 .option-group {
   border: 0;
+  min-width: 0;
   padding: 0;
+  width: 100%;
+}
+
+[data-step="sound"] .option-group {
+  margin-top: var(--sp-3);
 }
 
 .option-group legend,
-.eyebrow,
+.context-label,
 .offer-kicker {
   color: var(--ink-3);
   font-size: var(--fs-small);
   font-weight: 500;
   margin-bottom: var(--sp-2);
+}
+
+.edit-cancel {
+  align-self: flex-start;
+  margin-bottom: var(--sp-2);
+}
+
+.memory-field {
+  position: relative;
+}
+
+.memory-placeholder {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  left: var(--sp-3);
+  color: var(--ink-3);
+  line-height: var(--lh-body);
+  pointer-events: none;
+  animation: placeholder-in var(--t-step) var(--ease-reveal) both;
+}
+
+.memory-field.has-value .memory-placeholder {
+  display: none;
+}
+
+.memory-coaching {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
 }
 
 .count-warm {
@@ -253,7 +289,7 @@
   min-height: 100dvh;
   color: var(--dim-text);
   background: var(--ink-deep);
-  animation: dim-in var(--t-dim) var(--ease-reveal) both;
+  animation: dim-ground var(--t-dim) var(--ease-reveal) both;
 }
 
 .dim-scene::before {
@@ -262,6 +298,7 @@
   inset: 0;
   background: var(--lamplight);
   pointer-events: none;
+  animation: lamplight-in var(--t-dim) var(--ease-reveal) both;
 }
 
 .preview-inner {
@@ -271,6 +308,7 @@
   margin: 0 auto;
   padding: var(--sp-6) var(--pad-x) calc(var(--cta-h) + var(--sp-7));
   text-align: center;
+  animation: dim-content var(--t-dim) var(--ease-reveal) both;
 }
 
 .preview-inner h1 {
@@ -286,6 +324,12 @@
 .preview-inner .play-btn {
   margin-top: var(--sp-5);
   margin-bottom: var(--sp-5);
+}
+
+.playback-error {
+  color: var(--dim-text);
+  font-size: var(--fs-small);
+  margin-bottom: var(--sp-4);
 }
 
 .karaoke-window {
@@ -324,6 +368,11 @@
 
 .offer-card svg {
   width: var(--icon-md);
+}
+
+.offer-paymarks {
+  justify-content: center;
+  margin-top: var(--sp-3);
 }
 
 .toast {
@@ -374,9 +423,24 @@
   to { transform: rotate(1turn); }
 }
 
-@keyframes dim-in {
+@keyframes placeholder-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes dim-ground {
+  from { background-color: var(--bg); }
+  to { background-color: var(--ink-deep); }
+}
+
+@keyframes lamplight-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dim-content {
+  0%, 30% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @keyframes cta-pulse {
@@ -385,6 +449,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dim-scene,
+  .dim-scene::before,
+  .preview-inner,
+  .memory-placeholder,
   .pulse-once,
   .status-orbit {
     animation: none;

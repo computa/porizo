@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Preview } from "./Preview";
 
@@ -49,5 +49,31 @@ describe("preview player", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "Change something in the lyrics" })).toBeNull();
+  });
+
+  it("shows a recoverable message when playback fails", async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValueOnce(new Error("demux"))
+      .mockResolvedValueOnce();
+    render(
+      <Preview
+        recipient="Sarah"
+        lines={["First line"]}
+        previewUrl="/broken-preview.m4a"
+        generations={1}
+        onChangeLyrics={vi.fn()}
+        onUnlock={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play preview" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The preview didn't play");
+    fireEvent.click(screen.getByRole("button", { name: "Try preview again" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Pause preview" })).toBeVisible();
+    play.mockRestore();
   });
 });

@@ -85,7 +85,18 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
   const previousHeadingTop = useRef<number | null>(null);
   const autoAdvanceTimer = useRef<number | undefined>(undefined);
   const transitionTimer = useRef<number | undefined>(undefined);
+  const activeStepRef = useRef(state.activeStep);
   const activeStep = state.activeStep as QuizStep;
+  const furthestQuizIndex = QUIZ_STEPS.includes(state.furthestStep as QuizStep)
+    ? QUIZ_STEPS.indexOf(state.furthestStep as QuizStep)
+    : QUIZ_STEPS.length - 1;
+  const returnQuizStep = state.returnStep && QUIZ_STEPS.includes(state.returnStep as QuizStep)
+    ? state.returnStep as QuizStep
+    : undefined;
+
+  useEffect(() => {
+    activeStepRef.current = state.activeStep;
+  }, [state.activeStep]);
 
   useEffect(() => {
     if (reducedMotion || activeStep !== "memory") return;
@@ -149,24 +160,43 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
     }
   }
 
-  const completedIndex = QUIZ_STEPS.indexOf(activeStep);
+  function edit(step: QuizStep) {
+    previousHeadingTop.current = document
+      .querySelector<HTMLElement>(`[data-summary-step="${step}"]`)
+      ?.getBoundingClientRect().top ?? null;
+    history.pushState({ step }, "", `#${step}`);
+    dispatch({ type: "edit", step, returnTo: state.returnStep ?? state.activeStep });
+  }
 
   return (
     <main className="stack" aria-label="Song details">
       {QUIZ_STEPS.map((step, index) => {
-        if (index < completedIndex && step !== activeStep) {
+        if (step !== activeStep && index <= furthestQuizIndex) {
+          if (step === returnQuizStep) {
+            return <WaitingRow key={step} step={step} state={state} />;
+          }
           return (
             <SummaryRow
               key={step}
               step={step}
               state={state}
-              onEdit={() => dispatch({ type: "edit", step })}
+              onEdit={() => edit(step)}
             />
           );
         }
         if (step !== activeStep) return null;
         return (
           <section className="step-live" key={step} data-step={step}>
+            {state.returnStep && (
+              <button
+                className="btn-quiet edit-cancel"
+                type="button"
+                disabled={busy || collapsing}
+                onClick={() => advance()}
+              >
+                Cancel edit
+              </button>
+            )}
             <div className={collapsing ? "collapse-wrap closed" : "collapse-wrap"}>
               <div>
             {step === "recipient" && (
@@ -174,7 +204,7 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
                 onSubmit={async (event) => {
                   event.preventDefault();
                   if (!state.answers.recipient.trim()) return;
-                  if (await onStartSession()) advance();
+                  if (await onStartSession() && activeStepRef.current === "recipient") advance();
                 }}
               >
                 <h1 className="q" tabIndex={-1}>Who's this song for?</h1>
@@ -261,27 +291,33 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
             {step === "memory" && (
               <>
                 <h1 className="q" tabIndex={-1}>Tell us one real memory.</h1>
-                <p className="hint">
+                <p className="hint" id="memory-guidance">
                   {memoryNudged
                     ? "One more sentence — what did it feel like?"
                     : "You don't need to be creative. Start with one real memory."}
                 </p>
                 <label className="sr-only" htmlFor="memory">Your memory</label>
-                <textarea
-                  className="field"
-                  id="memory"
-                  maxLength={2000}
-                  aria-invalid={error ? true : undefined}
-                  value={state.answers.memory}
-                  onChange={(event) => answer("memory", event.target.value)}
-                  placeholder={MEMORIES[placeholderIndex]}
-                />
+                <div className={state.answers.memory ? "memory-field has-value" : "memory-field"}>
+                  <textarea
+                    className="field"
+                    id="memory"
+                    maxLength={2000}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={error ? "memory-guidance memory-error" : "memory-guidance"}
+                    value={state.answers.memory}
+                    onChange={(event) => answer("memory", event.target.value)}
+                  />
+                  <p className="memory-placeholder" key={placeholderIndex} aria-hidden="true">
+                    {MEMORIES[placeholderIndex]}
+                  </p>
+                </div>
                 <div className="field-row">
+                  <span className="memory-coaching">Plain words beat perfect words.</span>
                   <span className={state.answers.memory.length >= 1900 ? "count count-warm" : "count"}>
                     {state.answers.memory.length} / 2000
                   </span>
                 </div>
-                {error && <p className="error-text">{error}</p>}
+                {error && <p className="error-text" id="memory-error" role="alert">{error}</p>}
                 <div className="inline-field">
                   <label htmlFor="phrase">Something they always say <span>(optional)</span></label>
                   <input
@@ -313,6 +349,8 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
                 <OptionGroup label="Style">
                   <ChoiceChips
                     label="Style"
+                    labelledByParent
+                    className="choice-rail style-rail"
                     options={showMoreStyles ? [...POPULAR_STYLES, ...MORE_STYLES] : [...POPULAR_STYLES, "More styles…"]}
                     value={state.answers.genre}
                     onChange={(value) => {
@@ -324,6 +362,8 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
                 <OptionGroup label="Mood">
                   <ChoiceChips
                     label="Mood"
+                    labelledByParent
+                    className="choice-rail"
                     options={["Warm", "Joyful", "Emotional", "Playful"]}
                     value={state.answers.mood}
                     onChange={(value) => answer("mood", value)}
@@ -332,6 +372,7 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
                 <OptionGroup label="Voice">
                   <ChoiceChips
                     label="Voice"
+                    labelledByParent
                     options={["Female voice", "Male voice"]}
                     value={state.answers.voice}
                     onChange={(value) => answer("voice", value)}
@@ -364,11 +405,33 @@ function SummaryRow({ step, state, onEdit }: { step: QuizStep; state: FunnelStat
   };
   const [key, value] = summaries[step];
   return (
-    <button className="step-done" type="button" onClick={onEdit} aria-label={`Edit ${key.toLowerCase()}: ${value}`}>
+    <button
+      className="step-done"
+      type="button"
+      data-summary-step={step}
+      onClick={onEdit}
+      aria-label={`Edit ${key.toLowerCase()}: ${value}`}
+    >
       <span className="k">{key}</span>
       <span className="v">{value}</span>
       <PencilIcon />
     </button>
+  );
+}
+
+function WaitingRow({ step, state }: { step: QuizStep; state: FunnelState }) {
+  const labels: Record<QuizStep, string> = {
+    recipient: "Who's this song for?",
+    relationship: `${titleCaseForDisplay(state.answers.recipient)} is your…`,
+    occasion: "What's the moment?",
+    memory: "Tell us one real memory.",
+    sound: "How should it sound?",
+  };
+  return (
+    <div className="step-waiting" aria-label={`${labels[step]} Waiting while you edit`}>
+      <span className="k">Next</span>
+      <span className="v">{labels[step]}</span>
+    </div>
   );
 }
 
