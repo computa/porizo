@@ -5,9 +5,10 @@ import { cssDurationMs } from "../motion";
 interface SuccessProps {
   order?: OrderStatus;
   elapsedMs: number;
+  onStartAnother: () => void;
 }
 
-export function Success({ order, elapsedMs }: SuccessProps) {
+export function Success({ order, elapsedMs, onStartAnother }: SuccessProps) {
   const [copied, setCopied] = useState(false);
   const recipient = order?.recipient_name ?? "Your";
 
@@ -43,6 +44,7 @@ export function Success({ order, elapsedMs }: SuccessProps) {
       <StatusScreen
         title="We couldn't finish the song."
         body="We're arranging your refund now. If it doesn't update, support can help — your details are saved."
+        onStartAnother={onStartAnother}
       />
     );
   }
@@ -52,6 +54,7 @@ export function Success({ order, elapsedMs }: SuccessProps) {
       <StatusScreen
         title="We couldn't finish the song."
         body="We've refunded you in full. Your details are saved if you'd like to try again."
+        onStartAnother={onStartAnother}
       />
     );
   }
@@ -84,17 +87,33 @@ export function Success({ order, elapsedMs }: SuccessProps) {
         <p>Play it in person if you can — and film it. Reactions like theirs are why this exists.</p>
       </section>
       <p className="account-note">Your songs live in your Porizo account — we emailed a sign-in link.</p>
+      <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
+        Make another song
+      </button>
     </main>
   );
 }
 
-function StatusScreen({ title, body }: { title: string; body: string }) {
+function StatusScreen({
+  title,
+  body,
+  onStartAnother,
+}: {
+  title: string;
+  body: string;
+  onStartAnother?: () => void;
+}) {
   return (
     <main className="step step-centered">
       <section className="status-card" aria-live="polite">
         <div className="status-orbit" aria-hidden="true" />
         <h1>{title}</h1>
         <p>{body}</p>
+        {onStartAnother && (
+          <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
+            Make another song
+          </button>
+        )}
       </section>
     </main>
   );

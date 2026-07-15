@@ -4,7 +4,7 @@ import { Success } from "./Success";
 
 describe("paid-order lifecycle", () => {
   it("shows delayed confirmation support copy after one minute", () => {
-    render(<Success elapsedMs={61000} />);
+    render(<Success elapsedMs={61000} onStartAnother={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "Confirming your payment…" })).toBeVisible();
     expect(screen.getByText(/support can help/)).toBeVisible();
@@ -14,6 +14,7 @@ describe("paid-order lifecycle", () => {
     render(
       <Success
         elapsedMs={0}
+        onStartAnother={vi.fn()}
         order={{ status: "rendering", recipient_name: "Sarah", progress_copy: "Verse 2 of 3" }}
       />,
     );
@@ -23,14 +24,14 @@ describe("paid-order lifecycle", () => {
   });
 
   it("is honest about a refunded render failure", () => {
-    render(<Success elapsedMs={0} order={{ status: "refunded", recipient_name: "Sarah" }} />);
+    render(<Success elapsedMs={0} order={{ status: "refunded", recipient_name: "Sarah" }} onStartAnother={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "We couldn't finish the song." })).toBeVisible();
     expect(screen.getByText(/refunded you in full/)).toBeVisible();
   });
 
   it("does not claim a refund completed while it is still processing", () => {
-    render(<Success elapsedMs={0} order={{ status: "failed", recipient_name: "Sarah" }} />);
+    render(<Success elapsedMs={0} order={{ status: "failed", recipient_name: "Sarah" }} onStartAnother={vi.fn()} />);
 
     expect(screen.getByText(/arranging your refund now/)).toBeVisible();
     expect(screen.queryByText(/refunded you in full/)).not.toBeInTheDocument();
@@ -43,6 +44,7 @@ describe("paid-order lifecycle", () => {
     render(
       <Success
         elapsedMs={0}
+        onStartAnother={vi.fn()}
         order={{ status: "delivered", recipient_name: "Sarah", share_url: shareUrl }}
       />,
     );
@@ -54,5 +56,35 @@ describe("paid-order lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(writeText).toHaveBeenCalledWith(shareUrl);
     expect(await screen.findByRole("button", { name: "Copied ✓" })).toBeVisible();
+  });
+
+  it("starts another song from below the delivered share content", () => {
+    const onStartAnother = vi.fn();
+    render(
+      <Success
+        elapsedMs={0}
+        order={{ status: "delivered", recipient_name: "Sarah", share_url: "https://porizo.co/play/w8kq2m" }}
+        onStartAnother={onStartAnother}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Make another song" });
+    expect(screen.getByText(/Your songs live/).compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(button);
+    expect(onStartAnother).toHaveBeenCalledOnce();
+  });
+
+  it.each(["failed", "refunded"] as const)("lets a %s order start another song", (status) => {
+    const onStartAnother = vi.fn();
+    render(
+      <Success
+        elapsedMs={0}
+        order={{ status, recipient_name: "Sarah" }}
+        onStartAnother={onStartAnother}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Make another song" }));
+    expect(onStartAnother).toHaveBeenCalledOnce();
   });
 });

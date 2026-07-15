@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./client";
 import {
   buildCheckoutRequest,
+  createSongDraft,
   createEditableVersion,
   fetchPreviewUrl,
   isTerminalOrderStatus,
   pollPreviewUntilReady,
 } from "./funnel";
+import { createInitialState, funnelReducer } from "../state/funnel";
 
 function mockClient(overrides: Partial<ApiClient>): ApiClient {
   return {
@@ -16,6 +18,56 @@ function mockClient(overrides: Partial<ApiClient>): ApiClient {
     ...overrides,
   } as ApiClient;
 }
+
+describe("draft creation contract", () => {
+  it("sends the exact version and lyric-generation request bodies", async () => {
+    let state = createInitialState();
+    for (const [step, value] of [
+      ["recipient", "sarah"],
+      ["relationship", "Mum"],
+      ["occasion", "Birthday 🎂"],
+      ["memory", "She sang every Sunday while making breakfast."],
+      ["specialPhrase", "Love you to the moon"],
+      ["genre", "Acoustic"],
+      ["mood", "Warm"],
+      ["voice", "Female voice"],
+    ] as const) {
+      state = funnelReducer(state, { type: "answer", step, value });
+    }
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ track_id: "track-1" })
+      .mockResolvedValueOnce({ track_version_id: "version-1", version_num: 3 })
+      .mockResolvedValueOnce({ lyrics: ["First line", "Second line"] });
+
+    await expect(createSongDraft(mockClient({ post }), state)).resolves.toEqual({
+      trackId: "track-1",
+      versionId: "version-1",
+      versionNum: 3,
+      lyrics: ["First line", "Second line"],
+    });
+    expect(post).toHaveBeenNthCalledWith(1, "/tracks", {
+      recipient_name: "Sarah",
+      relationship_type: "Mum",
+      occasion: "Birthday 🎂",
+      specific_memory: "She sang every Sunday while making breakfast.",
+      special_phrases: "Love you to the moon",
+      message: "I made this song for you, Sarah.",
+      style: "Acoustic, warm",
+      voice_gender: "female",
+      voice_mode: "ai_voice",
+    });
+    expect(post).toHaveBeenNthCalledWith(2, "/tracks/track-1/versions", {
+      params: { style: "Acoustic, warm", voice_gender: "female" },
+      render_type: "preview",
+    });
+    expect(post).toHaveBeenNthCalledWith(
+      3,
+      "/tracks/track-1/versions/3/lyrics/generate",
+      {},
+    );
+  });
+});
 
 describe("preview lifecycle", () => {
   it("reads the matching preview URL from the canonical track response", async () => {

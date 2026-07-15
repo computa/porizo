@@ -6,6 +6,7 @@ import {
 } from "./funnel";
 
 const demoPreviewUrl = "/create/audio/sample-mothers-day-2026.mp3";
+const RESUME_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const OCCASION_PREFILLS = [
   "I Love You ❤️",
@@ -33,6 +34,8 @@ export function resolveInitialState(
   storedValue: string | null,
   search: string,
   pathname: string,
+  hash = "",
+  now = Date.now(),
 ): FunnelState {
   const params = new URLSearchParams(search);
   const requestedScreen = params.get("screen");
@@ -50,11 +53,23 @@ export function resolveInitialState(
   const stored = parseStoredState(storedValue);
   if (stored) {
     if (routeStep === "success") return { ...stored, activeStep: "success", furthestStep: "success" };
-    return {
-      ...stored,
-      activeStep: stored.furthestStep,
-      answers: occasion ? { ...stored.answers, occasion } : stored.answers,
-    };
+    if (params.get("cancelled") === "1" && hasOfferArtifacts(stored)) {
+      return { ...stored, activeStep: "offer", furthestStep: "offer" };
+    }
+    const hashStep = hash.replace(/^#/, "");
+    if (
+      isFlowStep(hashStep) &&
+      hashStep !== "recipient" &&
+      hashStep !== "success" &&
+      stored.furthestStep !== "success" &&
+      now - stored.savedAt <= RESUME_MAX_AGE_MS
+    ) {
+      return {
+        ...stored,
+        activeStep: stored.furthestStep,
+        answers: occasion ? { ...stored.answers, occasion } : stored.answers,
+      };
+    }
   }
   if (!routeStep) {
     const initial = createInitialState();
@@ -82,4 +97,24 @@ export function resolveInitialState(
       previewUrl: demoPreviewUrl,
     },
   };
+}
+
+export function resolveResumeCandidate(
+  storedValue: string | null,
+  search: string,
+  pathname: string,
+  hash = "",
+  now = Date.now(),
+): FunnelState | null {
+  if (pathname.replace(/\/$/, "").endsWith("/success")) return null;
+  if (new URLSearchParams(search).get("cancelled") === "1") return null;
+  const hashStep = hash.replace(/^#/, "");
+  if (isFlowStep(hashStep) && hashStep !== "recipient") return null;
+  const stored = parseStoredState(storedValue);
+  if (!stored || stored.furthestStep === "recipient" || stored.furthestStep === "success") return null;
+  return now - stored.savedAt <= RESUME_MAX_AGE_MS ? stored : null;
+}
+
+function hasOfferArtifacts(state: FunnelState) {
+  return Boolean(state.artifacts.trackId && state.artifacts.versionId);
 }

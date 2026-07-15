@@ -9,7 +9,6 @@ import {
   isTerminalOrderStatus,
   normalizeLyrics,
   pollPreviewUntilReady,
-  type JobStatus,
   type OrderStatus,
   type Product,
 } from "./api/funnel";
@@ -29,9 +28,11 @@ import {
   type FunnelState,
   type QuizStep,
 } from "./state/funnel";
-import { resolveInitialState } from "./state/initial-state";
+import { resolveInitialState, resolveResumeCandidate } from "./state/initial-state";
+import { stageForJob } from "./job-stage";
 import { cssDurationMs } from "./motion";
 import { acquireTurnstileToken } from "./turnstile";
+import { sessionStartErrorCopy } from "./session-errors";
 
 const STORAGE_KEY = "porizo.web-funnel.v1";
 const TOKEN_KEY = "porizo.web-funnel.token";
@@ -60,11 +61,24 @@ function initialState(): FunnelState {
   const params = new URLSearchParams(location.search);
   if (!import.meta.env.DEV) params.delete("screen");
   const search = params.size ? `?${params.toString()}` : "";
-  return resolveInitialState(localStorage.getItem(STORAGE_KEY), search, location.pathname);
+  return resolveInitialState(
+    localStorage.getItem(STORAGE_KEY),
+    search,
+    location.pathname,
+    location.hash,
+  );
 }
 
 export default function App() {
   const [state, dispatch] = useReducer(funnelReducer, undefined, initialState);
+  const [resumeCandidate, setResumeCandidate] = useState(() =>
+    resolveResumeCandidate(
+      localStorage.getItem(STORAGE_KEY),
+      location.search,
+      location.pathname,
+      location.hash,
+    ),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [capacity, setCapacity] = useState(false);
@@ -77,6 +91,7 @@ export default function App() {
   const [orderStartedAt] = useState(() => Date.now());
   const [orderElapsed, setOrderElapsed] = useState(0);
   const pollRun = useRef(0);
+  const attachedJob = useRef<string | undefined>(undefined);
 
   const client = useMemo(
     () =>
@@ -91,11 +106,14 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (resumeCandidate) {
+      return;
+    }
     localStorage.setItem(STORAGE_KEY, serializeState(state));
     if (location.hash !== `#${state.activeStep}`) {
       history.replaceState({ step: state.activeStep }, "", `#${state.activeStep}`);
     }
-  }, [state]);
+  }, [resumeCandidate, state]);
 
   useEffect(() => {
     const onBack = () => {
@@ -129,23 +147,25 @@ export default function App() {
     if (!sessionId) return;
     if (isTerminalOrderStatus(orderStatus)) return;
     let live = true;
+    let pollTimer: number | undefined;
     const update = async () => {
       try {
         const next = await client.get<OrderStatus>(`/web/orders/${encodeURIComponent(sessionId)}`);
         if (live) setOrder(next);
       } catch {
         if (live) setError("We couldn't refresh the order yet. We'll keep trying.");
+      } finally {
+        if (live) pollTimer = window.setTimeout(update, cssDurationMs("--t-order-poll"));
       }
     };
     void update();
-    const poll = window.setInterval(() => void update(), cssDurationMs("--t-order-poll"));
     const elapsed = window.setInterval(
       () => setOrderElapsed(Date.now() - orderStartedAt),
       cssDurationMs("--t-order-elapsed"),
     );
     return () => {
       live = false;
-      clearInterval(poll);
+      clearTimeout(pollTimer);
       clearInterval(elapsed);
     };
   }, [client, orderStatus, orderStartedAt, state.activeStep]);
@@ -206,8 +226,8 @@ export default function App() {
     try {
       await createGuestSession();
       return true;
-    } catch {
-      setError("We couldn't save your place. Check your connection and try again.");
+    } catch (caught) {
+      setError(sessionStartErrorCopy(caught));
       return false;
     } finally {
       setBusy(false);
@@ -260,9 +280,11 @@ export default function App() {
     setBusy(true);
     setError(undefined);
     setTheaterFailed(false);
+    setProgressStage(0);
     dispatch({ type: "advance", to: "theater" });
     try {
       const render = await approveAndRenderPreview(client, trackId, versionNum);
+      attachedJob.current = render.job_id;
       dispatch({ type: "artifact", value: { jobId: render.job_id } });
       await pollPreview(render.job_id, versionNum);
     } catch {
@@ -284,7 +306,10 @@ export default function App() {
       isActive: () => pollRun.current === run,
       wait: () => new Promise((resolve) => setTimeout(resolve, cssDurationMs("--t-poll"))),
       onJob: (job) => setProgressStage(stageForJob(job)),
-      onRetry: (jobId) => dispatch({ type: "artifact", value: { jobId } }),
+      onRetry: (jobId) => {
+        attachedJob.current = jobId;
+        dispatch({ type: "artifact", value: { jobId } });
+      },
     });
     if (!previewUrl) return;
     dispatch({
@@ -295,18 +320,22 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (state.activeStep === "theater" && state.artifacts.jobId) {
-      void pollPreview(state.artifacts.jobId, state.artifacts.versionNum ?? 1).catch(() => {
+    const jobId = state.artifacts.jobId;
+    if (state.activeStep === "theater" && jobId && attachedJob.current !== jobId) {
+      attachedJob.current = jobId;
+      void pollPreview(jobId, state.artifacts.versionNum ?? 1).catch(() => {
         setTheaterFailed(true);
       });
     }
-    return () => { pollRun.current += 1; };
-    // Reattach only when mounting a persisted theater state.
+    // Resume a persisted job exactly once when it becomes the active phase.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [state.activeStep, state.artifacts.jobId, state.artifacts.versionNum]);
 
   useEffect(() => {
-    if (state.activeStep !== "theater") pollRun.current += 1;
+    if (state.activeStep !== "theater") {
+      pollRun.current += 1;
+      attachedJob.current = undefined;
+    }
   }, [state.activeStep]);
 
   async function saveLyrics(lines: string[]) {
@@ -370,33 +399,59 @@ export default function App() {
     if (!product || !state.artifacts.trackId || !state.artifacts.versionId) return;
     setBusy(true);
     setError(undefined);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      cssDurationMs("--t-checkout-timeout"),
+    );
     try {
-      const result = await Promise.race([
-        client.post<{ checkout_url: string }>(
-          "/web/checkout",
-          buildCheckoutRequest(
-            state.artifacts.trackId,
-            state.artifacts.versionId,
-            product.price_key,
-          ),
+      const result = await client.post<{ checkout_url: string }>(
+        "/web/checkout",
+        buildCheckoutRequest(
+          state.artifacts.trackId,
+          state.artifacts.versionId,
+          product.price_key,
         ),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Checkout timed out")),
-            cssDurationMs("--t-checkout-timeout"),
-          ),
-        ),
-      ]);
+        {
+          signal: controller.signal,
+          headers: {
+            "Idempotency-Key": `web-checkout:${state.artifacts.trackId}:${state.artifacts.versionId}`,
+          },
+        },
+      );
       location.assign(result.checkout_url);
     } catch {
       setBusy(false);
       setError("Secure checkout didn't open. Please try again.");
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
   function reset() {
     localStorage.removeItem(STORAGE_KEY);
+    pollRun.current += 1;
+    setResumeCandidate(null);
+    setOrder(undefined);
+    setOrderElapsed(0);
+    setError(undefined);
+    history.replaceState({ step: "recipient" }, "", "/create#recipient");
     dispatch({ type: "restart" });
+  }
+
+  function confirmReset() {
+    if (window.confirm(`Your song for ${recipient} will be lost.`)) reset();
+  }
+
+  function confirmDiscardResume() {
+    const savedRecipient = titleCaseForDisplay(resumeCandidate?.answers.recipient ?? recipient);
+    if (window.confirm(`Your song for ${savedRecipient} will be lost.`)) reset();
+  }
+
+  function resumeSavedSong() {
+    if (!resumeCandidate) return;
+    dispatch({ type: "restore", state: resumeCandidate });
+    setResumeCandidate(null);
   }
 
   return (
@@ -404,12 +459,7 @@ export default function App() {
       {!isDim && (
         <>
           <SiteNav />
-          <div className="shell">
-            {state.activeStep !== "recipient" && (
-              <div className="shell-tools">
-                <button className="btn-quiet" type="button" onClick={reset}>Start over</button>
-              </div>
-            )}
+          <div className={showEntryFooter ? "shell shell-entry" : "shell"}>
             {QUIZ_STEPS.includes(state.activeStep as QuizStep) && !capacity && (
               <QuizFlow
                 state={state}
@@ -418,6 +468,10 @@ export default function App() {
                 onWriteSong={writeSong}
                 busy={busy}
                 error={error}
+                resumeRecipient={resumeCandidate?.answers.recipient}
+                onResume={resumeSavedSong}
+                onDiscardResume={confirmDiscardResume}
+                onBeginNew={() => setResumeCandidate(null)}
               />
             )}
             {capacity && (
@@ -433,6 +487,7 @@ export default function App() {
               <>
                 <QuizSummary state={state} onEdit={(step) => dispatch({ type: "edit", step })} />
                 <Theater
+                  key={state.artifacts.jobId ?? "draft"}
                   recipient={recipient}
                   lyrics={state.artifacts.lyrics ?? []}
                   progressStage={progressStage}
@@ -463,7 +518,14 @@ export default function App() {
                 onCheckout={() => void checkout()}
               />
             )}
-            {state.activeStep === "success" && <Success order={order} elapsedMs={orderElapsed} />}
+            {state.activeStep === "success" && (
+              <Success order={order} elapsedMs={orderElapsed} onStartAnother={reset} />
+            )}
+            {state.activeStep !== "recipient" && state.activeStep !== "success" && (
+              <div className="flow-reset">
+                <button className="btn-quiet" type="button" onClick={confirmReset}>Start over</button>
+              </div>
+            )}
           </div>
           {showEntryFooter && <SiteFooter />}
         </>
@@ -492,13 +554,4 @@ function QuizSummary({ state, onEdit }: { state: FunnelState; onEdit: (step: Qui
       <PencilIcon />
     </button>
   );
-}
-
-function stageForJob(job: JobStatus) {
-  const step = (job.step ?? "").toLowerCase();
-  if (step.includes("mix") || (job.progress ?? 0) > 0.8) return 4;
-  if (step.includes("vocal") || step.includes("record") || (job.progress ?? 0) > 0.6) return 3;
-  if (step.includes("music") || step.includes("melody") || (job.progress ?? 0) > 0.4) return 2;
-  if (step.includes("lyric") || (job.progress ?? 0) > 0.2) return 1;
-  return 0;
 }

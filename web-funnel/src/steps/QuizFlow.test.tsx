@@ -1,9 +1,78 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInitialState, funnelReducer } from "../state/funnel";
 import { QuizFlow } from "./QuizFlow";
 
 describe("stacked quiz", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.documentElement.style.removeProperty("--t-chip-delay");
+    document.documentElement.style.removeProperty("--t-step");
+  });
+
+  it("uses the family-vocabulary recipient placeholder", () => {
+    render(
+      <QuizFlow
+        state={createInitialState()}
+        dispatch={vi.fn()}
+        onStartSession={vi.fn().mockResolvedValue(true)}
+        onWriteSong={vi.fn()}
+        busy={false}
+      />,
+    );
+
+    expect(screen.getByLabelText("Recipient's name")).toHaveAttribute("placeholder", "Their name");
+  });
+
+  it("offers explicit resume and start-over actions for a saved draft", () => {
+    const onResume = vi.fn();
+    const onDiscardResume = vi.fn();
+    render(
+      <QuizFlow
+        state={createInitialState()}
+        dispatch={vi.fn()}
+        onStartSession={vi.fn().mockResolvedValue(true)}
+        onWriteSong={vi.fn()}
+        busy={false}
+        resumeRecipient="Sarah"
+        onResume={onResume}
+        onDiscardResume={onDiscardResume}
+      />,
+    );
+
+    expect(screen.getByText("Pick up Sarah's song where you left off")).toBeVisible();
+    expect(screen.getByLabelText("Recipient's name")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Pick up the song" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(onDiscardResume).toHaveBeenCalledOnce();
+  });
+
+  it("auto-advances a relationship after the 250ms chip delay", async () => {
+    vi.useFakeTimers();
+    document.documentElement.style.setProperty("--t-chip-delay", "250ms");
+    document.documentElement.style.setProperty("--t-step", "0ms");
+    let state = funnelReducer(createInitialState(), { type: "answer", step: "recipient", value: "Sarah" });
+    state = funnelReducer(state, { type: "advance" });
+    const dispatch = vi.fn();
+    render(
+      <QuizFlow
+        state={state}
+        dispatch={dispatch}
+        onStartSession={vi.fn().mockResolvedValue(true)}
+        onWriteSong={vi.fn()}
+        busy={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mum" }));
+    expect(dispatch).toHaveBeenCalledWith({ type: "answer", step: "relationship", value: "Mum" });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(dispatch).not.toHaveBeenCalledWith({ type: "advance", to: undefined });
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.runOnlyPendingTimersAsync();
+    expect(dispatch).toHaveBeenCalledWith({ type: "advance", to: undefined });
+  });
   it("keeps answered steps as editable summary rows", () => {
     let state = funnelReducer(createInitialState(), { type: "answer", step: "recipient", value: "Sarah" });
     state = funnelReducer(state, { type: "advance" });

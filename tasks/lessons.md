@@ -2,6 +2,8 @@
 
 Patterns and rules to prevent repeated mistakes. Review at session start.
 
+- **External QA must be rebased onto current HEAD before implementation** — When a review cites an older commit, record that baseline and classify every finding as open, implemented-but-unproved, verified-behavior-needing-test, partial, or external with exact current evidence. Do not replay already-landed production fixes; add missing regression proof and change code only where the current behavior still fails.
+
 ---
 
 ## Session Rules

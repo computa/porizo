@@ -12,6 +12,13 @@ interface PreviewProps {
 }
 
 export function Preview({
+  previewUrl,
+  ...props
+}: PreviewProps) {
+  return <PreviewPlayer key={previewUrl} {...props} previewUrl={previewUrl} />;
+}
+
+function PreviewPlayer({
   recipient,
   lines,
   previewUrl,
@@ -23,6 +30,8 @@ export function Preview({
   const lyricRefs = useRef<Array<HTMLParagraphElement | null>>([]);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [listenCount, setListenCount] = useState(0);
   const [playbackError, setPlaybackError] = useState(false);
   const endedForPlay = useRef(false);
@@ -62,13 +71,22 @@ export function Preview({
           ref={audioRef}
           src={previewUrl}
           preload="metadata"
+          onLoadedMetadata={(event) => {
+            const nextDuration = event.currentTarget.duration;
+            setDuration(Number.isFinite(nextDuration) ? nextDuration : 0);
+          }}
           onTimeUpdate={(event) => {
             const audio = event.currentTarget;
             const ratio = audio.duration ? audio.currentTime / audio.duration : 0;
             setProgress(ratio);
+            setCurrentTime(audio.currentTime);
+            setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
           }}
           onPause={() => setPlaying(false)}
-          onPlay={() => setPlaying(true)}
+          onPlay={() => {
+            endedForPlay.current = false;
+            setPlaying(true);
+          }}
           onError={() => {
             setPlaying(false);
             setPlaybackError(true);
@@ -116,6 +134,10 @@ export function Preview({
         >
           <i style={{ transform: `scaleX(${progress})` }} />
         </div>
+        <div className="timecode" aria-label="Preview timecode">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
         {generations < 2 && (
           <button className="btn-quiet preview-edit" type="button" onClick={onChangeLyrics}>
             Change something in the lyrics
@@ -130,4 +152,10 @@ export function Preview({
       </div>
     </main>
   );
+}
+
+function formatTime(seconds: number): string {
+  const wholeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const minutes = Math.floor(wholeSeconds / 60);
+  return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }

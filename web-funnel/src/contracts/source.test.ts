@@ -45,7 +45,8 @@ describe("source contracts", () => {
     expect(homepage).toContain('href="/create?occasion=Birthday"');
     expect(homepage).toContain('href="/create?occasion=Anniversary"');
     expect(homepage).toContain('href="/create?occasion=Wedding"');
-    expect(homepage).toContain('href="/create?occasion=Father%27s%20Day"');
+    expect(homepage).toContain('href="/create?occasion=Custom"');
+    expect(homepage).not.toContain('href="/create?occasion=Father%27s%20Day"');
   });
 
   it("defines every CSS custom property consumed by the funnel", () => {

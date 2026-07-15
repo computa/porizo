@@ -61,6 +61,10 @@ interface QuizFlowProps {
   onWriteSong: () => Promise<void>;
   busy: boolean;
   error?: string;
+  resumeRecipient?: string;
+  onResume?: () => void;
+  onDiscardResume?: () => void;
+  onBeginNew?: () => void;
 }
 
 function useReducedMotion() {
@@ -74,7 +78,18 @@ function useReducedMotion() {
   return reduced;
 }
 
-export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, error }: QuizFlowProps) {
+export function QuizFlow({
+  state,
+  dispatch,
+  onStartSession,
+  onWriteSong,
+  busy,
+  error,
+  resumeRecipient,
+  onResume,
+  onDiscardResume,
+  onBeginNew,
+}: QuizFlowProps) {
   const reducedMotion = useReducedMotion();
   const [customRelationship, setCustomRelationship] = useState("");
   const [showCustomOccasions, setShowCustomOccasions] = useState(false);
@@ -207,6 +222,15 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
                   if (await onStartSession() && activeStepRef.current === "recipient") advance();
                 }}
               >
+                {resumeRecipient && (
+                  <aside className="card resume-card" aria-label="Saved song">
+                    <p>Pick up {titleCaseForDisplay(resumeRecipient)}'s song where you left off</p>
+                    <div className="quiet-actions">
+                      <button className="btn-quiet" type="button" onClick={onResume}>Pick up the song</button>
+                      <button className="btn-quiet" type="button" onClick={onDiscardResume}>Start over</button>
+                    </div>
+                  </aside>
+                )}
                 <h1 className="q" tabIndex={-1}>Who's this song for?</h1>
                 <p className="hint">Their name will be sung in the lyrics.</p>
                 <label className="sr-only" htmlFor="recipient">Recipient's name</label>
@@ -215,12 +239,16 @@ export function QuizFlow({ state, dispatch, onStartSession, onWriteSong, busy, e
                   id="recipient"
                   autoComplete="name"
                   value={state.answers.recipient}
-                  onChange={(event) => answer("recipient", event.target.value)}
-                  placeholder="Sarah"
+                  onChange={(event) => {
+                    onBeginNew?.();
+                    answer("recipient", event.target.value);
+                  }}
+                  placeholder="Their name"
                   autoFocus
+                  disabled={Boolean(resumeRecipient)}
                 />
                 {error && <p className="error-text" role="alert">{error}</p>}
-                <Cta disabled={!state.answers.recipient.trim() || busy || collapsing} label="Next" />
+                <Cta disabled={Boolean(resumeRecipient) || !state.answers.recipient.trim() || busy || collapsing} label="Next" />
               </form>
             )}
 

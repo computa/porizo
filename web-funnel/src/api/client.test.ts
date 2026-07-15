@@ -31,4 +31,26 @@ describe("API client", () => {
     expect(refreshSession).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it("forwards checkout cancellation and idempotency options", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.test" }), { status: 200 }),
+    );
+    const controller = new AbortController();
+    const client = createApiClient({ getToken: () => "guest", fetcher });
+
+    await client.post(
+      "/web/checkout",
+      { track_id: "track-1" },
+      { signal: controller.signal, headers: { "Idempotency-Key": "checkout-1" } },
+    );
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/web/checkout",
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: expect.objectContaining({ "Idempotency-Key": "checkout-1" }),
+      }),
+    );
+  });
 });

@@ -148,5 +148,21 @@ Set `PREVIEW_ONLY=true` to block full renders.
 npm test
 ```
 
+### Web funnel
+
+The web funnel's tracked development and preview environments use Cloudflare's
+official always-pass Turnstile site key. Build that deterministic QA variant with:
+
+```sh
+npm --prefix web-funnel run build:preview
+```
+
+Production builds require a real Turnstile site key and reject every documented
+Cloudflare test key. Pass the public site key into Docker at build time:
+
+```sh
+docker build --build-arg VITE_TURNSTILE_SITE_KEY=your-real-site-key .
+```
+
 Tests load `.env` (via `dotenv/config`). If you have `LIVE_PROVIDERS=true` and valid keys,
 they will attempt real provider calls during workflow execution.

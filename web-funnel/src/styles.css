@@ -30,11 +30,22 @@
   min-height: 100dvh;
 }
 
-.shell-tools {
+.shell-entry {
+  min-height: auto;
+}
+
+.resume-card {
+  margin-bottom: var(--sp-4);
+}
+
+.resume-card p {
+  margin-bottom: var(--sp-2);
+}
+
+.flow-reset {
   display: flex;
-  justify-content: flex-end;
-  min-height: var(--tap-min);
-  padding-top: var(--sp-2);
+  justify-content: center;
+  padding: var(--sp-4) 0;
 }
 
 .nav__cta--quiet {
@@ -91,7 +102,7 @@
 }
 
 .funnel-footer {
-  margin-top: var(--sp-7);
+  margin-top: var(--sp-4);
 }
 
 .dim-brand {
@@ -267,6 +278,10 @@
   line-height: var(--lyric-lh);
 }
 
+.lyric-recipient {
+  color: var(--coral-700);
+}
+
 .lyrics-editor {
   min-height: var(--lyrics-editor-h);
 }
@@ -357,7 +372,7 @@
 }
 
 .pulse-once {
-  animation: cta-pulse var(--t-pulse) var(--ease-reveal) one;
+  animation: cta-pulse var(--t-pulse) var(--ease-reveal) 1;
 }
 
 .price-loading {
@@ -407,6 +422,11 @@
 .reaction-nudge h2 {
   font-size: var(--lyric-size);
   margin-bottom: var(--sp-2);
+}
+
+.success-reset {
+  align-self: center;
+  margin-top: var(--sp-3);
 }
 
 .status-orbit {

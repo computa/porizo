@@ -39,6 +39,7 @@ export interface FunnelArtifacts {
 
 export interface FunnelState {
   version: 1;
+  savedAt: number;
   activeStep: FlowStep;
   furthestStep: FlowStep;
   returnStep?: FlowStep;
@@ -51,6 +52,7 @@ export type FunnelAction =
   | { type: "advance"; to?: FlowStep }
   | { type: "edit"; step: QuizStep; returnTo?: FlowStep }
   | { type: "artifact"; value: Partial<FunnelArtifacts> }
+  | { type: "restore"; state: FunnelState }
   | { type: "restart" };
 
 const DEFAULT_ANSWERS: FunnelAnswers = {
@@ -68,6 +70,7 @@ const DEFAULT_ANSWERS: FunnelAnswers = {
 export function createInitialState(): FunnelState {
   return {
     version: 1,
+    savedAt: Date.now(),
     activeStep: "recipient",
     furthestStep: "recipient",
     answers: { ...DEFAULT_ANSWERS },
@@ -84,22 +87,26 @@ function laterStep(a: FlowStep, b: FlowStep): FlowStep {
 }
 
 export function funnelReducer(state: FunnelState, action: FunnelAction): FunnelState {
+  const savedAt = Date.now();
   switch (action.type) {
     case "answer":
-      return { ...state, answers: { ...state.answers, [action.step]: action.value } };
+      return { ...state, savedAt, answers: { ...state.answers, [action.step]: action.value } };
     case "artifact":
-      return { ...state, artifacts: { ...state.artifacts, ...action.value } };
+      return { ...state, savedAt, artifacts: { ...state.artifacts, ...action.value } };
     case "edit":
-      return { ...state, activeStep: action.step, returnStep: action.returnTo ?? state.activeStep };
+      return { ...state, savedAt, activeStep: action.step, returnStep: action.returnTo ?? state.activeStep };
     case "advance": {
       const destination = action.to ?? state.returnStep ?? nextStep(state.activeStep);
       return {
         ...state,
+        savedAt,
         activeStep: destination,
         furthestStep: laterStep(state.furthestStep, destination),
         returnStep: undefined,
       };
     }
+    case "restore":
+      return { ...action.state, savedAt };
     case "restart":
       return createInitialState();
   }
@@ -125,7 +132,10 @@ export function parseStoredState(value: string | null): FunnelState | null {
     ) {
       return null;
     }
-    return candidate as FunnelState;
+    return {
+      ...(candidate as FunnelState),
+      savedAt: typeof candidate.savedAt === "number" ? candidate.savedAt : Date.now(),
+    };
   } catch {
     return null;
   }

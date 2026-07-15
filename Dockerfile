@@ -9,6 +9,7 @@ RUN npm ci --prefix web-funnel
 
 COPY web-funnel ./web-funnel
 COPY public/styles/main.css ./public/styles/main.css
+ARG VITE_TURNSTILE_SITE_KEY
 RUN npm --prefix web-funnel run build
 
 FROM node:20.19-slim
