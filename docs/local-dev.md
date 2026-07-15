@@ -35,8 +35,12 @@ Magic-login development variables:
   established sessions.
 - `MAGIC_LOGIN_RECOVERY_KEY` encrypts short-lived recovery data; when omitted,
   the service derives it from `JWT_SECRET`.
-- `MAGIC_LOGIN_WEB_ORIGIN` defaults to `https://auth.porizo.co` and must exactly
-  match web request, exchange, and logout Origin headers.
+- `MAGIC_LOGIN_WEB_ORIGIN` is the single canonical link/cookie origin and
+  defaults to `https://porizo.co`. Do not put a comma-separated list here.
+- `MAGIC_LOGIN_WEB_ALLOWED_ORIGINS` is the optional comma-separated request
+  allowlist; it always includes the canonical origin. Keep the legacy
+  `https://auth.porizo.co` origin while native browser-approval links issued on
+  that host remain valid; new web sign-ins and cookies stay on `porizo.co`.
 - Links use `/auth/magic/{ios|android|web}?transaction_id=…#secret=…`. Never
   move the secret into the query string or log complete callback URLs.
 
@@ -163,6 +167,13 @@ Cloudflare test key. Pass the public site key into Docker at build time:
 ```sh
 docker build --build-arg VITE_TURNSTILE_SITE_KEY=your-real-site-key .
 ```
+
+The API requires `TURNSTILE_SECRET_KEY` in production and validates the widget
+action plus `TURNSTILE_EXPECTED_HOSTNAME` (default `porizo.co`). The
+`web_funnel_enabled` database flag is seeded off; enable it explicitly only in
+the environment being tested. Keep `TRUST_CLOUDFLARE_CLIENT_IP=false` until the
+origin accepts traffic only through Cloudflare, otherwise direct clients can
+spoof forwarding headers used by cost controls.
 
 Tests load `.env` (via `dotenv/config`). If you have `LIVE_PROVIDERS=true` and valid keys,
 they will attempt real provider calls during workflow execution.

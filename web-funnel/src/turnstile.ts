@@ -116,6 +116,7 @@ export async function acquireTurnstileToken(): Promise<string> {
     try {
       widgetId = window.turnstile!.render(container, {
         sitekey,
+        action: "web_session",
         execution: "execute",
         callback: (token: string) => finish({ token }),
         "error-callback": () =>

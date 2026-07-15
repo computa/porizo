@@ -5,6 +5,7 @@ import { createInitialState, funnelReducer, serializeState } from "./state/funne
 import { resolveInitialState, resolveResumeCandidate } from "./state/initial-state";
 import { TurnstileError } from "./turnstile";
 import { sessionStartErrorCopy } from "./session-errors";
+import { ApiError } from "./api/client";
 
 describe("initial funnel route", () => {
   afterEach(() => {
@@ -141,6 +142,36 @@ describe("initial funnel route", () => {
     render(<App />);
 
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument();
+  });
+
+  it("bridges an existing same-origin web session before creating a guest", async () => {
+    vi.spyOn(document, "cookie", "get").mockReturnValue(
+      "__Host-porizo_web_csrf=web-csrf-token",
+    );
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "signed-in-token" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Recipient's name"), {
+      target: { value: "Chioma" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith(
+        "/auth/web/token",
+        expect.objectContaining({
+          method: "POST",
+          credentials: "same-origin",
+          headers: expect.objectContaining({ "X-CSRF-Token": "web-csrf-token" }),
+        }),
+      ),
+    );
+    expect(fetcher).not.toHaveBeenCalledWith("/web/session", expect.anything());
+    expect(localStorage.getItem("porizo.web-funnel.token")).toBe("signed-in-token");
   });
 
   it("confirms reset, preserves guest credentials, and removes stale route intent", () => {
@@ -326,6 +357,15 @@ describe("initial funnel route", () => {
     );
     expect(sessionStartErrorCopy(new TurnstileError("verification", "rejected"))).toBe(
       "We couldn't verify this request. Please try again.",
+    );
+    expect(sessionStartErrorCopy(new ApiError("invalid", 400, "TURNSTILE_INVALID"))).toBe(
+      "We couldn't verify this request. Please try again.",
+    );
+    expect(sessionStartErrorCopy(new ApiError("offline", 503, "TURNSTILE_UNAVAILABLE"))).toContain(
+      "temporarily unavailable",
+    );
+    expect(sessionStartErrorCopy(new ApiError("limited", 429, "WEB_SESSION_LIMIT_REACHED"))).toContain(
+      "Too many song sessions",
     );
   });
 });

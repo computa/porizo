@@ -10,7 +10,7 @@ depth: deep
 
 Builds `specs/web-funnel-spec.md`. All integration claims verified against source 2026-07-14 (scout pass); ⚠ VERIFY items are execution-time checks, listed per unit. Execution posture: server units are **test-first** (the repo has a strong route-test suite pattern; money paths demand it). Frontend units are build-then-verify with screenshot baselines + the impeccable audit/critique gates.
 
-**Sequencing overview:** U1–U3 (identity + free preview) unblock an end-to-end unpaid funnel on staging; U4–U6 (money + delivery) complete the paid path; U7 unblocks the recipient experience; U8–U11 are the frontend riding on top; U12–U14 harden and instrument. U8 can start in parallel with U4+ once U1–U3 are on staging.
+**Sequencing overview:** U1–U3 (identity + free preview) unblock an end-to-end unpaid funnel on staging; U4–U6 (money + delivery) complete the paid path; U7 unblocks the recipient experience; U8–U11 are the frontend riding on top; U12–U14 harden and instrument. U8–U11 are now implemented, so U1–U3 are the immediate critical path. These server units remain test-first and must preserve SQLite/PostgreSQL migration parity.
 
 ```mermaid
 flowchart LR
@@ -31,7 +31,7 @@ flowchart LR
 **Requirements:** spec §5.2 (one login, one account).
 **Dependencies:** none.
 **Files:** `src/routes/auth.js` (new `POST /auth/web/token` near the web-session handlers at :1162), `src/services/auth-service.js` (reuse `issueAccessToken` path), `test/routes/auth-web-token.test.js` (new).
-**Approach:** Same-origin endpoint: validate `__Host-porizo_session` cookie via the existing `findActiveWebSession` repo, require matching `Origin` + the CSRF cookie pattern already used by `/auth/magic/exchange`, mint the standard 15-min access JWT bound to the web session's `sessionId`. No refresh token issued (the cookie is the long-lived credential; SPA re-calls on 401). Config: ensure `MAGIC_LOGIN_WEB_ORIGIN` supports `https://porizo.co` (env change; ⚠ VERIFY whether it accepts a list or single origin — extend to list if single).
+**Approach:** Same-origin endpoint: validate `__Host-porizo_session` via `findActiveWebSession`, require an allowlisted `Origin`, and require a dedicated double-submit `__Host-porizo_web_csrf` cookie + `x-csrf-token` header. The existing magic exchange deletes its short-lived pre-auth CSRF cookie, so reusing that cookie would leave this endpoint unprotected; successful web exchange must issue the dedicated CSRF cookie alongside the HttpOnly session cookie. Mint the standard 15-minute access JWT bound to the web session `sessionId`. No refresh token is issued (the session cookie is the long-lived credential; the SPA re-calls on 401). `MAGIC_LOGIN_WEB_ORIGIN` accepts a comma-separated allowlist and defaults to both the auth origin and `https://porizo.co`.
 **Test scenarios:**
 
 - Valid session cookie + correct Origin → 200 with a JWT that passes `requireUserId` on `GET /tracks`.
@@ -47,14 +47,16 @@ flowchart LR
 **Goal:** Anonymous funnel visitors get a real (guest) user + JWT so every existing endpoint works unchanged; abuse-limited at the door.
 **Requirements:** spec §5.2 guests, §8 controls 1–2, 4.
 **Dependencies:** none (parallel with U1).
-**Files:** `migrations/pg/1XX_users_account_status.sql` + sqlite mirror (⚠ VERIFY existing users columns first — check for an existing status/flags column before adding), new `src/routes/web-funnel.js` (`POST /web/session`), `src/services/turnstile.js` (new, single verify call), `src/database/rate-limit-repository.js` (no change — `ip:` keying exists at :3-21, just unused), `src/middleware/require-user.js` (expose `account_status` on request user), `test/routes/web-session.test.js`.
-**Approach:** Endpoint verifies Turnstile token server-side, consumes IP-keyed limits (`ip:<addr>:web_session` ≤5/day, sliding window via existing repo), inserts user (`account_status='guest'`), creates session + JWT pair via existing auth-service issuance. Client IP: use the existing client-IP extraction (hardened June 2026 — reuse, don't reimplement). Feature flag `web_funnel_enabled` gates the route.
+**Files:** `migrations/131_web_funnel_guest_sessions.sql` + PostgreSQL mirror, new `src/routes/web-funnel.js` (`POST /web/session`), new `src/services/turnstile.js`, new `src/database/web-funnel-repository.js`, `src/services/feature-flags.js`, `src/server.js`, `test/routes/web-session.test.js`.
+**Approach:** Migration adds `users.account_status` (`active|guest`, default `active`) and a `web_guest_devices` continuity table binding an opaque HttpOnly device cookie hash to the guest user and current auth session. The endpoint checks the `web_funnel_enabled` flag, consumes the IP-keyed session limit (`{subject:'ip',value:<addr>}`, ≤5/day) before calling Cloudflare, verifies Turnstile server-side with a bounded timeout, then atomically creates or resumes a guest user, a zero-song entitlement row, a normal auth session, and a rotating refresh token. It returns the standard access/refresh pair and sets the opaque device cookie. Use the canonical client-IP extractor. Production startup/requests fail closed when `TURNSTILE_SECRET_KEY` is absent; development uses Cloudflare's official always-pass test secret, never the production key. Turnstile, rate-limit, and transaction failures are distinct 503 errors, not network-error lookalikes.
 **Test scenarios:**
 
 - Happy: valid Turnstile → 200 {access, refresh}; JWT works on `POST /tracks`.
 - Invalid/missing Turnstile token → 400; Turnstile API down → 503 with retry-able error (fail closed).
 - 6th session same IP same day → 429; different IP unaffected; window rolls over.
-- Flag off → 404/503 (route hidden).
+- Flag off → 404 (route hidden).
+- Valid continuity cookie → same guest user, new session-bound tokens, no duplicate user or entitlement grant.
+- Missing production secret → explicit configuration failure; development uses only Cloudflare's published test secret.
 - Guest user has zero entitlements (`GET /billing/entitlements` shows 0; no free-grant rows).
   **Verification:** route tests green; manual curl of the full guest → track-create sequence on staging.
 
@@ -65,8 +67,8 @@ flowchart LR
 **Goal:** Guests render previews without owning a song credit; full render remains the paid spend; provider cost is bounded.
 **Requirements:** spec §5.3, §8 controls 3, 5.
 **Dependencies:** U2.
-**Files:** `src/routes/tracks.js` (`render_preview` spend gate ~:900), `src/services/subscription-manager.js` (no change to `spendSongInTransaction` — verified `render_full` spends fresh when not consumed), new flag rows (`web_funnel_enabled`, `web_funnel_daily_preview_budget`), `src/routes/web-funnel.js` (budget counter), `test/routes/render-preview-guest.test.js`.
-**Approach:** In `render_preview`: `if (user.account_status === 'guest' && flag) skip consumeSongEntitlement` — everything else (moderation gate, lyrics-approved gate, rate limits, job enqueue) unchanged. Per-guest caps via existing rate-limit table (`web_preview` action: 2/guest lifetime — use limit with a very long window or a counter column). Global breaker: daily counter (previews or estimated $) checked before enqueue; tripped → 503 `FUNNEL_PAUSED` (client shows hold-your-place email capture) + admin alert email.
+**Files:** `src/routes/tracks.js` (`render_preview` spend gate), `src/database/web-funnel-repository.js`, `src/services/feature-flags.js`, migration 131 flag seeds, `test/routes/render-preview-guest.test.js`.
+**Approach:** Resolve guest status and the session-start funnel snapshot from the authenticated session. For an enabled guest session, consume three fail-closed counters before enqueue: 2 previews per guest, 10/day per client IP, and the numeric `web_funnel_daily_preview_budget` global/day breaker. Only then skip `consumeSongEntitlementInTransaction`; moderation, lyrics approval, idempotent existing-job handling, and job enqueue remain unchanged. Normal users and guest sessions whose entry snapshot was disabled retain today's entitlement-spend path. The budget counter is conservative: an enqueue failure may consume allowance, but no concurrency can exceed the spend ceiling. A tripped global breaker returns 503 `FUNNEL_PAUSED`; counter-infrastructure failures return 503 `FUNNEL_GUARD_UNAVAILABLE` and never fall through to provider spend.
 **Test scenarios:**
 
 - Guest with 0 entitlements renders preview → 202, `song_entitlement_consumed_at` stays NULL.
@@ -75,6 +77,8 @@ flowchart LR
 - Non-guest user unchanged: preview spends as today (regression guard).
 - 3rd preview by same guest → 429 with the cap error code.
 - Breaker: set budget to 1, render 2 previews via 2 guests → second gets 503 `FUNNEL_PAUSED`; flag reset restores.
+- IP cap: 11th preview from one IP is blocked even across guest identities; a different IP is unaffected.
+- Counter-store failure → 503 before entitlement bypass or job enqueue.
 - Flag off → guest preview 402 (today's behavior).
   **Verification:** full unpaid path on staging: guest → track → lyrics → approve → preview → poll job → `preview_url` playable.
 

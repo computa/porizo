@@ -16,7 +16,7 @@ test("root scripts build the web funnel before integrated development", () => {
     packageJson.scripts["web-funnel:build"],
     "npm --prefix web-funnel run build",
   );
-  assert.equal(packageJson.scripts.predev, "npm run web-funnel:build");
+  assert.equal(packageJson.scripts.predev, "npm run web-funnel:build:preview");
 
   const serverSource = read("src/server.js");
   assert.match(serverSource, /REQUIRE_WEB_FUNNEL_BUILD:\s*true/);

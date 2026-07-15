@@ -29,4 +29,16 @@ function getClientIp(request) {
   return (request && request.ip) || "unknown";
 }
 
-module.exports = { getClientIp };
+/**
+ * Spend/session guards must not trust forwarding headers unless production
+ * ingress has been explicitly restricted to Cloudflare.
+ */
+function getGuardClientIp(request) {
+  if (process.env.TRUST_CLOUDFLARE_CLIENT_IP === "true") {
+    return getClientIp(request);
+  }
+  const peerIp = request?.raw?.socket?.remoteAddress;
+  return typeof peerIp === "string" && isIP(peerIp) ? peerIp : "unknown";
+}
+
+module.exports = { getClientIp, getGuardClientIp };

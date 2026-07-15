@@ -6,6 +6,7 @@
  */
 
 const authService = require("../services/auth-service");
+const { parseCookieHeader } = require("../utils/http-cookies");
 const emailService = require("../services/email-service");
 const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
@@ -118,16 +119,6 @@ function hashPhoneNumber(phoneNumber) {
     .createHmac("sha256", PHONE_HMAC_KEY)
     .update(phoneNumber)
     .digest("hex");
-}
-
-function parseCookieHeader(header) {
-  return Object.fromEntries(
-    String(header || "")
-      .split(";")
-      .map((part) => part.trim().split("="))
-      .filter(([key, value]) => key && value)
-      .map(([key, ...value]) => [key, decodeURIComponent(value.join("="))]),
-  );
 }
 
 function encodePreauthCookie(value) {
@@ -386,8 +377,29 @@ async function requireAuth(request, reply) {
 /**
  * Register auth routes on Fastify app
  */
-function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
+function registerAuthRoutes(app, { db, subscriptionManager, appConfig = {} } = {}) {
   authRouteSessionRepository = createAuthSessionRepository(db);
+  const canonicalWebOrigin = String(
+    appConfig.MAGIC_LOGIN_WEB_ORIGIN ||
+      process.env.MAGIC_LOGIN_WEB_ORIGIN ||
+      "https://porizo.co",
+  ).replace(/\/$/, "");
+  const allowedWebOrigins = new Set(
+    (() => {
+      const configured = String(
+        appConfig.MAGIC_LOGIN_WEB_ALLOWED_ORIGINS ||
+          process.env.MAGIC_LOGIN_WEB_ALLOWED_ORIGINS ||
+          `${canonicalWebOrigin},https://auth.porizo.co`,
+      )
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+      return configured.length ? configured : [canonicalWebOrigin];
+    })(),
+  );
+  allowedWebOrigins.add(canonicalWebOrigin);
+  const hasAllowedWebOrigin = (request) =>
+    allowedWebOrigins.has(String(request.headers.origin || ""));
   authRouteRateLimitRepository = createAuthRateLimitRepository(db);
   authRouteProfileRepository = createAuthProfileRepository(db);
   authRouteProviderLinkingRepository = createAuthProviderLinkingRepository(db);
@@ -631,9 +643,7 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
     }
 
     if (platform === "web") {
-      const expectedOrigin =
-        process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co";
-      if (request.headers.origin !== expectedOrigin) {
+      if (request.headers.origin !== canonicalWebOrigin) {
         return sendError(
           reply,
           403,
@@ -692,8 +702,7 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
     if (emailService.isConfigured()) {
       emailService
         .sendMagicLoginEmail(email, {
-          webOrigin:
-            process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co",
+          webOrigin: canonicalWebOrigin,
           transactionId: created.transactionId,
           platform,
           linkSecret: created.linkSecret,
@@ -800,8 +809,7 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
       if (emailService.isConfigured()) {
         emailService
           .sendMagicLoginEmail(email, {
-            webOrigin:
-              process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co",
+            webOrigin: canonicalWebOrigin,
             transactionId: created.transactionId,
             platform,
             linkSecret: created.linkSecret,
@@ -858,7 +866,7 @@ function registerAuthRoutes(app, { db, subscriptionManager } = {}) {
     });
     if (!response.ok) throw new Error('exchange failed');
     status.textContent = 'Signed in. Redirecting…';
-    location.replace('/app');
+    location.replace('/create');
   } catch { status.textContent = 'This sign-in link is invalid, expired, or was opened in a different browser.'; }
 })();
 </script></body></html>`);
@@ -921,9 +929,7 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
         "Browser confirmation is unavailable.",
       );
     }
-    const expectedOrigin =
-      process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co";
-    if (request.headers.origin !== expectedOrigin) {
+    if (!hasAllowedWebOrigin(request)) {
       return sendError(
         reply,
         403,
@@ -1052,14 +1058,12 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
     }
 
     if (platform === "web") {
-      const expectedOrigin =
-        process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co";
       const cookies = parseCookieHeader(request.headers.cookie);
       const preauth = decodePreauthCookie(cookies["__Host-porizo_preauth"]);
       const csrf = String(request.body?.csrf || "");
       const transaction = await magicLoginRepository.findById(transactionId);
       if (
-        request.headers.origin !== expectedOrigin ||
+        !hasAllowedWebOrigin(request) ||
         !preauth ||
         preauth.transactionId !== transactionId ||
         !csrf ||
@@ -1114,8 +1118,10 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       }
       reply.header("Cache-Control", "no-store");
       if (platform === "web") {
+        const webCsrf = crypto.randomBytes(24).toString("base64url");
         reply.header("Set-Cookie", [
           `__Host-porizo_session=${encodeURIComponent(exchanged.result.webSessionToken)}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Lax`,
+          `__Host-porizo_web_csrf=${encodeURIComponent(webCsrf)}; Max-Age=31536000; Path=/; Secure; SameSite=Lax`,
           "__Host-porizo_preauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax",
           "__Host-porizo_csrf=; Max-Age=0; Path=/; Secure; SameSite=Lax",
         ]);
@@ -1190,10 +1196,56 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
     return reply.send({ authenticated: true, user_id: session.user_id });
   });
 
+  app.post("/auth/web/token", async (request, reply) => {
+    if (!hasAllowedWebOrigin(request)) {
+      return sendError(reply, 403, "INVALID_ORIGIN", "Invalid request.");
+    }
+    const cookies = parseCookieHeader(request.headers.cookie);
+    const csrfCookie = cookies["__Host-porizo_web_csrf"];
+    const csrfHeader = String(request.headers["x-csrf-token"] || "");
+    if (
+      !csrfCookie ||
+      !csrfHeader ||
+      csrfCookie.length !== csrfHeader.length ||
+      !crypto.timingSafeEqual(Buffer.from(csrfCookie), Buffer.from(csrfHeader))
+    ) {
+      return sendError(reply, 403, "INVALID_CSRF", "Invalid request.");
+    }
+    const token = cookies["__Host-porizo_session"];
+    if (!token) {
+      return sendError(reply, 401, "AUTH_REQUIRED", "Authentication required.");
+    }
+    const session = await authRouteSessionRepository.findActiveWebSession(
+      crypto.createHash("sha256").update(token, "utf8").digest("hex"),
+    );
+    if (!session) {
+      return sendError(
+        reply,
+        401,
+        "INVALID_SESSION",
+        "Invalid or expired session.",
+      );
+    }
+    const now = new Date();
+    const absoluteExpiry = new Date(session.absolute_expires_at).getTime();
+    await authRouteSessionRepository.touchWebSession({
+      sessionId: session.id,
+      lastActiveAt: now.toISOString(),
+      idleExpiresAt: new Date(
+        Math.min(now.getTime() + 90 * 24 * 60 * 60 * 1000, absoluteExpiry),
+      ).toISOString(),
+    });
+    reply.header("Cache-Control", "no-store");
+    return reply.send({
+      access_token: authService.generateAccessToken(session.user_id, {
+        sessionId: session.id,
+      }),
+      expires_in: 900,
+    });
+  });
+
   app.delete("/auth/web/session", async (request, reply) => {
-    const expectedOrigin =
-      process.env.MAGIC_LOGIN_WEB_ORIGIN || "https://auth.porizo.co";
-    if (request.headers.origin !== expectedOrigin) {
+    if (!hasAllowedWebOrigin(request)) {
       return sendError(reply, 403, "INVALID_ORIGIN", "Invalid request.");
     }
     const token = parseCookieHeader(request.headers.cookie)[
@@ -1205,10 +1257,10 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       );
       if (session) await authRouteSessionRepository.revokeSession(session.id);
     }
-    reply.header(
-      "Set-Cookie",
+    reply.header("Set-Cookie", [
       "__Host-porizo_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax",
-    );
+      "__Host-porizo_web_csrf=; Max-Age=0; Path=/; Secure; SameSite=Lax",
+    ]);
     return reply.code(204).send();
   });
 

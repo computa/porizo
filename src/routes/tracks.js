@@ -3,7 +3,10 @@
 const { newUuid } = require("../utils/ids");
 const { createOrGetShareToken } = require("../services/share-service");
 const { nowIso, toJson, parseJson } = require("../utils/common");
-const { getClientIp: extractClientIp } = require("../utils/client-ip");
+const {
+  getClientIp: extractClientIp,
+  getGuardClientIp,
+} = require("../utils/client-ip");
 const {
   moderationCheck,
   validateGeneratedLyrics,
@@ -36,6 +39,12 @@ const {
 const {
   createGiftReservationRepository,
 } = require("../database/gift-reservation-repository");
+const {
+  createRateLimitRepository,
+} = require("../database/rate-limit-repository");
+const {
+  createWebFunnelRepository,
+} = require("../database/web-funnel-repository");
 
 const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "pending",
@@ -88,6 +97,8 @@ function registerTrackRoutes(
   const shareTokenRepository = createShareTokenRepository(db);
   const trackLibraryRepository = createTrackLibraryRepository(db);
   const giftReservationRepository = createGiftReservationRepository(db);
+  const webFunnelRepository = createWebFunnelRepository(db);
+  const rateLimitRepository = createRateLimitRepository(db);
   app.addHook("onClose", async () => {
     if (activeArtworkJobs.size === 0) return;
     await Promise.race([
@@ -214,6 +225,153 @@ function registerTrackRoutes(
       message: "My Voice needs voice setup before song generation.",
       requiresVoiceEnrollment: true,
     };
+  }
+
+  async function resolveGuestProviderAccess(
+    request,
+    reply,
+    userId,
+    {
+      guestAction,
+      guestMax,
+      ipAction,
+      ipMax,
+      guestLimitCode,
+      guestLimitMessage,
+      ipLimitCode,
+      ipLimitMessage,
+    },
+  ) {
+    const guestSession = await webFunnelRepository.findGuestAccess(userId);
+    if (
+      guestSession?.account_status !== "guest" ||
+      !guestSession.funnel_enabled_at_entry
+    ) {
+      return { isGuest: false };
+    }
+
+    let dailyBudget;
+    try {
+      dailyBudget = Number(
+        await getFeatureFlag(db, "web_funnel_daily_preview_budget", {
+          throwOnError: true,
+        }),
+      );
+    } catch (error) {
+      request.log.error({ err: error }, "Guest provider budget lookup failed");
+      sendError(
+        reply,
+        503,
+        "FUNNEL_GUARD_UNAVAILABLE",
+        "Song creation is temporarily unavailable.",
+      );
+      return null;
+    }
+    if (!Number.isSafeInteger(dailyBudget) || dailyBudget < 1) {
+      sendError(
+        reply,
+        503,
+        "FUNNEL_PAUSED",
+        "Song creation is temporarily paused.",
+      );
+      return null;
+    }
+
+    let guestLimit;
+    let ipLimit;
+    let globalLimit;
+    try {
+      guestLimit = await rateLimitRepository.consume({
+        key: userId,
+        action: guestAction,
+        max: guestMax,
+        windowMs: 10 * 365 * 24 * 60 * 60 * 1000,
+      });
+      if (guestLimit.allowed) {
+        ipLimit = await rateLimitRepository.consume({
+          key: { subject: "ip", value: `ip:${getGuardClientIp(request)}` },
+          action: ipAction,
+          max: ipMax,
+          windowMs: 24 * 60 * 60 * 1000,
+        });
+      }
+      if (guestLimit.allowed && ipLimit?.allowed) {
+        globalLimit = await rateLimitRepository.consume({
+          key: { subject: "global", value: "global:web_funnel" },
+          action: "web_provider_global_daily",
+          max: dailyBudget,
+          windowMs: 24 * 60 * 60 * 1000,
+        });
+      }
+    } catch (error) {
+      request.log.error({ err: error }, "Guest provider guard failed");
+      sendError(
+        reply,
+        503,
+        "FUNNEL_GUARD_UNAVAILABLE",
+        "Song creation is temporarily unavailable.",
+      );
+      return null;
+    }
+    if (!guestLimit.allowed) {
+      sendError(
+        reply,
+        429,
+        guestLimitCode,
+        guestLimitMessage,
+        { retry_at: guestLimit.resetAt },
+      );
+      return null;
+    }
+    if (!ipLimit.allowed) {
+      sendError(
+        reply,
+        429,
+        ipLimitCode,
+        ipLimitMessage,
+        { retry_at: ipLimit.resetAt },
+      );
+      return null;
+    }
+    if (!globalLimit.allowed) {
+      sendError(
+        reply,
+        503,
+        "FUNNEL_PAUSED",
+        "Song creation is temporarily paused.",
+      );
+      return null;
+    }
+    return { isGuest: true };
+  }
+
+  async function resolveGuestPreviewAccess(request, reply, userId) {
+    const access = await resolveGuestProviderAccess(request, reply, userId, {
+      guestAction: "web_preview_guest_lifetime",
+      guestMax: 2,
+      ipAction: "web_preview_ip_daily",
+      ipMax: 10,
+      guestLimitCode: "WEB_PREVIEW_LIMIT_REACHED",
+      guestLimitMessage:
+        "You've reached the free preview limit for this song session.",
+      ipLimitCode: "WEB_PREVIEW_IP_LIMIT_REACHED",
+      ipLimitMessage: "Too many previews were started from this connection.",
+    });
+    return access ? { bypassEntitlement: access.isGuest } : null;
+  }
+
+  async function enforceGuestLyricsAccess(request, reply, userId) {
+    return resolveGuestProviderAccess(request, reply, userId, {
+      guestAction: "web_lyrics_guest_lifetime",
+      guestMax: 3,
+      ipAction: "web_lyrics_ip_daily",
+      ipMax: 30,
+      guestLimitCode: "WEB_LYRICS_LIMIT_REACHED",
+      guestLimitMessage:
+        "You've reached the lyric tuning limit for this song session.",
+      ipLimitCode: "WEB_LYRICS_IP_LIMIT_REACHED",
+      ipLimitMessage: "Too many lyrics were generated from this connection.",
+    });
   }
 
   function isNewerProviderProfile(candidate, activeProviderProfile) {
@@ -868,6 +1026,12 @@ function registerTrackRoutes(
       }
       const renderRequestStepData =
         buildRenderRequestStepData(personaPreflight);
+      const guestPreviewAccess = await resolveGuestPreviewAccess(
+        request,
+        reply,
+        userId,
+      );
+      if (!guestPreviewAccess) return;
       // Keep preview/retry abuse-resistant without exposing preview as a user-facing entitlement unit.
       const limit = await consumeRateLimit(
         userId,
@@ -897,13 +1061,15 @@ function registerTrackRoutes(
             throw new Error("ALREADY_RENDERING");
           }
 
-          await consumeSongEntitlementInTransaction(query, {
-            userId,
-            trackId: track.id,
-            trackVersionId: trackVersion.id,
-            consumedAt: trackVersion.song_entitlement_consumed_at,
-            fundingSource: track.funding_source,
-          });
+          if (!guestPreviewAccess.bypassEntitlement) {
+            await consumeSongEntitlementInTransaction(query, {
+              userId,
+              trackId: track.id,
+              trackVersionId: trackVersion.id,
+              consumedAt: trackVersion.song_entitlement_consumed_at,
+              fundingSource: track.funding_source,
+            });
+          }
 
           const now = nowIso();
           await trackVersionRepository.insertRenderJobForVersion({
@@ -1241,6 +1407,33 @@ function registerTrackRoutes(
     const body = request.body || {};
     const workflowType =
       body.render_type === "full" ? "full_render" : "preview_render";
+    const activeJob = await findActiveJobForVersion(
+      trackVersion.id,
+      workflowType,
+    );
+    if (activeJob) {
+      reply.code(202).send({
+        job_id: activeJob.id,
+        poll_url: `/jobs/${activeJob.id}`,
+      });
+      return;
+    }
+    if (workflowType === "preview_render") {
+      const failedJob = await findLatestFailedJobForVersion(
+        trackVersion.id,
+        workflowType,
+      );
+      if (!failedJob) {
+        sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
+        return;
+      }
+      const guestPreviewAccess = await resolveGuestPreviewAccess(
+        request,
+        reply,
+        userId,
+      );
+      if (!guestPreviewAccess) return;
+    }
     const personaPreflight = await preflightUserVoiceReadiness({
       userId,
       track,
@@ -1543,6 +1736,12 @@ function registerTrackRoutes(
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
       }
+      const guestLyricsAccess = await enforceGuestLyricsAccess(
+        request,
+        reply,
+        userId,
+      );
+      if (!guestLyricsAccess) return;
       let result;
       let lyricsContextSummary = null;
       try {

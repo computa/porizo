@@ -42,6 +42,15 @@ const DEMO_PARAMS = import.meta.env.DEV
   ? RUNTIME_PARAMS
   : new URLSearchParams();
 
+function readCookie(name: string) {
+  const prefix = `${name}=`;
+  const match = document.cookie
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(prefix));
+  return match ? decodeURIComponent(match.slice(prefix.length)) : null;
+}
+
 function initialDemoProduct(): Product | undefined {
   const price = DEMO_PARAMS.get("price");
   return price ? { price_key: "demo", localized_price: price } : undefined;
@@ -175,6 +184,8 @@ export default function App() {
   const showEntryFooter = state.activeStep === "recipient" && state.furthestStep === "recipient";
 
   async function createGuestSession() {
+    const bridged = await exchangeWebSession();
+    if (bridged) return bridged;
     const existing = localStorage.getItem(TOKEN_KEY);
     if (existing) return existing;
     const turnstileToken = await acquireTurnstileToken();
@@ -187,7 +198,18 @@ export default function App() {
         entry_url: location.href,
       }),
     });
-    if (!response.ok) throw new ApiError("Session could not be started", response.status);
+    if (!response.ok) {
+      const failure = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        message?: string;
+      };
+      throw new ApiError(
+        failure.message ?? "Session could not be started",
+        response.status,
+        failure.error ?? failure.code,
+      );
+    }
     const body = (await response.json()) as {
       access_token?: string;
       token?: string;
@@ -200,7 +222,41 @@ export default function App() {
     return token;
   }
 
+  async function exchangeWebSession() {
+    const csrf = readCookie("__Host-porizo_web_csrf");
+    if (!csrf) return null;
+    const response = await fetch("/auth/web/token", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "X-CSRF-Token": csrf,
+      },
+    });
+    if (response.status === 401) return null;
+    if (!response.ok) {
+      const failure = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+      };
+      throw new ApiError(
+        failure.message ?? "Signed-in session could not be restored",
+        response.status,
+        failure.error,
+      );
+    }
+    const body = (await response.json()) as { access_token?: string };
+    if (!body.access_token) {
+      throw new Error("Signed-in session response did not include a token.");
+    }
+    localStorage.setItem(TOKEN_KEY, body.access_token);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    return body.access_token;
+  }
+
   async function refreshExistingSession() {
+    const bridged = await exchangeWebSession();
+    if (bridged) return bridged;
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) return null;
     const response = await fetch("/auth/refresh", {

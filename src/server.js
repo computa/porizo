@@ -64,6 +64,7 @@ const {
   verifyDeviceToken,
 } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
+const { registerWebFunnelRoutes } = require("./routes/web-funnel");
 const { registerLegalRoutes } = require("./routes/legal");
 const { registerWellKnownRoutes } = require("./routes/well-known");
 const {
@@ -244,6 +245,12 @@ function buildAllowedHostSet({
     const host = hostFromUrl(value);
     if (host) hosts.add(host);
   }
+  for (const origin of String(
+    appConfig.MAGIC_LOGIN_WEB_ALLOWED_ORIGINS || "",
+  ).split(",")) {
+    const host = hostFromUrl(origin.trim());
+    if (host) hosts.add(host);
+  }
 
   // Local development and Fastify injection defaults.
   for (const host of ["localhost", "127.0.0.1", "::1"]) {
@@ -296,6 +303,7 @@ function buildServer({
   storage,
   cdnSigner = null,
   billingServices = null,
+  webFunnelServices = null,
   oneSignalService = null,
 }) {
   let requireAdminRole; // Forward declaration — assigned by registerAdminRoutes below
@@ -485,7 +493,12 @@ function buildServer({
   registerInternalSunoCallbackRoutes(app, { appConfig, sendError });
   registerMcpRoutes(app);
   registerBlogRoutes(app, { db, config: appConfig });
-  registerAuthRoutes(app, { db, subscriptionManager, storageProvider });
+  registerAuthRoutes(app, {
+    db,
+    subscriptionManager,
+    storageProvider,
+    appConfig,
+  });
 
   const schemas = validationSchemas;
 
@@ -496,6 +509,14 @@ function buildServer({
     }
     reply.code(statusCode).send(payload);
   }
+
+  registerWebFunnelRoutes(app, {
+    db,
+    appConfig,
+    rateLimitRepository,
+    sendError,
+    turnstileVerifier: webFunnelServices?.turnstileVerifier,
+  });
 
   function escapeHtml(str) {
     if (!str) return "";

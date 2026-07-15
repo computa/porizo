@@ -674,7 +674,7 @@ describe("platform-bound magic login API", () => {
       method: "POST",
       url: "/auth/magic/exchange",
       headers: {
-        origin: "https://auth.porizo.co",
+        origin: "https://porizo.co",
         cookie: `__Host-porizo_preauth=${preauth}; __Host-porizo_csrf=${csrf}`,
       },
       payload,

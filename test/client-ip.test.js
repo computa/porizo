@@ -4,7 +4,7 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { getClientIp } = require("../src/utils/client-ip");
+const { getClientIp, getGuardClientIp } = require("../src/utils/client-ip");
 
 describe("getClientIp", () => {
   test("uses a valid CF-Connecting-IP header when present", () => {
@@ -52,5 +52,25 @@ describe("getClientIp", () => {
   test("tolerates a missing headers object", () => {
     const request = { ip: "198.51.100.6" };
     assert.equal(getClientIp(request), "198.51.100.6");
+  });
+});
+
+describe("getGuardClientIp", () => {
+  test("ignores spoofable forwarding headers unless Cloudflare ingress trust is explicit", () => {
+    const previous = process.env.TRUST_CLOUDFLARE_CLIENT_IP;
+    delete process.env.TRUST_CLOUDFLARE_CLIENT_IP;
+    const request = {
+      headers: { "cf-connecting-ip": "203.0.113.7" },
+      ip: "198.51.100.20",
+      raw: { socket: { remoteAddress: "192.0.2.10" } },
+    };
+    try {
+      assert.equal(getGuardClientIp(request), "192.0.2.10");
+      process.env.TRUST_CLOUDFLARE_CLIENT_IP = "true";
+      assert.equal(getGuardClientIp(request), "203.0.113.7");
+    } finally {
+      if (previous === undefined) delete process.env.TRUST_CLOUDFLARE_CLIENT_IP;
+      else process.env.TRUST_CLOUDFLARE_CLIENT_IP = previous;
+    }
   });
 });
