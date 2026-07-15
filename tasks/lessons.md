@@ -567,3 +567,8 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Trigger:** User asked for an attention-grabbing intro video; I reused the existing 40s IntroVideo timeline with new copy.
 - **Mistake:** Optimized for low risk (proven pacing) when the deliverable's value WAS novelty. Result read as "same as what I had already."
 - **Rule:** When the ask is marketing impact / creativity, structural novelty is a requirement: new hook, new pacing, new visual language — not a copy swap on an existing skeleton. Design for the platform (TikTok: <2s hook, sound-off readable, cuts every ~1s, ≤30s).
+
+## 2026-07-15 — A conversion CTA must own the action hierarchy
+- **Trigger:** Homepage review showed the song-generation CTA was technically prominent but still read like one of several equal navigation pills.
+- **Mistake:** Packed the value proof into a long black button while leaving a bordered secondary button and an app-download nav CTA at similar visual weight. The buyer's next action was present, but the page did not commit to it.
+- **Rule:** On a purchase-entry hero, make one conversion action unmistakable: use the established brand accent, keep the button label short and action-led, move reassurance into supporting text, demote explanatory links, and make the persistent nav CTA point to the same destination. Do not add a fake action inside a decorative product mockup.
