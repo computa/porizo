@@ -572,3 +572,8 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Trigger:** Homepage review showed the song-generation CTA was technically prominent but still read like one of several equal navigation pills.
 - **Mistake:** Packed the value proof into a long black button while leaving a bordered secondary button and an app-download nav CTA at similar visual weight. The buyer's next action was present, but the page did not commit to it.
 - **Rule:** On a purchase-entry hero, make one conversion action unmistakable: use the established brand accent, keep the button label short and action-led, move reassurance into supporting text, demote explanatory links, and make the persistent nav CTA point to the same destination. Do not add a fake action inside a decorative product mockup.
+
+## 2026-07-15 — Never use a build-only security fixture for interactive local QA
+- **Trigger:** The integrated local server needed a Turnstile key because `predev` ran the production funnel build.
+- **Mistake:** Supplied a non-test fixture string that satisfied the production build validator, then treated the successful build and HTTP 200 as evidence the browser flow was usable. Cloudflare correctly rejected that made-up key at runtime.
+- **Rule:** Local interactive QA must use the product's explicit preview/development build mode and the provider's official test configuration. Keep production builds fail-loud, and prove both sides: local browser interaction reaches the post-verification API boundary, while a production build without real configuration still fails.

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "web-funnel:build": "npm --prefix web-funnel run build",
-    "predev": "npm run web-funnel:build",
+    "web-funnel:build:preview": "npm --prefix web-funnel run build:preview",
+    "predev": "npm run web-funnel:build:preview",
     "dev": "node -r dotenv/config scripts/dev.js",
     "api": "node -r dotenv/config src/server.js",
     "worker": "node -r dotenv/config src/worker.js",
