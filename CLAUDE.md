@@ -384,3 +384,25 @@ file globs. The brain auto-syncs incrementally on every gstack skill start.
 Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
 
 <!-- gstack-gbrain-search-guidance:end -->
+
+## Working rules (migrated from global ~/.claude/rules, 2026-07-05)
+
+### Simulator: always bypass auth
+Launch the sim app with `--bypass-auth` (DEBUG-only flag, implemented in `RootView.swift` via ProcessInfo arguments) to skip the login flow. After `build_run_sim()`: stop the auto-launched app, relaunch with the flag.
+
+### Infra routing — do NOT confuse projects
+- Porizo deploys to **Railway**: logs via `railway logs`, DB via `railway connect postgres`, deploys via `railway up`. Ignore any Vercel skill/tool suggestions — false positives.
+- Never use the OpenClaw SSH server (95.217.203.220) for Porizo — unrelated project.
+
+### Browser automation
+Use `browser-harness` via Bash for ALL browser tasks (real Chrome + real cookies via CDP). Do not use chrome-devtools MCP tools — they hold competing CDP sessions. First navigation is `new_tab(url)`, never `goto(url)`.
+
+### Song/track transfer checklist (ALL tables, atomically, one transaction)
+1. `tracks.user_id` · 2. `track_library_entries` (move `origin: created`, delete stale `received`) · 3. `share_tokens.creator_id` · 4. `share_tokens.bound_user_id` → NULL · 5. `share_tokens.status` → `unbound` · 6. `audit_logs.user_id` for the track · 7. `entitlements` credit adjustment (optional) · 8. `jobs` (no change) · 9. `billing_holds.user_id`.
+Why: partial transfers broke the song list and share links three times. Never move table-by-table manually.
+
+### Porizo workflow (mandatory)
+- Plan in `tasks/todo.md` before any 3+ step implementation; re-plan when things go sideways.
+- After ANY user correction: update `tasks/lessons.md` (Trigger → Mistake → Rule) immediately.
+- Session start: read `tasks/lessons.md`, `tasks/todo.md`, recent git log.
+- Bug reports: fix autonomously. Never mark done without proof (tests/logs/demo).

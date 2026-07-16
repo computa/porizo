@@ -1,3 +1,50 @@
+# Web funnel backend completion + simplification (2026-07-15)
+
+**State:** U1–U3 (auth bridge, guest sessions, deferred preview) implemented by Codex w/ tests. U8–U11 frontend done.
+
+- [x] Security/quality review of U1–U3: no P0; P1-1 fixed (SameSite=Strict + CORS verified + regression test); P1-2 disproven (BEGIN/COMMIT serialization) → deferred-register; P2s registered
+- [x] U4: Stripe foundation (money-path agent) — migrations 132/133 both engines (partial unique idx kills two-tab race; pg CHECK += stripe_checkout), stripe-service (fail-closed), checkout/orders/webhook routes, 28 tests
+- [x] U5: identity convergence — web-order-identity + guest-merge (9-table, billing_holds verified retired → 8), no merge on unverified email
+- [x] U6: orchestrator — internal renderFullVersionForOrder (no HTTP self-inject; buyer session may be merged away), gift share + delivery email, refund-on-failure, 60s sweep, onClose cleanup
+- [x] U7: gift web playback (mine) — isWebPlayableShare shared helper, shareType param, reuse-path won't upgrade gift tokens; 3/3 tests
+- [x] Simplification: frontend (3 changes, 92/92 green, 74.4KB bundle) + backend (3 dead-code removals, 50/50 green); Codex's code was already tight
+- [x] config.js env plumbing (STRIPE_*, ADMIN_SECURITY_ALERT_EMAIL); test-portability fixes (env-before-require ×3); contract test aligned to restyled hero
+- [x] Verification: full suite 3,298 tests / 0 fail (post U4–U6); billing 47/47 w/ npm env; all touched areas re-tested green after later edits
+- [ ] BLOCKED-ON-DISK: final belt-and-braces full-suite re-run (disk at 99–100%, 138MB free — unsafe to run)
+- [ ] Ambrose: free disk space; Stripe dashboard setup (live Price → web_products.stripe_price_id + active=1; webhook endpoint + signing secret); commit decision
+
+---
+
+# Web funnel design package for Codex handoff (2026-07-15)
+
+**Why:** Web-first pivot (spec `specs/web-funnel-spec.md`). Ambrose assigns implementation to Codex; this session produces the minute-detail design source of truth (real HTML/CSS mockups + written spec + handoff brief), screenshot-verified.
+
+- [x] `web-funnel/design/tokens.css` — Warm Canvas v3 storefront layer (coral ramp, ink-deep, lamplight, motion tokens)
+- [x] `web-funnel/design/base.css` — shell, chips, buttons, fields, player, stacked-collapse flow components
+- [x] Mockups ×11: s0–s8 + play-reveal + flow-stacked (the container model, added per Ambrose steer: collapse-in-place, user stays put)
+- [x] Family vocabulary alignment (per Ambrose steer): app's exact strings — "Who's this song for?", Occasion enum chips w/ emoji, StyleOption catalog, "I made this song for you, {name}." Father's Day parity gap flagged.
+- [x] Screenshot-verified at 390×844: s0, s2, s3, s5, s6-dim, s7, flow-stacked, play-reveal (s1/s4/s8 share verified components)
+- [x] `docs/design/2026-07-15-web-funnel-design-spec.md` — flow model §1, family vocab §0, per-step states, motion inventory, responsive, QA gates
+- [x] `web-funnel/design/CODEX-BRIEF.md` — precedence, 8 hard contracts, U8–U11 build order + acceptance
+- [ ] Not committed yet; impeccable font-hook waiver (Fraunces) pending Ambrose's call
+
+---
+
+# App Store screenshot conversion redesign (2026-07-14)
+
+**Why:** 17.9K impressions → 405 page views → 111 downloads (CVR 1.05%). Search card (first 3 screenshots) loses ~98% of viewers. Current set: process captions, payoff buried at slide 5, duplicate in first 3, only 5/10 slots.
+
+**Bet:** outcome + reaction first; process demoted. Pipeline: `marketing/appstore/screenshots/generator-designed/` (Vite + capture.mjs).
+
+- [x] HEADLINES.default → benefit copy (Their own song, in minutes / The reaction is the gift / Start with one real memory / Their name, in the lyrics / For anyone, any occasion / lock screen / Send it in one tap)
+- [x] New `ReactionThreadScreen` (iMessage thread: sent gift card + crying replies + compose bar) → Slide2; RecipientPicker demoted to Slide5; ShareCompose became new Slide7 "send"
+- [x] New `ReactionBubble` canvas overlay on Slide1 (floating "you made me a SONG?? 😭")
+- [x] Captured (system Chrome via PUPPETEER_EXECUTABLE_PATH — puppeteer cache missing 146.x); 2 review rounds (enlarged thread bubbles, added compose bar); frame-verified
+- [ ] Upload to ASC 1.5.27 (order: hero, pick=reaction, tell, hear, share=occasions, send, lock) — NOTE pick/share filenames don't match content now
+- [ ] Not committed yet
+
+---
+
 # Intro video for Twitter / Facebook / TikTok (2026-07-14)
 
 ## Round 2 — Hook-25 (user rejected V2 as "same as what I had")
