@@ -577,3 +577,8 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Trigger:** The integrated local server needed a Turnstile key because `predev` ran the production funnel build.
 - **Mistake:** Supplied a non-test fixture string that satisfied the production build validator, then treated the successful build and HTTP 200 as evidence the browser flow was usable. Cloudflare correctly rejected that made-up key at runtime.
 - **Rule:** Local interactive QA must use the product's explicit preview/development build mode and the provider's official test configuration. Keep production builds fail-loud, and prove both sides: local browser interaction reaches the post-verification API boundary, while a production build without real configuration still fails.
+
+## 2026-07-16 — Deploy-before-setup applies to BUILD time, not just boot time
+- **Trigger:** Railway deploys failed for 2 days: web-funnel's vite.config required VITE_TURNSTILE_SITE_KEY for production builds, so the Docker stage killed every deploy of the whole site — while the funnel itself was flag-dark.
+- **Mistake:** Treated "fail loudly on missing secret in production" as build-fatal. A gate protecting an OFF feature held the entire service's deploy hostage; nobody noticed because deploy failures don't page.
+- **Rule:** Missing config = "not configured yet" → warn + degrade at runtime (honest 503/config error). Only actively WRONG config (test keys in prod) is fatal — and prefer request/use-time fatal over boot, boot over build. After every push to main, verify the deployment actually went live (railway deployment list), not just that the push succeeded.

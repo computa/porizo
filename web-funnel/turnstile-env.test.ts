@@ -17,10 +17,10 @@ describe("Turnstile build environment", () => {
     );
   });
 
-  it("rejects a missing site key in production", () => {
-    expect(() => resolveTurnstileSiteKey("production")).toThrow(
-      "VITE_TURNSTILE_SITE_KEY is required",
-    );
+  it("builds with an empty key when production has none configured (deploy-before-setup)", () => {
+    // Not build-fatal: a missing key must never block the whole site deploy
+    // (2026-07-16 Railway outage). Runtime surfaces the configuration error.
+    expect(resolveTurnstileSiteKey("production")).toBe("");
   });
 
   it.each(TURNSTILE_TEST_SITE_KEYS)("rejects documented test site key %s in production", (key) => {
