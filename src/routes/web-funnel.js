@@ -122,7 +122,8 @@ function registerWebFunnelRoutes(
 
     const cookies = parseCookieHeader(request.headers.cookie);
     let deviceToken = cookies["__Host-porizo_guest"];
-    if (!deviceToken) deviceToken = crypto.randomBytes(32).toString("base64url");
+    if (!deviceToken)
+      deviceToken = crypto.randomBytes(32).toString("base64url");
     const deviceTokenHash = sha256(deviceToken);
     const now = new Date();
     const nowIso = now.toISOString();
@@ -197,7 +198,10 @@ function registerWebFunnelRoutes(
     reply.header("Cache-Control", "no-store");
     reply.header(
       "Set-Cookie",
-      `__Host-porizo_guest=${encodeURIComponent(deviceToken)}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Lax`,
+      // Strict, not Lax: the funnel is same-site by design, and a cross-site
+      // top-level POST must never ride this cookie into a token-minting call
+      // (security review P1-1, 2026-07-16).
+      `__Host-porizo_guest=${encodeURIComponent(deviceToken)}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Strict`,
     );
     return reply.send({
       user_id: issued.userId,

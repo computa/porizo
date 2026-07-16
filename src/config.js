@@ -10,6 +10,12 @@ const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || "local";
 const UPLOAD_SIGNING_SECRET = process.env.UPLOAD_SIGNING_SECRET || "";
 const UPLOAD_URL_TTL_SEC = Number(process.env.UPLOAD_URL_TTL_SEC || 900);
 const PREVIEW_ONLY = process.env.PREVIEW_ONLY === "true";
+// Web funnel checkout (Stripe). Absence is fatal in production at the
+// stripe-service layer; test/dev inject a fake client instead.
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIPE_AUTOMATIC_TAX = process.env.STRIPE_AUTOMATIC_TAX === "true";
+const ADMIN_SECURITY_ALERT_EMAIL = process.env.ADMIN_SECURITY_ALERT_EMAIL || "";
 const STREAM_BASE_URL =
   process.env.STREAM_BASE_URL || `http://localhost:${PORT}`;
 // Public-facing URL for share links (can differ from internal STREAM_BASE_URL in production)
@@ -260,6 +266,10 @@ module.exports = {
   UPLOAD_SIGNING_SECRET,
   UPLOAD_URL_TTL_SEC,
   PREVIEW_ONLY,
+  STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET,
+  STRIPE_AUTOMATIC_TAX,
+  ADMIN_SECURITY_ALERT_EMAIL,
   STREAM_BASE_URL,
   PUBLIC_BASE_URL,
   SHARE_PUBLIC_BASE_URL,

@@ -64,7 +64,7 @@ export function Success({ order, elapsedMs, onStartAnother }: SuccessProps) {
   return (
     <main className="step success-step">
       <p className="success-mark" aria-hidden="true">✓</p>
-      <h1 className="q">{order?.recipient_name ? `${recipient}'s song is ready.` : "Your song is ready."}</h1>
+      <h1 className="q">{order.recipient_name ? `${recipient}'s song is ready.` : "Your song is ready."}</h1>
       <p className="hint">Sent to your email too, with your receipt.</p>
       <section className="card link-card">
         <p className="context-label">Their gift link</p>

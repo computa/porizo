@@ -33,7 +33,10 @@ function resolveTurnstileSecret({
     secretKey || process.env.TURNSTILE_SECRET_KEY || "",
   ).trim();
   if (configured) {
-    if (environment === "production" && TURNSTILE_TEST_SECRETS.has(configured)) {
+    if (
+      environment === "production" &&
+      TURNSTILE_TEST_SECRETS.has(configured)
+    ) {
       throw new TurnstileConfigurationError(
         "Cloudflare Turnstile test secrets are forbidden in production.",
       );
@@ -41,9 +44,12 @@ function resolveTurnstileSecret({
     return configured;
   }
   if (environment === "production") {
-    throw new TurnstileConfigurationError(
-      "TURNSTILE_SECRET_KEY is required in production.",
-    );
+    // Missing key is "not configured yet", not a misconfiguration: the server
+    // must still BOOT (the funnel is flag-gated; Turnstile setup may come
+    // later). verify() throws at use time and /web/session responds 503.
+    // Only an actively WRONG config (test secret in production, above) stays
+    // boot-fatal.
+    return null;
   }
   return TURNSTILE_TEST_SECRET;
 }
@@ -58,10 +64,17 @@ function createTurnstileVerifier({
 } = {}) {
   const resolvedSecret = resolveTurnstileSecret({ secretKey, environment });
   if (typeof fetchImpl !== "function") {
-    throw new TurnstileConfigurationError("A fetch implementation is required.");
+    throw new TurnstileConfigurationError(
+      "A fetch implementation is required.",
+    );
   }
 
   async function verify({ token, remoteIp }) {
+    if (!resolvedSecret) {
+      throw new TurnstileConfigurationError(
+        "TURNSTILE_SECRET_KEY is required in production.",
+      );
+    }
     const responseToken = String(token || "").trim();
     if (!responseToken) {
       return { success: false, errorCodes: ["missing-input-response"] };

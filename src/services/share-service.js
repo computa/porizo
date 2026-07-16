@@ -3,7 +3,9 @@
 const crypto = require("crypto");
 const { newUuid, newShareId } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
-const { createShareFollowupRepository } = require("../database/share-followup-repository");
+const {
+  createShareFollowupRepository,
+} = require("../database/share-followup-repository");
 const {
   createShareTokenRepository,
 } = require("../database/share-token-repository");
@@ -19,11 +21,22 @@ function isDemoShare(share) {
   return share?.share_type === "demo";
 }
 
+function isGiftShare(share) {
+  return share?.share_type === "gift";
+}
+
+// Shares whose audio may stream in a plain browser (no app context).
+// Demo shares always could; gift shares (web-funnel purchases) must play
+// anywhere — the recipient link is the delivered product (spec §5.6).
+function isWebPlayableShare(share) {
+  return isDemoShare(share) || isGiftShare(share);
+}
+
 function isShareUsable(share) {
   if (!share || share.status === "revoked") {
     return false;
   }
-  if (isLifetimeShare(share) || isDemoShare(share)) {
+  if (isLifetimeShare(share) || isDemoShare(share) || isGiftShare(share)) {
     return true;
   }
   return new Date(share.expires_at) > new Date();
@@ -95,6 +108,7 @@ async function createOrGetShareToken({
   ensureShareMp4,
   attribution = {},
   requirePin = true,
+  shareType = "lifetime",
   repository,
 }) {
   const shareTokenRepository = repository || createShareTokenRepository(db);
@@ -105,7 +119,11 @@ async function createOrGetShareToken({
       track.share_token_id,
     );
     if (existing && existing.status !== "revoked") {
-      if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
+      if (
+        !isLifetimeShare(existing) &&
+        !isDemoShare(existing) &&
+        !isGiftShare(existing)
+      ) {
         await upgradeToLifetime(db, existing, "share_tokens", "unbound", {
           repository: shareTokenRepository,
         });
@@ -152,7 +170,7 @@ async function createOrGetShareToken({
     trackVersionId,
     creatorId: userId,
     status: "unbound",
-    shareType: "lifetime",
+    shareType,
     boundDeviceId: null,
     boundDevicePlatform: null,
     boundAppVersion: null,
@@ -314,6 +332,8 @@ async function scheduleShareFollowups(
 module.exports = {
   LIFETIME_SHARE_EXPIRES_AT,
   isLifetimeShare,
+  isGiftShare,
+  isWebPlayableShare,
   isShareUsable,
   healAndCheckShare,
   createOrGetShareToken,

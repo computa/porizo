@@ -1,5 +1,10 @@
 "use strict";
 
+// Env must exist BEFORE requiring src/server (auth.js asserts JWT_SECRET at
+// require time); ambient-shell env is not guaranteed in CI.
+process.env.NODE_ENV = "test";
+process.env.JWT_SECRET ||= "test-jwt-secret-web-funnel-32-bytes!!";
+
 const { afterEach, beforeEach, describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { initDb } = require("../../src/db");
@@ -66,6 +71,9 @@ describe("POST /web/session", () => {
     assert.ok(access.sid);
     assert.ok(body.refresh_token);
     assert.match(response.headers["set-cookie"], /__Host-porizo_guest=/);
+    // P1-1 regression guard: the token-minting cookie must never ride a
+    // cross-site top-level POST.
+    assert.match(response.headers["set-cookie"], /SameSite=Strict/);
 
     const user = await db.query(
       "SELECT account_status FROM users WHERE id = ?",
@@ -206,10 +214,14 @@ describe("POST /web/session", () => {
 });
 
 describe("Turnstile environment contract", () => {
-  it("uses Cloudflare's official test secret only outside production", () => {
+  it("uses Cloudflare's official test secret only outside production", async () => {
     assert.equal(resolveTurnstileSecret({ environment: "development" }), TURNSTILE_TEST_SECRET);
-    assert.throws(
-      () => resolveTurnstileSecret({ environment: "production" }),
+    // Missing key must NOT be boot-fatal (deploy-before-setup is supported):
+    // it resolves null and enforcement happens at verify() time instead.
+    assert.equal(resolveTurnstileSecret({ environment: "production" }), null);
+    const unconfigured = createTurnstileVerifier({ environment: "production" });
+    await assert.rejects(
+      unconfigured.verify({ token: "any" }),
       /TURNSTILE_SECRET_KEY is required/,
     );
     assert.throws(

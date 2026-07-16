@@ -1,5 +1,10 @@
 "use strict";
 
+// Env must exist BEFORE requiring src/server (auth.js asserts JWT_SECRET at
+// require time); ambient-shell env is not guaranteed in CI.
+process.env.NODE_ENV = "test";
+process.env.JWT_SECRET ||= "test-jwt-secret-web-funnel-32-bytes!!";
+
 const { afterEach, beforeEach, describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { initDb } = require("../../src/db");

@@ -11,6 +11,7 @@ const { nowIso, toJson, parseJson, ensureDir } = require("../utils/common");
 const { getFeatureFlags } = require("../services/feature-flags");
 const {
   isShareUsable,
+  isWebPlayableShare,
   healAndCheckShare,
 } = require("../services/share-service");
 const pushNotification = require("../services/push-notification");
@@ -835,9 +836,8 @@ function registerSharingRoutes(
     const shareId = request.params.shareId;
 
     // Validate share exists and fetch track metadata for OG tags
-    const share = await shareTokenRepository.getSongShareWithTrackDetails(
-      shareId,
-    );
+    const share =
+      await shareTokenRepository.getSongShareWithTrackDetails(shareId);
     if (!share) {
       return reply
         .status(404)
@@ -1421,9 +1421,8 @@ function registerSharingRoutes(
   // Embed player for Twitter Player Card iframes and oEmbed
   app.get("/embed/:shareId", async (request, reply) => {
     const shareId = request.params.shareId;
-    const share = await shareTokenRepository.getSongShareWithTrackDetails(
-      shareId,
-    );
+    const share =
+      await shareTokenRepository.getSongShareWithTrackDetails(shareId);
     if (!share) {
       return reply
         .status(404)
@@ -1508,9 +1507,8 @@ function registerSharingRoutes(
     }
     const shareId = match[1];
 
-    const share = await shareTokenRepository.getSongShareWithTrackDetails(
-      shareId,
-    );
+    const share =
+      await shareTokenRepository.getSongShareWithTrackDetails(shareId);
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share not found.");
       return;
@@ -1552,12 +1550,11 @@ function registerSharingRoutes(
   app.get("/share/:shareId", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -1641,7 +1638,7 @@ function registerSharingRoutes(
     // preview-and-claim screen (ShareClaimView) keeps working. Demo shares keep
     // the public web player/teaser path. Distinct from `app_required`
     // (claim_policy === "app_only"), which governs claiming, not playback.
-    const appOnly = share.share_type !== "demo" && !isAppContext(request);
+    const appOnly = !isWebPlayableShare(share) && !isAppContext(request);
     // Suppressed for browser app-only shares (they get the app-wall); demo and
     // in-app callers still receive it, and browsers are blocked at /audio.
     const webStreamUrl =
@@ -2188,7 +2185,7 @@ function registerSharingRoutes(
   // refused so the recipient is pushed into the app. Demo shares and in-app
   // requests pass. Returns true if rejected (caller must then return).
   function rejectBrowserAppOnly(share, request, reply) {
-    if (share.share_type !== "demo" && !isAppContext(request)) {
+    if (!isWebPlayableShare(share) && !isAppContext(request)) {
       sendError(
         reply,
         403,
@@ -2214,12 +2211,11 @@ function registerSharingRoutes(
     const baseUrl = getBaseUrl(request);
 
     // Get track info (needed for all paths)
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
 
     // For CLAIMED shares, require device match
     if (share.status === "claimed") {
@@ -2396,12 +2392,11 @@ function registerSharingRoutes(
       );
       return;
     }
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2438,12 +2433,11 @@ function registerSharingRoutes(
       return;
     }
 
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2471,12 +2465,11 @@ function registerSharingRoutes(
       "assets",
       "og-song.png",
     );
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       const generatedFallback = await generateSongOgImage({
         title: track?.title,
@@ -2715,12 +2708,11 @@ function registerSharingRoutes(
   app.get("/share/:shareId/share.mp4", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2804,12 +2796,11 @@ function registerSharingRoutes(
       return;
     }
 
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2873,12 +2864,11 @@ function registerSharingRoutes(
       );
       return;
     }
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2949,12 +2939,11 @@ function registerSharingRoutes(
       sendError(reply, 400, "INVALID_SEGMENT", "Invalid segment name.");
       return;
     }
-    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
-      {
+    const { track, trackVersion } =
+      await shareTokenRepository.getShareTrackPair({
         trackId: share.track_id,
         trackVersionId: share.track_version_id,
-      },
-    );
+      });
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;

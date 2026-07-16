@@ -65,6 +65,17 @@ const {
 } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerWebFunnelRoutes } = require("./routes/web-funnel");
+const { registerWebCheckoutRoutes } = require("./routes/web-checkout");
+const { createStripeService } = require("./services/stripe-service");
+const {
+  createWebOrderOrchestrator,
+} = require("./services/web-order-orchestrator");
+const {
+  createOrGetShareToken: createGiftShareToken,
+} = require("./services/share-service");
+const {
+  getFeatureFlag: getWebFunnelFlag,
+} = require("./services/feature-flags");
 const { registerLegalRoutes } = require("./routes/legal");
 const { registerWellKnownRoutes } = require("./routes/well-known");
 const {
@@ -377,8 +388,7 @@ function buildServer({
       : (config.ALLOW_ANON_USER_ID ?? false));
   const enableDebugRoutes =
     appConfig.ENABLE_DEBUG_ROUTES ?? config.ENABLE_DEBUG_ROUTES ?? false;
-  const requireWebFunnelBuild =
-    appConfig.REQUIRE_WEB_FUNNEL_BUILD ?? false;
+  const requireWebFunnelBuild = appConfig.REQUIRE_WEB_FUNNEL_BUILD ?? false;
   const enableV3OrchestrationRoutes =
     appConfig.ENABLE_V3_ORCHESTRATION_ROUTES ??
     config.ENABLE_V3_ORCHESTRATION_ROUTES ??
@@ -2610,6 +2620,180 @@ function buildServer({
     twilioStatusCallbackBaseUrl,
   });
 
+  // ============ Web Funnel Checkout (Stripe) ============
+  const stripeService =
+    webFunnelServices?.stripeService ||
+    createStripeService({
+      secretKey: appConfig.STRIPE_SECRET_KEY,
+      webhookSecret: appConfig.STRIPE_WEBHOOK_SECRET,
+      environment: appConfig.NODE_ENV || process.env.NODE_ENV,
+    });
+  if (!stripeService.isConfigured) {
+    app.log.warn(
+      "Stripe is not configured (STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET); " +
+        "web checkout routes will respond 503 until keys are set.",
+    );
+  }
+
+  // Kick a full render server-side as the order's owner. Reuses the same
+  // primitives as POST /tracks/:id/versions/:v/render_full without the HTTP
+  // session plumbing (the buyer's guest session may have been merged away).
+  // Spends the gift token granted at payment (the spend-fresh path). Idempotent:
+  // if a full render is already ready or active, it is a no-op.
+  async function renderFullVersionForOrder({
+    userId,
+    trackId,
+    trackVersionId,
+  }) {
+    const track = await trackVersionRepository.findTrackById(trackId);
+    if (!track) throw new Error(`renderFull: track ${trackId} not found`);
+    const version = await db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(trackVersionId);
+    if (!version)
+      throw new Error(`renderFull: version ${trackVersionId} not found`);
+    if (version.status === "full_ready" && version.full_url) return;
+
+    const active = await findActiveJobForVersion(trackVersionId, "full_render");
+    if (isActiveJob(active)) return;
+
+    const jobId = newUuid();
+    await db.transaction(async (query) => {
+      const updateResult =
+        await trackVersionRepository.markVersionProcessingForRender({
+          trackVersionId,
+          workflowType: "full_render",
+          query,
+        });
+      if (!(updateResult?.changes ?? updateResult?.rowCount ?? 0)) {
+        throw new Error("ALREADY_RENDERING");
+      }
+      if (!version.song_entitlement_consumed_at) {
+        await giftWalletRepository.spendSongTokenInTransaction(query, {
+          userId,
+          trackId,
+          trackVersionId,
+        });
+        await trackVersionRepository.markSongEntitlementConsumed({
+          trackVersionId,
+          consumedAt: nowIso(),
+          query,
+        });
+      }
+      await trackVersionRepository.insertRenderJobForVersion({
+        trackId,
+        trackVersionId,
+        jobId,
+        workflowType: "full_render",
+        stepData: null,
+        createdAt: nowIso(),
+        query,
+      });
+    });
+  }
+
+  const webOrderOrchestrator = createWebOrderOrchestrator({
+    db,
+    renderFullVersion: renderFullVersionForOrder,
+    getVersionRenderState: async ({ trackVersionId }) => {
+      const version = await db
+        .prepare("SELECT status, full_url FROM track_versions WHERE id = ?")
+        .get(trackVersionId);
+      return {
+        ready: version?.status === "full_ready" && Boolean(version.full_url),
+        failed:
+          version?.status === "failed" ||
+          version?.status === "full_failed" ||
+          version?.status === "dead_letter",
+        fullUrl: version?.full_url || null,
+      };
+    },
+    createGiftShare: async ({ order }) => {
+      const result = await createGiftShareToken({
+        db,
+        trackId: order.track_id,
+        trackVersionId: order.track_version_id,
+        userId: order.user_id,
+        buildShareUrl: (shareId) => buildGiftShareUrl(shareId),
+        requirePin: false,
+        shareType: "gift",
+        attribution: {
+          utmSource: order.utm_source || null,
+          utmMedium: order.utm_medium || null,
+          utmCampaign: order.utm_campaign || null,
+        },
+      });
+      return { shareId: result.shareId, shareUrl: result.shareUrl };
+    },
+    sendDeliveryEmail: async ({ order, shareUrl }) => {
+      if (!order.email || !emailService.isConfigured()) return;
+      const track = await trackVersionRepository.findTrackById(order.track_id);
+      await emailService.sendGiftDeliveryEmail({
+        to: order.email,
+        senderName: track?.display_name || "A friend",
+        recipientName: track?.recipient_name || null,
+        shareUrl,
+        contentType: "song",
+        contentTitle: track?.title || null,
+        occasion: track?.occasion || null,
+        message: track?.message || null,
+        tags: [{ name: "type", value: "web_gift_delivery" }],
+      });
+    },
+    sendApologyEmail: async ({ order }) => {
+      if (!order.email || !emailService.isConfigured()) return;
+      await emailService.sendGiftDeliveryEmail({
+        to: order.email,
+        senderName: "The Porizo team",
+        recipientName: null,
+        shareUrl: `${publicBaseUrl || "https://porizo.co"}/legal/refund-policy`,
+        contentType: "song",
+        contentTitle: "About your order",
+        message:
+          "We couldn't finish this song and have refunded you in full. We're sorry — please try again any time.",
+        tags: [{ name: "type", value: "web_gift_apology" }],
+      });
+    },
+    refundOrder: async ({ order }) => {
+      if (!order.payment_intent_id) {
+        throw new Error("refund requires payment_intent_id");
+      }
+      await stripeService.createRefund({
+        payment_intent: order.payment_intent_id,
+      });
+    },
+    alertAdmin: async ({ subject, meta }) => {
+      const adminEmail =
+        appConfig.ADMIN_SECURITY_ALERT_EMAIL ||
+        appConfig.ADMIN_ALERT_EMAIL ||
+        config.ADMIN_SECURITY_ALERT_EMAIL;
+      if (!adminEmail || !emailService.isConfigured()) return;
+      await emailService.sendAdminSecurityAlertEmail(adminEmail, {
+        subject,
+        ...meta,
+      });
+    },
+    getTrackMeta: async ({ trackId }) => {
+      const track = await trackVersionRepository.findTrackById(trackId);
+      return {
+        recipientName: track?.recipient_name || null,
+        buildShareUrl: (shareId) => buildGiftShareUrl(shareId),
+      };
+    },
+    logger: app.log,
+  });
+
+  registerWebCheckoutRoutes(app, {
+    db,
+    appConfig,
+    sendError,
+    requireUserId,
+    stripeService,
+    giftWalletRepository,
+    orchestrator: webOrderOrchestrator,
+    publicBaseUrl,
+  });
+
   // ============ Tracks ============
   registerTrackRoutes(app, {
     db,
@@ -2781,6 +2965,9 @@ function buildServer({
     appleWebhookHandler,
     planConfigService,
   });
+
+  // Expose the web-order orchestrator so startServer can run the resume sweep.
+  app.decorate("webOrderOrchestrator", webOrderOrchestrator);
 
   return app;
 }
@@ -3125,9 +3312,27 @@ async function start() {
     intervalMs: 24 * 60 * 60 * 1000, // 24 hours
   });
 
+  // Web-order resume sweep: picks up orders stuck in paid/rendering (crash or
+  // lost webhook). Flag-gated; skips when a sweep is already in flight.
+  let webOrderSweepInFlight = false;
+  const webOrderSweepTimer = setInterval(async () => {
+    if (webOrderSweepInFlight) return;
+    webOrderSweepInFlight = true;
+    try {
+      const enabled = await getWebFunnelFlag(db, "web_funnel_enabled");
+      if (enabled !== true) return;
+      await app.webOrderOrchestrator.sweepWebOrders();
+    } catch (err) {
+      app.log.error({ err }, "Web order sweep failed");
+    } finally {
+      webOrderSweepInFlight = false;
+    }
+  }, 60 * 1000);
+
   app.addHook("onClose", async () => {
     clearInterval(saveTimer);
     clearInterval(cleanupTimer);
+    clearInterval(webOrderSweepTimer);
     fileCleanupJob.stop();
     accountCleanupJob.stop();
     subscriptionSyncJob.stop();

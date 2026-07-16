@@ -41,7 +41,8 @@ describe("source contracts", () => {
   it("routes homepage entry points into the same-tab funnel", () => {
     const homepage = readFileSync(join(process.cwd(), "../public/index.html"), "utf8");
 
-    expect(homepage).toContain('href="/create" class="btn btn--primary"');
+    expect(homepage).toContain('href="/create" class="nav__cta"');
+    expect(homepage).toContain('href="/create" class="btn btn--hero"');
     expect(homepage).toContain('href="/create?occasion=Birthday"');
     expect(homepage).toContain('href="/create?occasion=Anniversary"');
     expect(homepage).toContain('href="/create?occasion=Wedding"');

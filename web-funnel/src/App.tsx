@@ -495,13 +495,12 @@ export default function App() {
     dispatch({ type: "restart" });
   }
 
-  function confirmReset() {
-    if (window.confirm(`Your song for ${recipient} will be lost.`)) reset();
+  function confirmReset(name: string) {
+    if (window.confirm(`Your song for ${name} will be lost.`)) reset();
   }
 
   function confirmDiscardResume() {
-    const savedRecipient = titleCaseForDisplay(resumeCandidate?.answers.recipient ?? recipient);
-    if (window.confirm(`Your song for ${savedRecipient} will be lost.`)) reset();
+    confirmReset(titleCaseForDisplay(resumeCandidate?.answers.recipient ?? recipient));
   }
 
   function resumeSavedSong() {
@@ -569,7 +568,7 @@ export default function App() {
                 product={product}
                 loading={busy}
                 error={error}
-                cancelled={new URLSearchParams(location.search).get("cancelled") === "1"}
+                cancelled={RUNTIME_PARAMS.get("cancelled") === "1"}
                 previewOnly={previewOnly}
                 onCheckout={() => void checkout()}
               />
@@ -579,7 +578,7 @@ export default function App() {
             )}
             {state.activeStep !== "recipient" && state.activeStep !== "success" && (
               <div className="flow-reset">
-                <button className="btn-quiet" type="button" onClick={confirmReset}>Start over</button>
+                <button className="btn-quiet" type="button" onClick={() => confirmReset(recipient)}>Start over</button>
               </div>
             )}
           </div>
