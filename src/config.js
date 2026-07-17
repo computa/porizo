@@ -15,6 +15,11 @@ const PREVIEW_ONLY = process.env.PREVIEW_ONLY === "true";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const STRIPE_AUTOMATIC_TAX = process.env.STRIPE_AUTOMATIC_TAX === "true";
+// Escape hatch to run Stripe TEST keys on the production deployment for a
+// staged rollout / smoke test. Off by default; test keys in production are
+// otherwise boot-fatal. Only the exact string "true" enables it.
+const STRIPE_ALLOW_TEST_KEYS_IN_PRODUCTION =
+  process.env.STRIPE_ALLOW_TEST_KEYS_IN_PRODUCTION === "true";
 const ADMIN_SECURITY_ALERT_EMAIL = process.env.ADMIN_SECURITY_ALERT_EMAIL || "";
 const STREAM_BASE_URL =
   process.env.STREAM_BASE_URL || `http://localhost:${PORT}`;
@@ -269,6 +274,7 @@ module.exports = {
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
   STRIPE_AUTOMATIC_TAX,
+  STRIPE_ALLOW_TEST_KEYS_IN_PRODUCTION,
   ADMIN_SECURITY_ALERT_EMAIL,
   STREAM_BASE_URL,
   PUBLIC_BASE_URL,

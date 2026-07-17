@@ -18,12 +18,21 @@ class StripeConfigurationError extends Error {
 function resolveStripeSecret({
   secretKey,
   environment = process.env.NODE_ENV,
+  // Escape hatch for a deliberate test-mode validation on the production
+  // deployment (staged rollout). Defaults off; only the exact string "true"
+  // opens it. Test keys in production are otherwise treated as a mistake and
+  // stay boot-fatal.
+  allowTestKeys = process.env.STRIPE_ALLOW_TEST_KEYS_IN_PRODUCTION === "true",
 } = {}) {
   const configured = String(
     secretKey || process.env.STRIPE_SECRET_KEY || "",
   ).trim();
   if (configured) {
-    if (environment === "production" && configured.startsWith("sk_test_")) {
+    if (
+      environment === "production" &&
+      configured.startsWith("sk_test_") &&
+      !allowTestKeys
+    ) {
       throw new StripeConfigurationError(
         "Stripe test secret keys are forbidden in production.",
       );
@@ -73,10 +82,15 @@ function createStripeService({
   secretKey,
   webhookSecret,
   environment = process.env.NODE_ENV,
+  allowTestKeys = process.env.STRIPE_ALLOW_TEST_KEYS_IN_PRODUCTION === "true",
   client = null,
   stripeFactory = null,
 } = {}) {
-  const resolvedSecret = resolveStripeSecret({ secretKey, environment });
+  const resolvedSecret = resolveStripeSecret({
+    secretKey,
+    environment,
+    allowTestKeys,
+  });
   const resolvedWebhookSecret = resolveWebhookSecret({
     webhookSecret,
     environment,
