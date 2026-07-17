@@ -3,6 +3,7 @@ import {
   buildTrackRequest,
   createInitialState,
   funnelReducer,
+  occasionKey,
   parseStoredState,
   serializeState,
   type FunnelState,
@@ -11,9 +12,17 @@ import {
 describe("funnel state", () => {
   it("advances, preserves answers during edit, and returns to the prior live step", () => {
     let state = createInitialState();
-    state = funnelReducer(state, { type: "answer", step: "recipient", value: "sarah" });
+    state = funnelReducer(state, {
+      type: "answer",
+      step: "recipient",
+      value: "sarah",
+    });
     state = funnelReducer(state, { type: "advance" });
-    state = funnelReducer(state, { type: "answer", step: "relationship", value: "Mum" });
+    state = funnelReducer(state, {
+      type: "answer",
+      step: "relationship",
+      value: "Mum",
+    });
     state = funnelReducer(state, { type: "advance" });
     state = funnelReducer(state, { type: "edit", step: "recipient" });
 
@@ -21,7 +30,11 @@ describe("funnel state", () => {
     expect(state.returnStep).toBe("occasion");
     expect(state.answers.relationship).toBe("Mum");
 
-    state = funnelReducer(state, { type: "answer", step: "recipient", value: "Sarah" });
+    state = funnelReducer(state, {
+      type: "answer",
+      step: "recipient",
+      value: "Sarah",
+    });
     state = funnelReducer(state, { type: "advance" });
     expect(state.activeStep).toBe("occasion");
   });
@@ -32,7 +45,11 @@ describe("funnel state", () => {
       activeStep: "theater",
       furthestStep: "theater",
     };
-    state = funnelReducer(state, { type: "edit", step: "memory", returnTo: "sound" });
+    state = funnelReducer(state, {
+      type: "edit",
+      step: "memory",
+      returnTo: "sound",
+    });
     state = funnelReducer(state, { type: "advance" });
 
     expect(state.activeStep).toBe("sound");
@@ -44,13 +61,20 @@ describe("funnel state", () => {
       step: "recipient",
       value: "Sarah",
     });
-    expect(parseStoredState(serializeState(state))?.answers.recipient).toBe("Sarah");
+    expect(parseStoredState(serializeState(state))?.answers.recipient).toBe(
+      "Sarah",
+    );
     expect(parseStoredState("not-json")).toBeNull();
     expect(parseStoredState('{"version":99}')).toBeNull();
     expect(
-      parseStoredState('{"version":1,"activeStep":"recipient","answers":{},"artifacts":{}}'),
+      parseStoredState(
+        '{"version":1,"activeStep":"recipient","answers":{},"artifacts":{}}',
+      ),
     ).toBeNull();
-    const corruptLyrics = JSON.parse(serializeState(state)) as Record<string, unknown>;
+    const corruptLyrics = JSON.parse(serializeState(state)) as Record<
+      string,
+      unknown
+    >;
     corruptLyrics.artifacts = { previewGenerations: 1, lyrics: "not-an-array" };
     expect(parseStoredState(JSON.stringify(corruptLyrics))).toBeNull();
   });
@@ -88,7 +112,9 @@ describe("funnel state", () => {
     expect(buildTrackRequest(state)).toEqual({
       recipient_name: "Sarah",
       relationship_type: "Mum",
-      occasion: "I Love You ❤️",
+      // Canonical enum key, not the emoji display label — the backend artwork
+      // path requires the key (iOS sends keys; the funnel used to leak labels).
+      occasion: "i_love_you",
       specific_memory: "She sang in the kitchen every Sunday morning.",
       special_phrases: "Love you to the moon",
       message: "I made this song for you, Sarah.",
@@ -96,5 +122,39 @@ describe("funnel state", () => {
       voice_gender: "female",
       voice_mode: "ai_voice",
     });
+  });
+});
+
+describe("occasionKey", () => {
+  const cases: Array<[string, string]> = [
+    ["I Love You ❤️", "i_love_you"],
+    ["Celebration 🎉", "celebration"],
+    ["Birthday 🎂", "birthday"],
+    ["Thank You 🙏", "thank_you"],
+    ["Encouragement 💪", "encouragement"],
+    ["Anniversary 💑", "anniversary"],
+    ["Mother's Day 💐", "mothers_day"],
+    ["Wedding 💒", "wedding"],
+    ["Graduation 🎓", "graduation"],
+    ["Friendship 👫", "friendship"],
+    ["Get Well 💊", "get_well"],
+    ["Custom ✨", "custom"],
+    ["Apology 💐", "apology"],
+    ["Advice 🧭", "advice"],
+    ["Bereavement 🕊️", "bereavement"],
+  ];
+
+  it.each(cases)("maps %s to the enum key %s", (label, key) => {
+    expect(occasionKey(label)).toBe(key);
+  });
+
+  it("passes an already-canonical key through unchanged", () => {
+    expect(occasionKey("i_love_you")).toBe("i_love_you");
+    expect(occasionKey("birthday")).toBe("birthday");
+  });
+
+  it("falls back to custom for an unrecognized occasion", () => {
+    expect(occasionKey("Something Weird 🤔")).toBe("custom");
+    expect(occasionKey("")).toBe("custom");
   });
 });

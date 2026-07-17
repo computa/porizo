@@ -138,6 +138,16 @@ test("getDefault returns default vars for a known occasion", () => {
   assert.equal(d.backdrop, "cream_cloud");
 });
 
+test("getDefault degrades to custom defaults for an unknown occasion (no throw)", () => {
+  // Defense in depth: a stray display label like "I Love You ❤️" must never
+  // throw here — that turned graceful degradation into a render hang.
+  const fallback = getDefault("custom");
+  for (const bad of ["I Love You ❤️", "totally unknown", ""]) {
+    const d = getDefault(bad);
+    assert.deepEqual(d, fallback, `getDefault(${JSON.stringify(bad)})`);
+  }
+});
+
 test("every default value passes isValidSlot for its occasion", () => {
   for (const occ of OCCASIONS) {
     const d = getDefault(occ);

@@ -1,4 +1,21 @@
-# C1 completion — login-time guest→order reclaim (2026-07-17) [ACTIVE]
+# Occasion label→key bug — funnel sends display labels, artwork throws (2026-07-17) [ACTIVE]
+
+**Why:** Live guest test: track stored `occasion="I Love You ❤️"` (emoji display label). iOS sends canonical enum keys (`i_love_you`:60, `celebration`:60, … — prod data confirms; only 1 label-form row exists, from the funnel). The render/lyrics path tolerates free-text occasion, but the artwork path requires the exact enum key: `extractArtworkVars` throws `unknown occasion`, AND its defaults fallback `getDefault()` ALSO throws `No defaults defined for occasion` — same mismatch turns graceful degradation into an unhandled throw. Artwork never signals ready → READY barrier stalls until timeout.
+
+**Enum keys (artwork-vocab OCCASIONS):** birthday, mothers_day, anniversary, thank_you, i_love_you, wedding, graduation, celebration, apology, encouragement, advice, bereavement, friendship, get_well, custom.
+**Funnel labels (QuizFlow):** "I Love You ❤️", "Celebration 🎉", "Birthday 🎂", "Thank You 🙏", "Encouragement 💪", "Anniversary 💑", "Mother's Day 💐", "Wedding 💒", "Graduation 🎓", "Friendship 👫", "Get Well 💊", "Custom ✨", + custom set "Apology 💐", "Advice 🧭", "Bereavement 🕊️".
+
+## Plan (TDD) — DONE
+
+- [x] FIX 1 (source): `occasionKey(label)` in web-funnel/src/state/funnel.ts (NFKC, strip emoji via \p{Extended_Pictographic}, lower, apostrophe-drop, spaces/dashes→_, unknown→custom). Wired into buildTrackRequest. 17 funnel tests green (all 15 labels + passthrough + custom fallback); updated 2 tests that encoded the bug.
+- [x] FIX 2 (defense-in-depth): getDefault (artwork-vocab.js) and extractArtworkVars (artwork-vars-extractor.js) degrade an unknown occasion to `custom` instead of throwing. 2 new tests green; 102 broader artwork pipeline/barrier/job tests green.
+- [x] VERIFY: funnel build clean (76.53 KB gz); frontend 117/117; artwork suites 21/21 + 102/102. Fixes independent — FIX 1 stops the funnel leaking labels; FIX 2 stops ANY caller's bad occasion from hanging the render.
+
+**Outcome:** Root cause (funnel sent emoji labels; prod data showed 1 such track vs iOS's canonical keys) fixed at source AND hardened at the artwork barrier.
+
+---
+
+# C1 completion — login-time guest→order reclaim (2026-07-17) [DONE]
 
 **Why:** Review found the C1 recovery fix reaches the paid order only if the login adopts the same guest that owns it. `mergeGuestIntoUser`/`convergeOrderIdentity` fires ONLY at the paid→rendering transition (keyed on Stripe checkout email matching a pre-VERIFIED account). Magic-link login never reclaims a guest-owned paid order → gaps below strand a paid song.
 

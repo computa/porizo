@@ -610,3 +610,8 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Trigger:** Building login-time guest→order reclaim to close C1. My first filter used `account_status='guest'`.
 - **Mistake:** The paid-transition convergence PROMOTES the buyer guest to `account_status='active'` (web-order-identity.js:60,104) even when it stays a shell. So a `guest`-status filter misses exactly the paid orders that need reclaiming.
 - **Rule:** Identify a reclaim-safe owner by the MERGE-SAFE SHELL test (no active auth provider except an email factor for the email being logged in) — mirroring the login `isSafeEmailShell` rule — never by account_status. This also prevents merging away a real account that has its own login factor.
+
+## 2026-07-17 — Web funnel must send canonical occasion keys, not display labels
+- **Trigger:** Live guest test hung on the preview render; artwork job threw "No defaults defined for occasion: I Love You ❤️".
+- **Mistake:** buildTrackRequest passed state.answers.occasion (the emoji quiz label) straight to POST /tracks. iOS sends enum keys (i_love_you, birthday…); prod data confirmed only 1 label-form track existed — all from the funnel. The render/lyrics path tolerates free-text occasion so it looked fine, but the artwork path requires the exact enum key AND its own defaults-fallback was keyed the same way, so an unknown occasion threw twice and left the artwork barrier unreleased → render loop.
+- **Rule:** Any surface that creates tracks must send the canonical occasion enum key, not a human label. And enum-lookup fallbacks (getDefault, extractArtworkVars) must degrade to `custom` on an unknown key, never throw — a throw in a fire-and-forget/barrier path silently hangs the pipeline.

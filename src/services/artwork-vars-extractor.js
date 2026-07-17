@@ -113,13 +113,21 @@ function parseHaikuResponse(rawText, occasion) {
 
 async function extractArtworkVars({
   lyrics,
-  occasion,
+  occasion: rawOccasion,
   haikuClient,
   timeoutMs = HAIKU_TIMEOUT_MS_DEFAULT,
   logger = console,
 }) {
-  if (!OCCASIONS.includes(occasion)) {
-    throw new Error(`extractArtworkVars: unknown occasion ${occasion}`);
+  // Degrade an unrecognized occasion (e.g. a display label that slipped past
+  // the API, like "I Love You ❤️") to the generic `custom` occasion instead of
+  // throwing. A throw here left the artwork barrier unreleased and hung the
+  // whole preview render. Every downstream lookup is occasion-scoped, so a
+  // single remap keeps the prompt, defaults, and validation consistent.
+  const occasion = OCCASIONS.includes(rawOccasion) ? rawOccasion : "custom";
+  if (occasion !== rawOccasion) {
+    logger.warn(
+      `[artwork-vars] unknown occasion ${rawOccasion}; using custom defaults`,
+    );
   }
   if (!lyrics || typeof lyrics !== "string") {
     logger.warn(`[artwork-vars] empty lyrics for ${occasion}; using defaults`);

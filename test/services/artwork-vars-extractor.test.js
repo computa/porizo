@@ -104,6 +104,31 @@ test("extractArtworkVars falls back on Haiku timeout", async () => {
   assert.equal(result.picked_by, "fallback_occasion_default");
 });
 
+test("extractArtworkVars degrades to custom defaults for an unknown occasion (no throw)", async () => {
+  // A stray display label ("I Love You ❤️") must degrade to usable custom
+  // defaults, never throw — a throw here left the artwork barrier unreleased
+  // and hung the whole preview render.
+  const {
+    getDefault,
+    isValidSlot,
+  } = require("../../src/services/artwork-vocab");
+  const customDefault = getDefault("custom");
+  for (const bad of ["I Love You ❤️", "not-an-occasion"]) {
+    const result = await extractArtworkVars({
+      lyrics: "any lyrics",
+      occasion: bad,
+      haikuClient: async () => {
+        throw new Error("should not be called for an unknown occasion");
+      },
+    });
+    assert.equal(result.species, customDefault.species);
+    assert.ok(
+      isValidSlot("species", result.species, "custom"),
+      "degraded species must be valid for the custom occasion",
+    );
+  }
+});
+
 test("vars_extractor lane routes to Haiku 4.5 (spec §6.4)", () => {
   // Regression guard: a prior session shipped this on taskType:"simple"
   // (Haiku 3) by accident — fixed in commit 10fa049. The dedicated lane MUST

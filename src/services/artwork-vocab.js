@@ -313,8 +313,10 @@ function isValidSlot(slot, value, occasion) {
 }
 
 function getDefault(occasion) {
-  const d = DEFAULTS_BY_OCCASION[occasion];
-  if (!d) throw new Error(`No defaults defined for occasion: ${occasion}`);
+  // Degrade an unknown occasion (e.g. a stray display label that slipped past
+  // the API) to the generic `custom` defaults rather than throwing — a throw
+  // here left the artwork barrier unreleased and hung the whole preview render.
+  const d = DEFAULTS_BY_OCCASION[occasion] || DEFAULTS_BY_OCCASION.custom;
   // imperfection isn't in DEFAULTS_BY_OCCASION because it's mood-agnostic;
   // the assembler picks IMPERFECTION[0] when no override is supplied.
   return { ...d, imperfection: IMPERFECTION[0] };

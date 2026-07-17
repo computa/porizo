@@ -1,4 +1,10 @@
-export const QUIZ_STEPS = ["recipient", "relationship", "occasion", "memory", "sound"] as const;
+export const QUIZ_STEPS = [
+  "recipient",
+  "relationship",
+  "occasion",
+  "memory",
+  "sound",
+] as const;
 export const FLOW_STEPS = [
   ...QUIZ_STEPS,
   "theater",
@@ -80,24 +86,43 @@ export function createInitialState(): FunnelState {
 }
 
 function nextStep(step: FlowStep): FlowStep {
-  return FLOW_STEPS[Math.min(FLOW_STEPS.indexOf(step) + 1, FLOW_STEPS.length - 1)];
+  return FLOW_STEPS[
+    Math.min(FLOW_STEPS.indexOf(step) + 1, FLOW_STEPS.length - 1)
+  ];
 }
 
 function laterStep(a: FlowStep, b: FlowStep): FlowStep {
   return FLOW_STEPS.indexOf(a) >= FLOW_STEPS.indexOf(b) ? a : b;
 }
 
-export function funnelReducer(state: FunnelState, action: FunnelAction): FunnelState {
+export function funnelReducer(
+  state: FunnelState,
+  action: FunnelAction,
+): FunnelState {
   const savedAt = Date.now();
   switch (action.type) {
     case "answer":
-      return { ...state, savedAt, answers: { ...state.answers, [action.step]: action.value } };
+      return {
+        ...state,
+        savedAt,
+        answers: { ...state.answers, [action.step]: action.value },
+      };
     case "artifact":
-      return { ...state, savedAt, artifacts: { ...state.artifacts, ...action.value } };
+      return {
+        ...state,
+        savedAt,
+        artifacts: { ...state.artifacts, ...action.value },
+      };
     case "edit":
-      return { ...state, savedAt, activeStep: action.step, returnStep: action.returnTo ?? state.activeStep };
+      return {
+        ...state,
+        savedAt,
+        activeStep: action.step,
+        returnStep: action.returnTo ?? state.activeStep,
+      };
     case "advance": {
-      const destination = action.to ?? state.returnStep ?? nextStep(state.activeStep);
+      const destination =
+        action.to ?? state.returnStep ?? nextStep(state.activeStep);
       return {
         ...state,
         savedAt,
@@ -127,7 +152,8 @@ export function parseStoredState(value: string | null): FunnelState | null {
       !isFlowStep(candidate.activeStep) ||
       !candidate.furthestStep ||
       !isFlowStep(candidate.furthestStep) ||
-      (candidate.returnStep !== undefined && !isFlowStep(candidate.returnStep)) ||
+      (candidate.returnStep !== undefined &&
+        !isFlowStep(candidate.returnStep)) ||
       !isFunnelAnswers(candidate.answers) ||
       !isFunnelArtifacts(candidate.artifacts)
     ) {
@@ -135,7 +161,8 @@ export function parseStoredState(value: string | null): FunnelState | null {
     }
     return {
       ...(candidate as FunnelState),
-      savedAt: typeof candidate.savedAt === "number" ? candidate.savedAt : Date.now(),
+      savedAt:
+        typeof candidate.savedAt === "number" ? candidate.savedAt : Date.now(),
     };
   } catch {
     return null;
@@ -145,7 +172,9 @@ export function parseStoredState(value: string | null): FunnelState | null {
 function isFunnelAnswers(value: unknown): value is FunnelAnswers {
   if (!value || typeof value !== "object") return false;
   const answers = value as Record<string, unknown>;
-  return Object.keys(DEFAULT_ANSWERS).every((key) => typeof answers[key] === "string");
+  return Object.keys(DEFAULT_ANSWERS).every(
+    (key) => typeof answers[key] === "string",
+  );
 }
 
 function isFunnelArtifacts(value: unknown): value is FunnelArtifacts {
@@ -157,10 +186,12 @@ function isFunnelArtifacts(value: unknown): value is FunnelArtifacts {
     Number.isInteger(artifacts.previewGenerations) &&
     artifacts.previewGenerations >= 0 &&
     optionalStrings.every(
-      (key) => artifacts[key] === undefined || typeof artifacts[key] === "string",
+      (key) =>
+        artifacts[key] === undefined || typeof artifacts[key] === "string",
     ) &&
     (artifacts.versionNum === undefined ||
-      (typeof artifacts.versionNum === "number" && Number.isInteger(artifacts.versionNum))) &&
+      (typeof artifacts.versionNum === "number" &&
+        Number.isInteger(artifacts.versionNum))) &&
     (artifacts.lyrics === undefined ||
       (Array.isArray(artifacts.lyrics) &&
         artifacts.lyrics.every((line) => typeof line === "string"))) &&
@@ -176,17 +207,64 @@ export function titleCaseForDisplay(value: string): string {
     .replace(/(^|[\s'-])\p{L}/gu, (letter) => letter.toUpperCase());
 }
 
+// Canonical backend occasion enum keys (mirror of artwork-vocab OCCASIONS).
+// The quiz shows emoji display labels; the backend artwork path requires the
+// key. iOS sends keys — the funnel must too, or artwork generation throws.
+const OCCASION_KEYS = [
+  "birthday",
+  "mothers_day",
+  "anniversary",
+  "thank_you",
+  "i_love_you",
+  "wedding",
+  "graduation",
+  "celebration",
+  "apology",
+  "encouragement",
+  "advice",
+  "bereavement",
+  "friendship",
+  "get_well",
+  "custom",
+] as const;
+
+const OCCASION_KEY_SET = new Set<string>(OCCASION_KEYS);
+
+/**
+ * Map a quiz occasion (emoji display label like "I Love You ❤️", or an already
+ * canonical key) to the backend enum key ("i_love_you"). Strips emoji and
+ * punctuation, normalizes whitespace/apostrophes to underscores. Unknown
+ * occasions fall back to "custom" so the backend never receives a value its
+ * artwork/enum lookups can't resolve.
+ */
+export function occasionKey(occasion: string): string {
+  const cleaned = occasion
+    .normalize("NFKC")
+    // Drop emoji and other symbol/pictographic code points.
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Component}️]/gu, "")
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .trim()
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^a-z_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  return OCCASION_KEY_SET.has(cleaned) ? cleaned : "custom";
+}
+
 export function buildTrackRequest(state: FunnelState) {
   const recipient = titleCaseForDisplay(state.answers.recipient);
   return {
     recipient_name: recipient,
     relationship_type: state.answers.relationship,
-    occasion: state.answers.occasion,
+    occasion: occasionKey(state.answers.occasion),
     specific_memory: state.answers.memory.trim(),
     special_phrases: state.answers.specialPhrase.trim(),
     message: `I made this song for you, ${recipient}.`,
     style: `${state.answers.genre}, ${state.answers.mood.toLowerCase()}`,
-    voice_gender: state.answers.voice.toLowerCase().startsWith("female") ? "female" : "male",
+    voice_gender: state.answers.voice.toLowerCase().startsWith("female")
+      ? "female"
+      : "male",
     voice_mode: "ai_voice" as const,
   };
 }
