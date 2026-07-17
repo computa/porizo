@@ -130,6 +130,32 @@ describe("web order orchestrator", () => {
     assert.equal(order.rows[0].share_token_id, "sh_1");
   });
 
+  it("still delivers when the delivery email fails (email is best-effort, not a gate)", async () => {
+    await seedOrder(db, { status: "rendering" });
+    const { deps, calls } = makeDeps({
+      getVersionRenderState: async () => ({ ready: true, failed: false }),
+      extra: {
+        sendDeliveryEmail: async () => {
+          calls.delivery.push("attempted");
+          throw new Error("Resend rejected the recipient");
+        },
+      },
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    const result = await orch.tick("worder_1");
+    // A paid, rendered order with a created share MUST reach delivered even if
+    // the notification email throws — the song exists; email is not a gate.
+    assert.equal(result.status, "delivered");
+    assert.equal(calls.share, 1);
+    assert.equal(calls.delivery.length, 1, "email was attempted once");
+    const order = await db.query(
+      "SELECT status, share_token_id FROM web_orders WHERE id = 'worder_1'",
+    );
+    assert.equal(order.rows[0].status, "delivered");
+    assert.equal(order.rows[0].share_token_id, "sh_1");
+  });
+
   it("re-running a delivered order is a no-op (idempotent side effects)", async () => {
     await seedOrder(db, { status: "rendering" });
     const { deps, calls } = makeDeps({

@@ -121,21 +121,24 @@ function createWebOrderOrchestrator({
 
     if (state.ready) {
       const share = await createGiftShare({ order });
-      // Persist the share id first so a crash after email still resumes cleanly
-      // (delivered is set only after the email is sent).
-      await orders.updateStatus({
-        orderId: order.id,
-        fromStatus: "rendering",
-        toStatus: "rendering",
-        shareTokenId: share.shareId,
-      });
-      await sendDeliveryEmail({ order, shareUrl: share.shareUrl });
+      // The song is rendered and the share exists — the order IS delivered.
+      // Flip to delivered BEFORE the email so a delivery-email failure (Resend
+      // outage, bad address) can never strand a paid, rendered order in
+      // `rendering` forever. The email is a best-effort notification, not a gate.
       await orders.updateStatus({
         orderId: order.id,
         fromStatus: "rendering",
         toStatus: "delivered",
         shareTokenId: share.shareId,
       });
+      try {
+        await sendDeliveryEmail({ order, shareUrl: share.shareUrl });
+      } catch (err) {
+        logger.error?.(
+          { err, orderId: order.id },
+          "Delivery email failed after delivery; order is delivered, share is live",
+        );
+      }
       return { status: "delivered", shareUrl: share.shareUrl };
     }
 
