@@ -2780,9 +2780,17 @@ function buildServer({
       const track = await trackVersionRepository.findTrackById(trackId);
       return {
         recipientName: track?.recipient_name || null,
+        occasion: track?.occasion || null,
+        title: track?.title || null,
         buildShareUrl: (shareId) => buildGiftShareUrl(shareId),
       };
     },
+    updateTrackTitle: async ({ trackId, title }) =>
+      trackVersionRepository.updateTrackTitle({
+        trackId,
+        title,
+        updatedAt: new Date().toISOString(),
+      }),
     logger: app.log,
   });
 

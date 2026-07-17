@@ -1,9 +1,6 @@
 "use strict";
 
-const {
-  createPreparedDbFromQuery,
-  dbQuery,
-} = require("../utils/db-adapter");
+const { createPreparedDbFromQuery, dbQuery } = require("../utils/db-adapter");
 
 function createTrackVersionRepository(db) {
   function runner(query = null) {
@@ -11,7 +8,9 @@ function createTrackVersionRepository(db) {
   }
 
   async function findTrackById(trackId, query = null) {
-    return runner(query).prepare("SELECT * FROM tracks WHERE id = ?").get(trackId);
+    return runner(query)
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackId);
   }
 
   async function createTrack({
@@ -67,12 +66,18 @@ function createTrackVersionRepository(db) {
   }
 
   async function findDuplicateVersion({ trackId, paramsHash, renderType }) {
-    return db.prepare(
-      "SELECT id, version_num FROM track_versions WHERE track_id = ? AND params_hash = ? AND render_type = ?",
-    ).get(trackId, paramsHash, renderType);
+    return db
+      .prepare(
+        "SELECT id, version_num FROM track_versions WHERE track_id = ? AND params_hash = ? AND render_type = ?",
+      )
+      .get(trackId, paramsHash, renderType);
   }
 
-  async function findByTrackIdAndVersion({ trackId, versionNum, query = null }) {
+  async function findByTrackIdAndVersion({
+    trackId,
+    versionNum,
+    query = null,
+  }) {
     return runner(query)
       .prepare(
         "SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?",
@@ -82,7 +87,9 @@ function createTrackVersionRepository(db) {
 
   async function listByTrackId(trackId) {
     return db
-      .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
+      .prepare(
+        "SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num",
+      )
       .all(trackId);
   }
 
@@ -96,6 +103,12 @@ function createTrackVersionRepository(db) {
     return db
       .prepare("UPDATE tracks SET og_variant = ?, updated_at = ? WHERE id = ?")
       .run(ogVariant, updatedAt, trackId);
+  }
+
+  async function updateTrackTitle({ trackId, title, updatedAt }) {
+    return db
+      .prepare("UPDATE tracks SET title = ?, updated_at = ? WHERE id = ?")
+      .run(title, updatedAt, trackId);
   }
 
   async function updateTrackStatus({
@@ -371,7 +384,9 @@ function createTrackVersionRepository(db) {
     streamBaseUrl,
   }) {
     if (typeof db.transaction !== "function") {
-      throw new Error("Track version creation requires database transaction support");
+      throw new Error(
+        "Track version creation requires database transaction support",
+      );
     }
 
     return db.transaction(async (query) => {
@@ -486,6 +501,7 @@ function createTrackVersionRepository(db) {
     listByTrackId,
     updateTrackVoiceMode,
     updateTrackOgVariant,
+    updateTrackTitle,
     updateTrackStatus,
     updateStreamBaseUrl,
     linkRenderJobToVersion,

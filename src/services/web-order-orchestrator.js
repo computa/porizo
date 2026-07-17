@@ -6,6 +6,8 @@ const {
 const { createIdentityRepository } = require("../database/identity-repository");
 const { createPreparedDbFromQuery } = require("../utils/db-adapter");
 const { convergeOrderIdentity } = require("./web-order-identity");
+const { buildSongTitle, firstName } = require("../routes/onboarding");
+const { formatOccasion } = require("../utils/og-text-utils");
 
 // Orchestrator-level render retries, on top of the pipeline's own internal
 // retries. After this many render failures the order is refunded.
@@ -54,6 +56,7 @@ function createWebOrderOrchestrator({
   refundOrder,
   alertAdmin = async () => {},
   getTrackMeta = async () => ({}),
+  updateTrackTitle = async () => {},
   logger = console,
 }) {
   const orders = createWebOrdersRepository(db);
@@ -63,6 +66,35 @@ function createWebOrderOrchestrator({
       await alertAdmin({ subject, meta });
     } catch (err) {
       logger.error?.({ err, subject }, "Admin alert failed");
+    }
+  }
+
+  // Rebuild the track title to include "by {sender}" once the buyer's name is
+  // known (captured at Stripe checkout). Web tracks are titled at quiz time,
+  // before the buyer identifies themselves, so the clause is missing. Skips when
+  // there's no name or the title already carries a sender. Best-effort.
+  async function backfillSenderTitle(order) {
+    try {
+      const senderFirstName = firstName(order.buyer_name);
+      if (!senderFirstName) return;
+      const meta = await getTrackMeta({ trackId: order.track_id });
+      // Only backfill a title that has no sender clause yet.
+      if (!meta?.title || / by \S/.test(meta.title)) return;
+      const occasionLabel = meta.occasion
+        ? formatOccasion(meta.occasion, null)
+        : null;
+      const nextTitle = buildSongTitle({
+        recipientName: meta.recipientName,
+        occasionLabel,
+        senderFirstName,
+      });
+      if (nextTitle === meta.title) return;
+      await updateTrackTitle({ trackId: order.track_id, title: nextTitle });
+    } catch (err) {
+      logger.error?.(
+        { err, orderId: order.id },
+        "Sender title backfill failed (non-fatal)",
+      );
     }
   }
 
@@ -94,6 +126,11 @@ function createWebOrderOrchestrator({
       // render against an unconverged identity.
       return { status: "paid", retryable: true };
     }
+
+    // Backfill the "by {sender}" clause now the buyer's name is known — the web
+    // track was titled at quiz time (pre-payment) without it. Best-effort: a
+    // failure here must never block the render.
+    await backfillSenderTitle(order);
 
     const advanced = await orders.updateStatus({
       orderId: order.id,

@@ -19,6 +19,7 @@ async function seedOrder(
     userId = "u_1",
     attempts = 0,
     email = "buyer@example.com",
+    buyerName = null,
   } = {},
 ) {
   await db
@@ -30,14 +31,15 @@ async function seedOrder(
     .prepare(
       `INSERT INTO web_orders (
          id, checkout_session_id, user_id, track_id, track_version_id,
-         price_key, amount_cents, currency, email, status, render_attempts, payment_intent_id, created_at, updated_at
-       ) VALUES (?, ?, ?, 'trk_1', 'trk_1_v1', 'gift_song', 1999, 'usd', ?, ?, ?, 'pi_1', ?, ?)`,
+         price_key, amount_cents, currency, email, buyer_name, status, render_attempts, payment_intent_id, created_at, updated_at
+       ) VALUES (?, ?, ?, 'trk_1', 'trk_1_v1', 'gift_song', 1999, 'usd', ?, ?, ?, ?, 'pi_1', ?, ?)`,
     )
     .run(
       orderId,
       `cs_${orderId}`,
       userId,
       email,
+      buyerName,
       status,
       attempts,
       "2020-01-01T00:00:00.000Z",
@@ -54,6 +56,7 @@ function makeDeps(overrides = {}) {
     apology: 0,
     refund: 0,
     alert: [],
+    titleUpdates: [],
   };
   const deps = {
     renderFullVersion: async (args) => {
@@ -80,7 +83,12 @@ function makeDeps(overrides = {}) {
     alertAdmin: async (args) => {
       calls.alert.push(args);
     },
-    getTrackMeta: async () => ({ recipientName: "Sarah" }),
+    getTrackMeta:
+      overrides.getTrackMeta ||
+      (async () => ({ recipientName: "Sarah", occasion: null, title: null })),
+    updateTrackTitle: async (args) => {
+      calls.titleUpdates.push(args);
+    },
     logger: { error: () => {}, info: () => {} },
     ...overrides.extra,
   };
@@ -110,6 +118,56 @@ describe("web order orchestrator", () => {
       "SELECT status FROM web_orders WHERE id = 'worder_1'",
     );
     assert.equal(order.rows[0].status, "rendering");
+  });
+
+  it("backfills the title with 'by {sender}' at paid using the buyer name", async () => {
+    await seedOrder(db, { status: "paid", buyerName: "Ambrose Obimma" });
+    const { deps, calls } = makeDeps({
+      getTrackMeta: async () => ({
+        recipientName: "Chioma",
+        occasion: "thank_you",
+        title: "A Thank You Song for Chioma",
+      }),
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    await orch.tick("worder_1");
+    assert.equal(calls.titleUpdates.length, 1);
+    assert.equal(calls.titleUpdates[0].trackId, "trk_1");
+    assert.equal(
+      calls.titleUpdates[0].title,
+      "A Thank You Song for Chioma by Ambrose",
+    );
+  });
+
+  it("does not backfill the title when there is no buyer name", async () => {
+    await seedOrder(db, { status: "paid", buyerName: null });
+    const { deps, calls } = makeDeps({
+      getTrackMeta: async () => ({
+        recipientName: "Chioma",
+        occasion: "thank_you",
+        title: "A Thank You Song for Chioma",
+      }),
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    await orch.tick("worder_1");
+    assert.equal(calls.titleUpdates.length, 0);
+  });
+
+  it("does not re-append 'by' when the title already has a sender", async () => {
+    await seedOrder(db, { status: "paid", buyerName: "Someone" });
+    const { deps, calls } = makeDeps({
+      getTrackMeta: async () => ({
+        recipientName: "Chioma",
+        occasion: "thank_you",
+        title: "A Thank You Song for Chioma by Ambrose",
+      }),
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    await orch.tick("worder_1");
+    assert.equal(calls.titleUpdates.length, 0);
   });
 
   it("rendering -> delivered creates one share and sends one delivery email", async () => {
