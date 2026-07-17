@@ -8,6 +8,14 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-07-17 — "No SELECT..FOR UPDATE" is not proof of a TOCTOU hole under Postgres ON CONFLICT
+
+**Trigger:** In a DoS review of the web-funnel rate limiter (`src/database/rate-limit-repository.js`), I flagged `consume()` as TOCTOU-vulnerable: it does `INSERT..ON CONFLICT DO UPDATE count+1`, then a separate `SELECT count`, then a compensating `count-1` if over limit — with no `SELECT..FOR UPDATE`. I claimed K concurrent requests could over-admit past every cap.
+
+**Mistake:** The `ON CONFLICT DO UPDATE` acquires and HOLDS the row lock until COMMIT. A concurrent transaction's `INSERT..ON CONFLICT` on the same key blocks on that lock, so the increments (and the subsequent same-transaction SELECT) are serialized — the interleaving I described (all siblings reading an inflated count before any decrement) cannot occur. The whole consume() runs inside `db.transaction`, so the row is locked for the read too. Team lead disproved it against Postgres row-lock semantics; recorded as not-a-hole.
+
+**Rule:** Before claiming a check-then-act race, trace the ACTUAL lock lifetime, not just the absence of an explicit `FOR UPDATE`. Under Postgres, `INSERT ... ON CONFLICT DO UPDATE` holds a row-level write lock to COMMIT; any concurrent write to the same row serializes behind it. If the read that drives the decision happens in the same transaction AFTER that write, it sees the serialized value. Only flag a TOCTOU when the read can genuinely observe a state a concurrent writer will change before the decision commits — verify the isolation + lock path, don't infer it from a missing keyword.
+
 ### 2026-07-13 — iOS client shipped to TestFlight ahead of its backend (deploy ≠ working, deploy never happened)
 
 **Trigger:** TestFlight build 150 magic-link login failed on-device with "We could not check the link." Prod logs showed `Route POST:/auth/magic/native/status not found` (404) on every ~3s poll.
@@ -564,21 +572,41 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Corollary:** cross-boundary delivery (native→view) should reuse the proven UserDefaults-store + onLink-callback path (see lessons #6/#7), not @Observable signals or mutable globals.
 
 ## 2026-07-14 — Conservative reskin ≠ creative ask
+
 - **Trigger:** User asked for an attention-grabbing intro video; I reused the existing 40s IntroVideo timeline with new copy.
 - **Mistake:** Optimized for low risk (proven pacing) when the deliverable's value WAS novelty. Result read as "same as what I had already."
 - **Rule:** When the ask is marketing impact / creativity, structural novelty is a requirement: new hook, new pacing, new visual language — not a copy swap on an existing skeleton. Design for the platform (TikTok: <2s hook, sound-off readable, cuts every ~1s, ≤30s).
 
 ## 2026-07-15 — A conversion CTA must own the action hierarchy
+
 - **Trigger:** Homepage review showed the song-generation CTA was technically prominent but still read like one of several equal navigation pills.
 - **Mistake:** Packed the value proof into a long black button while leaving a bordered secondary button and an app-download nav CTA at similar visual weight. The buyer's next action was present, but the page did not commit to it.
 - **Rule:** On a purchase-entry hero, make one conversion action unmistakable: use the established brand accent, keep the button label short and action-led, move reassurance into supporting text, demote explanatory links, and make the persistent nav CTA point to the same destination. Do not add a fake action inside a decorative product mockup.
 
 ## 2026-07-15 — Never use a build-only security fixture for interactive local QA
+
 - **Trigger:** The integrated local server needed a Turnstile key because `predev` ran the production funnel build.
 - **Mistake:** Supplied a non-test fixture string that satisfied the production build validator, then treated the successful build and HTTP 200 as evidence the browser flow was usable. Cloudflare correctly rejected that made-up key at runtime.
 - **Rule:** Local interactive QA must use the product's explicit preview/development build mode and the provider's official test configuration. Keep production builds fail-loud, and prove both sides: local browser interaction reaches the post-verification API boundary, while a production build without real configuration still fails.
 
 ## 2026-07-16 — Deploy-before-setup applies to BUILD time, not just boot time
+
 - **Trigger:** Railway deploys failed for 2 days: web-funnel's vite.config required VITE_TURNSTILE_SITE_KEY for production builds, so the Docker stage killed every deploy of the whole site — while the funnel itself was flag-dark.
 - **Mistake:** Treated "fail loudly on missing secret in production" as build-fatal. A gate protecting an OFF feature held the entire service's deploy hostage; nobody noticed because deploy failures don't page.
 - **Rule:** Missing config = "not configured yet" → warn + degrade at runtime (honest 503/config error). Only actively WRONG config (test keys in prod) is fatal — and prefer request/use-time fatal over boot, boot over build. After every push to main, verify the deployment actually went live (railway deployment list), not just that the push succeeded.
+
+## 2026-07-17 — Turnstile go-live: widget mode + client-IP trust are part of the contract
+
+- **Trigger:** After wiring keys, the live funnel still failed twice with "We couldn't verify this request."
+- **Mistake:** (1) Created the Turnstile widget in `managed` mode, but `web-funnel/src/turnstile.ts` renders it in a hidden container with a 10s timeout — any escalation to an interactive challenge can never be displayed, so it times out client-side. (2) `TRUST_CLOUDFLARE_CLIENT_IP` was unset in prod, so `getGuardClientIp` returned the Cloudflare edge IP: siteverify got the wrong `remoteip` AND all rate-limit buckets collapsed onto shared edge IPs (5 sessions/day for the whole world per edge IP).
+- **Rule:** Turnstile widget mode must match the frontend execution style — invisible-execution frontends need an `invisible` widget. Behind Cloudflare-proxied DNS, `TRUST_CLOUDFLARE_CLIENT_IP=true` is required prod config, not optional hardening. Verify with a REAL browser (simulator Safari works; type the URL manually — universal links hijack porizo.co links into the iOS app).
+
+## 2026-07-17 — "Recovery" fixes must be verified end-to-end to the data, not to the UI
+- **Trigger:** Codex's C1 fix (paid-but-lost-song) reported "recoverable across devices"; verification found it's localStorage-only (same-browser) AND magic-link login never re-owns the guest order, so first-time buyers stay 404'd after signing in.
+- **Mistake:** A recovery UI can render a sign-in prompt, stop the infinite spinner, and pass its own tests while still never reaching the underlying record — because the ownership/merge link is in a different subsystem (orchestrator convergence at paid→rendering, keyed on a pre-verified email) that the login path doesn't touch.
+- **Rule:** For any "recover X" fix, trace the full chain from the new entry point (login/link) to the DB row it must reach, and confirm ownership/merge fires on THAT path — not just that the UI appears and tests pass. Cross-device claims specifically require a server-persisted or URL/cookie-carried handle, never localStorage alone.
+
+## 2026-07-17 — Guest-order reclaim guardrail is the shell test, not account_status
+- **Trigger:** Building login-time guest→order reclaim to close C1. My first filter used `account_status='guest'`.
+- **Mistake:** The paid-transition convergence PROMOTES the buyer guest to `account_status='active'` (web-order-identity.js:60,104) even when it stays a shell. So a `guest`-status filter misses exactly the paid orders that need reclaiming.
+- **Rule:** Identify a reclaim-safe owner by the MERGE-SAFE SHELL test (no active auth provider except an email factor for the email being logged in) — mirroring the login `isSafeEmailShell` rule — never by account_status. This also prevents merging away a real account that has its own login factor.

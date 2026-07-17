@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent, type RefObject } from "react";
+import { rememberOrderRecovery } from "../order-recovery";
 
 export function SiteNav() {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -32,6 +33,20 @@ export function SiteNav() {
 }
 
 function SignInDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | null> }) {
+  return (
+    <dialog className="sign-in-dialog" ref={dialogRef}>
+      <SiteSignInForm onClose={() => dialogRef.current?.close()} />
+    </dialog>
+  );
+}
+
+export function SiteSignInForm({
+  onClose,
+  recoverySessionId,
+}: {
+  onClose?: () => void;
+  recoverySessionId?: string;
+}) {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -49,6 +64,7 @@ function SignInDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | 
         body: JSON.stringify({ email: email.trim(), platform: "web", purpose: "login" }),
       });
       if (!response.ok) throw new Error("Sign-in request failed");
+      if (recoverySessionId) rememberOrderRecovery(recoverySessionId);
       setSent(true);
     } catch {
       setError("Sign-in could not be completed. Try again or contact support.");
@@ -58,15 +74,18 @@ function SignInDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | 
   }
 
   return (
-    <dialog className="sign-in-dialog" ref={dialogRef} onClose={() => setError(undefined)}>
+    <>
       <div className="sign-in-dialog__top">
         <h2>{sent ? "Check your email" : "Sign in with email"}</h2>
-        <button className="btn-quiet" type="button" onClick={() => dialogRef.current?.close()}>
-          Close
-        </button>
+        {onClose && <button className="btn-quiet" type="button" onClick={onClose}>Close</button>}
       </div>
       {sent ? (
-        <p>Link sent to {email.trim()}. Open it on this device.</p>
+        <>
+          <p>Link sent to {email.trim()}. Open it in this browser to recover your purchase.</p>
+          <button className="btn-quiet" type="button" onClick={() => setSent(false)}>
+            Wrong email? Change it
+          </button>
+        </>
       ) : (
         <form onSubmit={submit}>
           <label htmlFor="sign-in-email">Email address</label>
@@ -85,7 +104,7 @@ function SignInDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | 
           </button>
         </form>
       )}
-    </dialog>
+    </>
   );
 }
 

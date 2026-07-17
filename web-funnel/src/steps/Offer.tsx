@@ -24,11 +24,9 @@ export function Offer({
     return (
       <main className="step step-centered">
         <section className="card status-card">
-          <h1>Save {recipient}'s song</h1>
-          <p>Leave your email and we'll keep your place.</p>
-          <label htmlFor="save-email">Email</label>
-          <input className="field" id="save-email" type="email" autoComplete="email" />
-          <button className="btn-primary" type="button">Save my song</button>
+          <h1>{recipient}'s song is saved.</h1>
+          <p>Purchases are paused right now. Come back soon, or contact support if you need help.</p>
+          <a className="btn-primary" href="/support">Contact support</a>
         </section>
       </main>
     );

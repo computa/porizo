@@ -31,6 +31,10 @@ const {
   createAuthCredentialRepository,
 } = require("../database/auth-credential-repository");
 const { createIdentityRepository } = require("../database/identity-repository");
+const { dbQuery } = require("../utils/db-adapter");
+const {
+  reclaimGuestOrdersOnLogin,
+} = require("../services/web-order-login-reclaim");
 const {
   createMagicLoginRepository,
 } = require("../database/magic-login-repository");
@@ -377,7 +381,10 @@ async function requireAuth(request, reply) {
 /**
  * Register auth routes on Fastify app
  */
-function registerAuthRoutes(app, { db, subscriptionManager, appConfig = {} } = {}) {
+function registerAuthRoutes(
+  app,
+  { db, subscriptionManager, appConfig = {} } = {},
+) {
   authRouteSessionRepository = createAuthSessionRepository(db);
   const canonicalWebOrigin = String(
     appConfig.MAGIC_LOGIN_WEB_ORIGIN ||
@@ -542,6 +549,23 @@ function registerAuthRoutes(app, { db, subscriptionManager, appConfig = {} } = {
         isNewUser = true;
       }
     }
+
+    // Reclaim any guest-owned paid web order placed with THIS verified email so
+    // a first-time buyer who pays as a guest and later signs in actually reaches
+    // their song. The paid-transition convergence only re-owns when the checkout
+    // email already matched a verified account; this closes the first-time-buyer
+    // gap. Runs inside the login transaction (repository.withTransaction), so a
+    // failure rolls the whole login back — the magic link is un-consumed and the
+    // user can retry — rather than committing a half-done merge. Only merges
+    // merge-safe shells (never a real account with its own auth factor).
+    await reclaimGuestOrdersOnLogin(
+      (sql, params) => dbQuery(txDb, sql, params),
+      {
+        loginUserId: owner.id,
+        emailNormalized: transaction.emailNormalized,
+        identityRepository: txIdentityRepository,
+      },
+    );
 
     if (platform === "web") {
       const now = new Date();
@@ -1120,8 +1144,8 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       if (platform === "web") {
         const webCsrf = crypto.randomBytes(24).toString("base64url");
         reply.header("Set-Cookie", [
-          `__Host-porizo_session=${encodeURIComponent(exchanged.result.webSessionToken)}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Lax`,
-          `__Host-porizo_web_csrf=${encodeURIComponent(webCsrf)}; Max-Age=31536000; Path=/; Secure; SameSite=Lax`,
+          `__Host-porizo_session=${encodeURIComponent(exchanged.result.webSessionToken)}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Strict`,
+          `__Host-porizo_web_csrf=${encodeURIComponent(webCsrf)}; Max-Age=31536000; Path=/; Secure; SameSite=Strict`,
           "__Host-porizo_preauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax",
           "__Host-porizo_csrf=; Max-Age=0; Path=/; Secure; SameSite=Lax",
         ]);
@@ -1258,8 +1282,8 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       if (session) await authRouteSessionRepository.revokeSession(session.id);
     }
     reply.header("Set-Cookie", [
-      "__Host-porizo_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax",
-      "__Host-porizo_web_csrf=; Max-Age=0; Path=/; Secure; SameSite=Lax",
+      "__Host-porizo_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict",
+      "__Host-porizo_web_csrf=; Max-Age=0; Path=/; Secure; SameSite=Strict",
     ]);
     return reply.code(204).send();
   });

@@ -55,6 +55,20 @@ describe("funnel state", () => {
     expect(parseStoredState(JSON.stringify(corruptLyrics))).toBeNull();
   });
 
+  it("preserves the source timestamp when another tab restores state", () => {
+    const source = {
+      ...createInitialState(),
+      savedAt: 1234,
+      activeStep: "memory" as const,
+      furthestStep: "memory" as const,
+    };
+
+    expect(
+      funnelReducer(createInitialState(), { type: "restore", state: source })
+        .savedAt,
+    ).toBe(1234);
+  });
+
   it("maps the completed quiz to the exact track-create contract", () => {
     const state = {
       ...createInitialState(),

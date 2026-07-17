@@ -32,6 +32,23 @@ describe("API client", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("does not replay an authenticated request when refresh cannot recover", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error: "UNAUTHORIZED" }), { status: 401 }),
+    );
+    const refreshSession = vi.fn(async () => null);
+    const client = createApiClient({
+      getToken: () => "expired",
+      refreshSession,
+      fetcher,
+    });
+
+    await expect(client.get("/web/orders/cs_paid")).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("forwards checkout cancellation and idempotency options", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.test" }), { status: 200 }),

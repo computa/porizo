@@ -15,6 +15,7 @@ export interface OrderStatus {
   progress_copy?: string;
   share_url?: string;
   support_url?: string;
+  order_reference?: string;
 }
 
 const ORDER_STATUSES = ["pending", "paid", "rendering", "delivered", "failed", "refunded"] as const;
@@ -102,11 +103,12 @@ export async function approveAndRenderPreview(
   client: ApiClient,
   trackId: string,
   versionNum: number,
+  turnstileToken: string,
 ) {
   await client.post(`/tracks/${trackId}/versions/${versionNum}/lyrics/approve`, {});
   return client.post<{ job_id: string; poll_url?: string }>(
     `/tracks/${trackId}/versions/${versionNum}/render_preview`,
-    {},
+    { turnstile_token: turnstileToken },
   );
 }
 
@@ -124,6 +126,10 @@ interface PollPreviewOptions {
   wait: () => Promise<void>;
   onJob?: (job: JobStatus) => void;
   onRetry?: (jobId: string) => void;
+  onPreviewCount?: (count: number) => void;
+  acquireRetryToken?: () => Promise<string>;
+  maxAttempts?: number;
+  retryAvailable?: boolean;
 }
 
 export async function pollPreviewUntilReady({
@@ -135,30 +141,53 @@ export async function pollPreviewUntilReady({
   wait,
   onJob,
   onRetry,
+  onPreviewCount,
+  acquireRetryToken,
+  maxAttempts = 90,
+  retryAvailable: initialRetryAvailable = true,
 }: PollPreviewOptions): Promise<string | undefined> {
   let jobId = initialJobId;
-  let retryAvailable = true;
-  while (isActive()) {
+  let retryAvailable = initialRetryAvailable;
+  let attempts = 0;
+  while (isActive() && attempts < maxAttempts) {
+    attempts += 1;
     const job = await client.get<JobStatus>(`/jobs/${jobId}`);
     if (!isActive()) return undefined;
     onJob?.(job);
     if (job.status === "completed") {
-      const previewUrl = await fetchPreviewUrl(client, trackId, versionNum);
+      const response = await client.get<{ versions: VersionSummary[] }>(
+        `/tracks/${trackId}`,
+      );
+      const previewUrl = response.versions.find(
+        (version) => version.version_num === versionNum,
+      )?.preview_url;
       if (!previewUrl) throw new Error("Preview completed without an audio URL.");
+      onPreviewCount?.(
+        response.versions.filter((version) => Boolean(version.preview_url)).length,
+      );
       return previewUrl;
     }
     if (job.status === "failed") {
       if (!retryAvailable) throw new Error(job.error ?? "Preview failed");
       retryAvailable = false;
+      const turnstileToken = acquireRetryToken
+        ? await acquireRetryToken()
+        : undefined;
       const retry = await client.post<{ job_id: string }>(
         `/tracks/${trackId}/versions/${versionNum}/retry`,
-        {},
+        {
+          render_type: "preview",
+          ...(turnstileToken
+            ? { turnstile_token: turnstileToken }
+            : {}),
+        },
       );
       jobId = retry.job_id;
       onRetry?.(jobId);
     }
     await wait();
   }
+  if (isActive()) throw new Error("Preview is taking longer than expected.");
   return undefined;
 }
 

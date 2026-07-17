@@ -163,6 +163,22 @@ function createWebOrdersRepository(db) {
       .all(staleBeforeIso, limit);
   }
 
+  // The most recent purchased order owned by a user — used by the success page
+  // to recover a paid song on a device that has no session_id (e.g. the buyer
+  // signs in fresh on their phone after paying on desktop). Ownership is proven
+  // by the authenticated user id, so this returns only that user's own order.
+  async function findLatestPurchasedOrderForUser(userId) {
+    return db
+      .prepare(
+        `SELECT * FROM web_orders
+         WHERE user_id = ?
+           AND status IN ('paid', 'rendering', 'delivered', 'failed', 'refunded')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(userId);
+  }
+
   return {
     transaction,
     listActiveProducts,
@@ -174,6 +190,7 @@ function createWebOrdersRepository(db) {
     updateStatus,
     incrementRenderAttempts,
     findResumableOrders,
+    findLatestPurchasedOrderForUser,
   };
 }
 

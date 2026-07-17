@@ -115,6 +115,8 @@ function createRateLimitRepository(db) {
       remaining: Math.max(0, Math.floor(ctx.limit - weightedCount)),
       resetAt: ctx.resetAt,
       key: ctx.normalizedKey,
+      action: ctx.actionType,
+      windowStartMs: ctx.currentWindowStart,
     };
   }
 
@@ -170,6 +172,8 @@ function createRateLimitRepository(db) {
       remaining: Math.max(0, Math.floor(ctx.limit - weightedCount)),
       resetAt: ctx.resetAt,
       key: ctx.normalizedKey,
+      action: ctx.actionType,
+      windowStartMs: ctx.currentWindowStart,
     };
   }
 
@@ -181,8 +185,21 @@ function createRateLimitRepository(db) {
     return consumeWithPrepare(ctx);
   }
 
+  async function refund({ key, action, windowStartMs }) {
+    const normalizedKey = normalizeRateLimitKey(key);
+    const params = [normalizedKey.value, action, windowStartMs];
+    const sql = `UPDATE rate_limits
+      SET count = CASE WHEN count > 0 THEN count - 1 ELSE 0 END
+      WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`;
+    if (db.isPostgres && typeof db.transaction === "function") {
+      return db.transaction((query) => query(sql, params));
+    }
+    return db.prepare(sql).run(...params);
+  }
+
   return {
     consume,
+    refund,
   };
 }
 

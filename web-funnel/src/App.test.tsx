@@ -4,7 +4,7 @@ import App from "./App";
 import { createInitialState, funnelReducer, serializeState } from "./state/funnel";
 import { resolveInitialState, resolveResumeCandidate } from "./state/initial-state";
 import { TurnstileError } from "./turnstile";
-import { sessionStartErrorCopy } from "./session-errors";
+import { actionErrorCopy, sessionStartErrorCopy } from "./session-errors";
 import { ApiError } from "./api/client";
 
 describe("initial funnel route", () => {
@@ -283,6 +283,15 @@ describe("initial funnel route", () => {
     localStorage.setItem("porizo.web-funnel.v1", serializeState(saved));
     localStorage.setItem("porizo.web-funnel.token", "guest-token");
     history.replaceState({}, "", "/create#lyrics");
+    window.turnstileToken = "preview-token";
+    window.turnstile = {
+      render: vi.fn((_container, options) => {
+        options.callback("retry-token");
+        return "retry-widget";
+      }),
+      execute: vi.fn(),
+      remove: vi.fn(),
+    };
     const responses = [
       {},
       { job_id: "job-1" },
@@ -345,7 +354,7 @@ describe("initial funnel route", () => {
     expect(screen.queryByText("Secure checkout didn't open. Please try again.")).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(checkoutSignal?.aborted).toBe(true);
-    expect(screen.getByText("Secure checkout didn't open. Please try again.")).toBeVisible();
+    expect(screen.getByText("Secure checkout didn't open. Your song is saved—please try again.")).toBeVisible();
   });
 
   it("uses honest Turnstile failure copy", () => {
@@ -367,5 +376,26 @@ describe("initial funnel route", () => {
     expect(sessionStartErrorCopy(new ApiError("limited", 429, "WEB_SESSION_LIMIT_REACHED"))).toContain(
       "Too many song sessions",
     );
+  });
+
+  it("maps deliberate action limits to honest forward paths", () => {
+    expect(
+      actionErrorCopy(
+        new ApiError("no credits", 402, "INSUFFICIENT_CREDITS"),
+        "approve",
+      ),
+    ).toMatchObject({ destination: "offer" });
+    expect(
+      actionErrorCopy(
+        new ApiError("preview limit", 429, "WEB_PREVIEW_LIMIT_REACHED"),
+        "approve",
+      ).message,
+    ).toContain("free previews");
+    expect(
+      actionErrorCopy(
+        new ApiError("checkout down", 503, "CHECKOUT_UNAVAILABLE"),
+        "checkout",
+      ).message,
+    ).toContain("temporarily unavailable");
   });
 });

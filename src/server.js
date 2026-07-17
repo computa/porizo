@@ -39,6 +39,9 @@ const {
 } = require("./providers/provider-config");
 const { startCleanupJob } = require("./jobs/cleanup");
 const { startAccountCleanupJob } = require("./jobs/account-cleanup");
+const {
+  cleanupExpiredWebFunnelState,
+} = require("./services/web-funnel-cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startColdEmailJob } = require("./jobs/cold-email-daily");
 const { startShareFollowupsJob } = require("./jobs/share-followups-daily");
@@ -2834,6 +2837,7 @@ function buildServer({
     sendMediaFile,
     ensureShareMp4,
     subscriptionManager,
+    turnstileVerifier: webFunnelServices?.turnstileVerifier,
     allowAnonUserId,
     ensureUser,
     addShareAccessLog,
@@ -2977,6 +2981,7 @@ async function start() {
   // hard failures. Anon/device-token fallbacks bypass auth; ADMIN_SETUP_SECRET
   // exposes the one-time admin bootstrap endpoint.
   if (process.env.NODE_ENV === "production") {
+    require("./utils/client-ip").assertTrustedClientIpConfig("production");
     if (process.env.ALLOW_ANON_USER_ID === "true") {
       throw new Error(
         "ALLOW_ANON_USER_ID must not be enabled in production — it bypasses all authentication",
@@ -3082,6 +3087,7 @@ async function start() {
         "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?",
       )
       .run(now);
+    await cleanupExpiredWebFunnelState(db, { now });
   }, config.CLEANUP_INTERVAL_MS);
 
   const startupEventsService = createEventsService(db);

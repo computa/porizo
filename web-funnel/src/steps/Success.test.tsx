@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Success } from "./Success";
 
@@ -8,6 +8,77 @@ describe("paid-order lifecycle", () => {
 
     expect(screen.getByRole("heading", { name: "Confirming your payment…" })).toBeVisible();
     expect(screen.getByText(/support can help/)).toBeVisible();
+  });
+
+  it("stops the spinner and offers same-browser sign-in after a 401", () => {
+    render(
+      <Success
+        elapsedMs={0}
+        needsSignIn
+        orderReference="cs_paid_phone"
+        onStartAnother={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Your payment is safe." })).toBeVisible();
+    expect(screen.getByLabelText("Email address")).toBeVisible();
+    expect(screen.getByText(/Reference cs_paid_phone/)).toBeVisible();
+    expect(screen.queryByText("Confirming your payment…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Make another song" })).toBeVisible();
+  });
+
+  it("replaces an exhausted poll loop with recovery actions", () => {
+    const retry = vi.fn();
+    render(
+      <Success
+        elapsedMs={120_000}
+        timedOut
+        orderReference="cs_slow"
+        onRetryOrder={retry}
+        onStartAnother={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        name: "This is taking longer than expected.",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("Confirming your payment…")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the checkout reference across the email sign-in redirect", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    render(
+      <Success
+        elapsedMs={0}
+        needsSignIn
+        orderReference="cs_paid_phone"
+        onStartAnother={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "buyer@example.com" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Email me a sign-in link" }),
+    );
+
+    await screen.findByRole("heading", { name: "Check your email" });
+    await waitFor(() =>
+      expect(localStorage.getItem("porizo.web-funnel.order-recovery.v1")).toContain(
+        "cs_paid_phone",
+      ),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/auth/magic/request",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("shows server progress while the full song renders", () => {

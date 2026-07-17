@@ -45,6 +45,10 @@ const {
 const {
   createWebFunnelRepository,
 } = require("../database/web-funnel-repository");
+const {
+  TurnstileUnavailableError,
+  createTurnstileVerifier,
+} = require("../services/turnstile");
 
 const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "pending",
@@ -90,6 +94,10 @@ function registerTrackRoutes(
     buildPlayShareUrl,
     ensureShareMp4,
     subscriptionManager,
+    turnstileVerifier = createTurnstileVerifier({
+      secretKey: appConfig.TURNSTILE_SECRET_KEY,
+      environment: appConfig.NODE_ENV || process.env.NODE_ENV,
+    }),
   },
 ) {
   const activeArtworkJobs = new Set();
@@ -277,6 +285,12 @@ function registerTrackRoutes(
       return null;
     }
 
+    const consumptions = [];
+    async function refundConsumptions() {
+      await Promise.allSettled(
+        consumptions.map((entry) => rateLimitRepository.refund(entry)),
+      );
+    }
     let guestLimit;
     let ipLimit;
     let globalLimit;
@@ -287,6 +301,7 @@ function registerTrackRoutes(
         max: guestMax,
         windowMs: 10 * 365 * 24 * 60 * 60 * 1000,
       });
+      if (guestLimit.allowed) consumptions.push(guestLimit);
       if (guestLimit.allowed) {
         ipLimit = await rateLimitRepository.consume({
           key: { subject: "ip", value: `ip:${getGuardClientIp(request)}` },
@@ -294,6 +309,7 @@ function registerTrackRoutes(
           max: ipMax,
           windowMs: 24 * 60 * 60 * 1000,
         });
+        if (ipLimit.allowed) consumptions.push(ipLimit);
       }
       if (guestLimit.allowed && ipLimit?.allowed) {
         globalLimit = await rateLimitRepository.consume({
@@ -302,8 +318,10 @@ function registerTrackRoutes(
           max: dailyBudget,
           windowMs: 24 * 60 * 60 * 1000,
         });
+        if (globalLimit.allowed) consumptions.push(globalLimit);
       }
     } catch (error) {
+      await refundConsumptions();
       request.log.error({ err: error }, "Guest provider guard failed");
       sendError(
         reply,
@@ -324,6 +342,7 @@ function registerTrackRoutes(
       return null;
     }
     if (!ipLimit.allowed) {
+      await refundConsumptions();
       sendError(
         reply,
         429,
@@ -334,6 +353,7 @@ function registerTrackRoutes(
       return null;
     }
     if (!globalLimit.allowed) {
+      await refundConsumptions();
       sendError(
         reply,
         503,
@@ -342,7 +362,41 @@ function registerTrackRoutes(
       );
       return null;
     }
-    return { isGuest: true };
+    return {
+      isGuest: true,
+      release: refundConsumptions,
+    };
+  }
+
+  async function verifyPreviewTurnstile(request, reply) {
+    let verification;
+    try {
+      verification = await turnstileVerifier.verify({
+        token: request.body?.turnstile_token,
+        remoteIp: getGuardClientIp(request),
+      });
+    } catch (error) {
+      if (!(error instanceof TurnstileUnavailableError)) {
+        request.log.error({ err: error }, "Unexpected preview Turnstile failure");
+      }
+      sendError(
+        reply,
+        503,
+        "TURNSTILE_UNAVAILABLE",
+        "We couldn't verify this preview request. Please try again.",
+      );
+      return false;
+    }
+    if (!verification.success) {
+      sendError(
+        reply,
+        400,
+        "TURNSTILE_INVALID",
+        "We couldn't verify this preview request. Please try again.",
+      );
+      return false;
+    }
+    return true;
   }
 
   async function resolveGuestPreviewAccess(request, reply, userId) {
@@ -357,7 +411,12 @@ function registerTrackRoutes(
       ipLimitCode: "WEB_PREVIEW_IP_LIMIT_REACHED",
       ipLimitMessage: "Too many previews were started from this connection.",
     });
-    return access ? { bypassEntitlement: access.isGuest } : null;
+    return access
+      ? {
+          bypassEntitlement: access.isGuest,
+          release: access.release,
+        }
+      : null;
   }
 
   async function enforceGuestLyricsAccess(request, reply, userId) {
@@ -1026,6 +1085,17 @@ function registerTrackRoutes(
       }
       const renderRequestStepData =
         buildRenderRequestStepData(personaPreflight);
+      const guestSession =
+        await webFunnelRepository.findGuestAccess(userId);
+      const isFreeWebGuest =
+        guestSession?.account_status === "guest" &&
+        guestSession.funnel_enabled_at_entry;
+      if (
+        isFreeWebGuest &&
+        !(await verifyPreviewTurnstile(request, reply))
+      ) {
+        return;
+      }
       const guestPreviewAccess = await resolveGuestPreviewAccess(
         request,
         reply,
@@ -1040,6 +1110,7 @@ function registerTrackRoutes(
         60,
       );
       if (!limit.allowed) {
+        await guestPreviewAccess.release?.();
         sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
           retry_at: limit.reset_at,
         });
@@ -1092,6 +1163,7 @@ function registerTrackRoutes(
           );
         });
       } catch (txError) {
+        await guestPreviewAccess.release?.();
         if (
           txError.code === "INSUFFICIENT_SONGS" ||
           txError.code === "NO_ENTITLEMENTS"
@@ -1418,6 +1490,7 @@ function registerTrackRoutes(
       });
       return;
     }
+    let guestPreviewAccess = null;
     if (workflowType === "preview_render") {
       const failedJob = await findLatestFailedJobForVersion(
         trackVersion.id,
@@ -1427,7 +1500,18 @@ function registerTrackRoutes(
         sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
         return;
       }
-      const guestPreviewAccess = await resolveGuestPreviewAccess(
+      const guestSession =
+        await webFunnelRepository.findGuestAccess(userId);
+      const isFreeWebGuest =
+        guestSession?.account_status === "guest" &&
+        guestSession.funnel_enabled_at_entry;
+      if (
+        isFreeWebGuest &&
+        !(await verifyPreviewTurnstile(request, reply))
+      ) {
+        return;
+      }
+      guestPreviewAccess = await resolveGuestPreviewAccess(
         request,
         reply,
         userId,
@@ -1439,6 +1523,7 @@ function registerTrackRoutes(
       track,
     });
     if (!personaPreflight.ok) {
+      await guestPreviewAccess?.release?.();
       sendError(reply, 422, personaPreflight.code, personaPreflight.message, {
         requires_voice_enrollment:
           personaPreflight.requiresVoiceEnrollment === true,
@@ -1453,24 +1538,33 @@ function registerTrackRoutes(
       60,
     );
     if (!limit.allowed) {
+      await guestPreviewAccess?.release?.();
       sendError(reply, 429, "RATE_LIMITED", "Retry limit reached.", {
         retry_at: limit.reset_at,
       });
       return;
     }
-    const result = await retryFailedJob({
-      trackVersionId: trackVersion.id,
-      workflowType,
-      userId,
-      track,
-      trackVersion,
-      retryStepData: buildRenderRequestStepData(personaPreflight),
-    });
+    let result;
+    try {
+      result = await retryFailedJob({
+        trackVersionId: trackVersion.id,
+        workflowType,
+        userId,
+        track,
+        trackVersion,
+        retryStepData: buildRenderRequestStepData(personaPreflight),
+      });
+    } catch (error) {
+      await guestPreviewAccess?.release?.();
+      throw error;
+    }
     if (!result) {
+      await guestPreviewAccess?.release?.();
       sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
       return;
     }
     if (result.blocked) {
+      await guestPreviewAccess?.release?.();
       console.warn(
         `[retry] Blocked retry short-circuited for trackVersionId=${trackVersion.id} reason=${result.reason || "unknown"}`,
       );
@@ -1480,6 +1574,7 @@ function registerTrackRoutes(
       return;
     }
     if (result.conflict) {
+      await guestPreviewAccess?.release?.();
       sendError(
         reply,
         409,

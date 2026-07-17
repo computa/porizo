@@ -129,9 +129,12 @@ function registerWebCheckoutRoutes(
 
     const track = await db
       .prepare(
-        "SELECT id, user_id FROM tracks WHERE id = ? AND deleted_at IS NULL",
+        `SELECT t.id, t.user_id, tv.id AS version_id
+         FROM tracks t
+         JOIN track_versions tv ON tv.track_id = t.id
+         WHERE t.id = ? AND tv.id = ? AND t.deleted_at IS NULL`,
       )
-      .get(trackId);
+      .get(trackId, trackVersionId);
     if (!track || track.user_id !== userId) {
       return sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
     }
@@ -189,7 +192,7 @@ function registerWebCheckoutRoutes(
         line_items: [{ price: product.stripe_price_id, quantity: 1 }],
         client_reference_id: orderId,
         success_url: `${baseUrl()}/create/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${baseUrl()}/create/?cancelled=1#offer`,
+        cancel_url: `${baseUrl()}/create/?cancelled=1&order_id=${encodeURIComponent(orderId)}#offer`,
         consent_collection: { promotions: "auto" },
         ...(appConfig.STRIPE_AUTOMATIC_TAX === true
           ? { automatic_tax: { enabled: true } }
@@ -240,6 +243,53 @@ function registerWebCheckoutRoutes(
     return reply.send({ checkout_url: session.url });
   });
 
+  // Restore a cancelled checkout even if browser storage was cleared. The
+  // device/session still has to authenticate as the order owner.
+  app.get("/web/order-drafts/:orderId", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+    const draft = await db
+      .prepare(
+        `SELECT o.track_id, o.track_version_id, tv.version_num,
+                t.recipient_name
+         FROM web_orders o
+         JOIN tracks t ON t.id = o.track_id
+         JOIN track_versions tv ON tv.id = o.track_version_id
+         WHERE o.id = ? AND o.user_id = ? AND o.status = 'pending'
+           AND t.deleted_at IS NULL`,
+      )
+      .get(request.params.orderId, userId);
+    if (!draft) {
+      return sendError(reply, 404, "ORDER_NOT_FOUND", "Order not found.");
+    }
+    reply.header("Cache-Control", "no-store");
+    return reply.send(draft);
+  });
+
+  // GET /web/orders/latest — cross-device recovery. A buyer who paid as a guest
+  // on one device and signs in fresh on another has no session_id to poll, but
+  // login now re-owns their paid order (reclaimGuestOrdersOnLogin), so we can
+  // find it by the authenticated user. Static route is matched before the
+  // parametric :sessionId route below.
+  app.get("/web/orders/latest", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const order = await orders.findLatestPurchasedOrderForUser(userId);
+    if (!order) {
+      return sendError(reply, 404, "ORDER_NOT_FOUND", "Order not found.");
+    }
+
+    const status = await orchestrator.describeOrderForStatus(order);
+    reply.header("Cache-Control", "no-store");
+    return reply.send({
+      ...status,
+      checkout_session_id: order.checkout_session_id,
+      support_url: `${baseUrl()}/support`,
+      order_reference: order.id,
+    });
+  });
+
   // GET /web/orders/:sessionId — success-page poll + webhook-lost recovery.
   app.get("/web/orders/:sessionId", async (request, reply) => {
     const userId = await requireUserId(request, reply);
@@ -282,7 +332,8 @@ function registerWebCheckoutRoutes(
     reply.header("Cache-Control", "no-store");
     return reply.send({
       ...status,
-      support_url: `${baseUrl()}/legal/refund-policy`,
+      support_url: `${baseUrl()}/support`,
+      order_reference: order.id,
     });
   });
 

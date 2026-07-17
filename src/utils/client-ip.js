@@ -41,4 +41,19 @@ function getGuardClientIp(request) {
   return typeof peerIp === "string" && isIP(peerIp) ? peerIp : "unknown";
 }
 
-module.exports = { getClientIp, getGuardClientIp };
+function assertTrustedClientIpConfig(environment = process.env.NODE_ENV) {
+  if (
+    environment === "production" &&
+    process.env.TRUST_CLOUDFLARE_CLIENT_IP !== "true"
+  ) {
+    throw new Error(
+      "TRUST_CLOUDFLARE_CLIENT_IP=true is required in production; restrict origin ingress to Cloudflare before enabling it.",
+    );
+  }
+}
+
+module.exports = {
+  assertTrustedClientIpConfig,
+  getClientIp,
+  getGuardClientIp,
+};

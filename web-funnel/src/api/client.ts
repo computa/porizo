@@ -31,13 +31,21 @@ export function createApiClient(options: ApiClientOptions) {
     });
 
     if (response.status === 401 && retry && options.refreshSession) {
-      await options.refreshSession();
-      return request<T>(path, init, false);
+      const refreshed = await options.refreshSession();
+      if (refreshed) return request<T>(path, init, false);
     }
 
     if (!response.ok) {
-      const body = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
-      throw new ApiError(body.error ?? "Request failed", response.status, body.code);
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        message?: string;
+      };
+      throw new ApiError(
+        body.message ?? body.error ?? "Request failed",
+        response.status,
+        body.error ?? body.code,
+      );
     }
 
     return response.json() as Promise<T>;

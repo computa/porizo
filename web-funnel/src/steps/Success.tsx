@@ -1,14 +1,27 @@
 import { useEffect, useState } from "react";
 import type { OrderStatus } from "../api/funnel";
 import { cssDurationMs } from "../motion";
+import { SiteSignInForm } from "../components/SiteChrome";
 
 interface SuccessProps {
   order?: OrderStatus;
   elapsedMs: number;
   onStartAnother: () => void;
+  needsSignIn?: boolean;
+  orderReference?: string;
+  timedOut?: boolean;
+  onRetryOrder?: () => void;
 }
 
-export function Success({ order, elapsedMs, onStartAnother }: SuccessProps) {
+export function Success({
+  order,
+  elapsedMs,
+  needsSignIn,
+  orderReference,
+  timedOut,
+  onRetryOrder,
+  onStartAnother,
+}: SuccessProps) {
   const [copied, setCopied] = useState(false);
   const recipient = order?.recipient_name ?? "Your";
 
@@ -21,11 +34,53 @@ export function Success({ order, elapsedMs, onStartAnother }: SuccessProps) {
     return () => clearTimeout(timer);
   }, [copied]);
 
+  if (needsSignIn) {
+    return (
+      <main className="step step-centered">
+        <section className="status-card" aria-live="polite">
+          <h1>Your payment is safe.</h1>
+          <p>Sign in with the email on your receipt to find this song on this device.</p>
+          <SiteSignInForm recoverySessionId={orderReference} />
+          <SupportDetails orderReference={orderReference} />
+          <button
+            className="btn-quiet success-reset"
+            type="button"
+            onClick={onStartAnother}
+          >
+            Make another song
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  if (timedOut) {
+    return (
+      <main className="step step-centered">
+        <section className="status-card" aria-live="polite">
+          <h1>This is taking longer than expected.</h1>
+          <p>Your payment and song details are safe. Check again, or contact support with the reference below.</p>
+          <SupportDetails
+            supportUrl={order?.support_url}
+            orderReference={order?.order_reference ?? orderReference}
+          />
+          {onRetryOrder && (
+            <button className="btn-primary" type="button" onClick={onRetryOrder}>
+              Check again
+            </button>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   if (!order || order.status === "pending") {
     return (
       <StatusScreen
         title="Confirming your payment…"
         body={elapsedMs > 60000 ? "This is taking longer than usual. Your receipt is safe — support can help if it doesn't move." : "Keep this page open for a moment."}
+        supportUrl={order?.support_url}
+        orderReference={order?.order_reference ?? orderReference}
       />
     );
   }
@@ -45,6 +100,8 @@ export function Success({ order, elapsedMs, onStartAnother }: SuccessProps) {
         title="We couldn't finish the song."
         body="We're arranging your refund now. If it doesn't update, support can help — your details are saved."
         onStartAnother={onStartAnother}
+        supportUrl={order.support_url}
+        orderReference={order.order_reference ?? orderReference}
       />
     );
   }
@@ -55,6 +112,8 @@ export function Success({ order, elapsedMs, onStartAnother }: SuccessProps) {
         title="We couldn't finish the song."
         body="We've refunded you in full. Your details are saved if you'd like to try again."
         onStartAnother={onStartAnother}
+        supportUrl={order.support_url}
+        orderReference={order.order_reference ?? orderReference}
       />
     );
   }
@@ -98,10 +157,14 @@ function StatusScreen({
   title,
   body,
   onStartAnother,
+  supportUrl,
+  orderReference,
 }: {
   title: string;
   body: string;
   onStartAnother?: () => void;
+  supportUrl?: string;
+  orderReference?: string;
 }) {
   return (
     <main className="step step-centered">
@@ -109,6 +172,7 @@ function StatusScreen({
         <div className="status-orbit" aria-hidden="true" />
         <h1>{title}</h1>
         <p>{body}</p>
+        <SupportDetails supportUrl={supportUrl} orderReference={orderReference} />
         {onStartAnother && (
           <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
             Make another song
@@ -116,5 +180,20 @@ function StatusScreen({
         )}
       </section>
     </main>
+  );
+}
+
+function SupportDetails({
+  supportUrl = "/support",
+  orderReference,
+}: {
+  supportUrl?: string;
+  orderReference?: string;
+}) {
+  return (
+    <p className="support-details">
+      <a href={supportUrl}>Contact support</a>
+      {orderReference ? <> · Reference {orderReference}</> : null}
+    </p>
   );
 }

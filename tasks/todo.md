@@ -1,3 +1,100 @@
+# C1 completion — login-time guest→order reclaim (2026-07-17) [ACTIVE]
+
+**Why:** Review found the C1 recovery fix reaches the paid order only if the login adopts the same guest that owns it. `mergeGuestIntoUser`/`convergeOrderIdentity` fires ONLY at the paid→rendering transition (keyed on Stripe checkout email matching a pre-VERIFIED account). Magic-link login never reclaims a guest-owned paid order → gaps below strand a paid song.
+
+**Ground truth (verified by reading auth.js:464-544):** login `login`-branch resolves owner via `findActiveUserByVerifiedContact` → else `findActiveUserByAnyContact` (legacyOwner) → if `isSafeEmailShell` (guest has no non-email auth factor) it ADOPTS that guest (owner = guest.id). So the common first-time-buyer case (convergence branch (c) attached email to the guest) is OFTEN already covered by adoption — but fragile. Real gaps that still strand the order:
+
+- (g1) convergence branch "no_email" (web-order-identity.js:60): guest promoted with NO email contact → later login by that email creates/adopts a DIFFERENT account → order stranded.
+- (g2) the paid guest is not a pure email-shell / email planted elsewhere → login lands on a different account or LEGACY_ACCOUNT_RECOVERY_REQUIRED → order stranded.
+- (g3) same-device belt-and-braces: make login deterministically re-own any guest paid order whose checkout email == the just-verified login email, instead of relying on the adoption heuristic.
+
+## Plan (TDD)
+
+- [x] STEP 1 — `reclaimGuestOrdersOnLogin` service (src/services/web-order-login-reclaim.js): matches paid-or-later orders by exact checkout email; guardrail is MERGE-SAFE SHELL (no auth factor except this email — mirrors login isSafeEmailShell), NOT account_status (payment promotes guest to 'active', so a status filter would miss the order). Merges guest→login via mergeGuestIntoUser. 6 unit tests green.
+- [x] STEP 2 — Wired into consumeMagicTransaction `login` branch (auth.js, inside repository.withTransaction, after owner resolved). dbQuery(txDb) adapter + txIdentityRepository. NOT swallowed — a merge failure rolls back the whole login (link un-consumed, retryable), never commits a half-merge.
+- [x] STEP 3 — Integration test through the real /auth/magic/exchange (test/magic-login-order-reclaim.test.js, 2 tests): first-time buyer's paid order re-owned to the sign-in account; mismatched-email login does NOT reach another's order.
+- [x] STEP 4 — Cross-device DISCOVERY: `findLatestPurchasedOrderForUser` repo method + `GET /web/orders/latest` (authed, per-user, static route before :sessionId); App.tsx success-poll falls back to /web/orders/latest when no session_id; 404-on-latest stops the poll. 2 endpoint tests green.
+- [x] VERIFY: 53 tests green across reclaim + magic-login + guest-merge + convergence + web-checkout + auth + guest-preview; funnel type-check + build clean (76.30 KB gz); 100/100 frontend.
+
+**Outcome:** C1 ownership gap CLOSED (first-time buyer sign-in now reaches the paid song) + cross-device discovery CLOSED (by-user lookup after sign-in). Honest residual: a buyer who never signs in and never returns in the same browser still relies on the delivery email — the intended verification channel, not a gap.
+
+**Guard rails:** email match must be exact-normalized; reclaim only paid-or-later orders; never merge a verified account into a login (only guest→login); never let a mismatched-email login reach another's order (that's the existing ownership 404 — preserve it).
+
+---
+
+# Web funnel hardening — fix the attack findings (2026-07-17) [REVIEWED]
+
+**Why:** Four-angle adversarial walk of the guest + sign-in web flows found 2 CRITICAL, 4 HIGH, 8 MEDIUM, 6 LOW. Goal: flawless + secured UX. Full findings in this session's merged list. Two claims corrected during merge (paid-song recoverability; 402 scope); one disproven (rate-limiter TOCTOU — Postgres row lock serializes).
+
+**Root cause behind most MEDIUMs:** `session-errors.ts` maps only session-start codes and isn't called by writeSong/approveLyrics/regenerateLyrics/checkout → every deliberate backend limit presents as a fake crash.
+
+**Review changes (verified against current `main`):**
+
+- H2 CORRECTED: current code returns 402 from `render_preview`, after the draft and version exist. The existing track-aware gift-bundle checkout is therefore valid; route 402 to the offer instead of adding a second commerce schema.
+- C2 SHARPENED: dropped the weak client "device-hash" (client-supplied = spoofable). The per-IP sub-budget is already implemented and covered in `render-preview-guest.test.js`; this pass verifies it, refunds partial/failed consumption, adds spend-point Turnstile, and adds the production ingress guard.
+- M3 REFINED (not dropped): preauth/csrf MUST stay Lax (needed on the magic-link email click — top-level cross-site nav, auth.js:722-723). But `__Host-porizo_session` + `__Host-porizo_web_csrf` (exchange-time, same-origin fetch only) CAN go Strict safely.
+- C1 DEPENDENCY: recovery-by-sign-in assumes guest→account merge re-owns an _already-paid_ order on post-hoc sign-in. Merge is designed for convergence-at-purchase — MUST verify that path before building UI on it.
+
+## Phase 1 — Error-copy mapping (root-cause kill: H3, M6, + honest H2 copy)
+
+- [x] Extend the error→copy map (session-errors.ts or new `action-errors.ts`): INSUFFICIENT_CREDITS, WEB_PREVIEW_LIMIT_REACHED, WEB_LYRICS_LIMIT_REACHED, WEB_PREVIEW_IP_LIMIT_REACHED, WEB_LYRICS_IP_LIMIT_REACHED, FULL_RENDERS_DISABLED, CHECKOUT_UNAVAILABLE → verified by action-copy tests
+- [x] Wire into writeSong, approveLyrics, regenerateLyrics, checkout → render/API tests assert honest copy, not "check your connection"
+- [x] Preview-limit 429 (H3): distinguish "you've used your free previews" from a render crash; route to the saved offer
+
+## Phase 2 — Paid-but-lost-song recovery (C1)
+
+- [x] PRECONDITION: verify paid-transition identity convergence re-owns the guest order before rendering (`web-order-identity`/guest-merge coverage)
+- [x] Success page: on order-poll 401, stop polling and render magic-link recovery; preserve the opaque Stripe session reference across the same-browser email redirect for 24 hours, with an explicit start-over escape
+- [x] Add support link + order reference to pending/timeout/failed/refunded states
+
+## Phase 2b — Zero-credit signed-in purchase (H2)
+
+- [x] DECISION (Ambrose): sell the existing gift bundle to a zero-credit signed-in buyer.
+- [x] On preview-render 402, preserve the draft and route to the existing offer/checkout; no second pre-track commerce system
+
+## Phase 3 — Money/DoS (C2, H1, H4, M2, L1)
+
+- [x] Per-IP sub-budget inside the global `web_funnel` bucket already exists on current `main` → retain and rerun its cross-IP regression.
+- [x] Refund partial counters on guard denial and pre-dispatch render transaction failure; retain spend after provider dispatch
+- [x] Boot assertion: fail closed if TRUST_CLOUDFLARE_CLIENT_IP unset in the real production startup path
+- [ ] INFRA (Ambrose): restrict Railway ingress to Cloudflare IP ranges / Authenticated Origin Pulls — closes CF-Connecting-IP spoof (H1). Not code; gates C2's real severity.
+- [x] DECISION H4 (Ambrose): require Turnstile at the preview spend point.
+- [x] Verify Turnstile server-side immediately before free guest preview spend and guest retry; preserve token-free native authenticated previews; distinguish invalid vs unavailable
+
+## Phase 4 — MEDIUM UX + integrity
+
+- [x] M1: remove the two dead-end email controls; replace preview-only state with honest saved/support copy
+- [x] M5: storage-event multi-tab sync without timestamp ping-pong + popstate for all flow steps
+- [x] M7: magic-link same-browser warning + wrong-email correction
+- [x] M8: persist the single retry across resume and reconcile preview generations with server
+- [x] M3: session + web_csrf Strict; preauth/csrf remain Lax; magic-link bridge regression green
+- [x] M4: existing post-LLM generated-lyrics validation and prompt-injection suites verified
+
+## Phase 5 — LOW
+
+- [x] L2: `/web/checkout` verifies track_version_id belongs to track_id
+- [x] L3: Stripe cancel restores owned pending offer from server when localStorage is cleared
+- [x] L4: cleanup for expired empty guests/sessions/refresh tokens and only fully expired rate-limit windows
+- [x] L5: bounded preview/order polls with backoff and explicit timeout recovery
+- [x] L6: dedupe createGuestSession (startSession owns it)
+
+## Consolidated review closure
+
+- [x] Native authenticated previews remain compatible (Turnstile is free-web-guest-only).
+- [x] Ten-year guest lifetime counters survive routine cleanup.
+- [x] Production client-IP trust assertion runs on the real startup path.
+- [x] Provider-dispatched lyrics failures retain their spend counters.
+- [x] Cross-tab restores preserve the source timestamp and cannot ping-pong.
+- [x] Guest preview retries require a fresh Turnstile token.
+- [x] Exhausted order polling replaces the spinner with retry/support actions.
+- [x] Abandoned/wrong-email recovery has an explicit “Make another song” escape.
+- [x] Order status returns a real support URL, not the refund policy.
+
+**Sequencing:** Phase 1 first (biggest UX win, lowest risk, no infra). Phase 2 needs the precondition verified. Phase 3 money-fix gated by the infra ingress-lock decision. Phases 4–5 independent polish.
+**Verification gate:** each phase TDD (test first, watch fail); full suite green before commit; C1 + C2 fixes live-verified against prod. Don't mark done without proof.
+
+---
+
 # Web funnel backend completion + simplification (2026-07-15)
 
 **State:** U1–U3 (auth bridge, guest sessions, deferred preview) implemented by Codex w/ tests. U8–U11 frontend done.

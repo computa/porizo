@@ -35,6 +35,7 @@ export interface FunnelArtifacts {
   jobId?: string;
   previewUrl?: string;
   previewGenerations: number;
+  previewRetryUsed?: boolean;
 }
 
 export interface FunnelState {
@@ -106,7 +107,7 @@ export function funnelReducer(state: FunnelState, action: FunnelAction): FunnelS
       };
     }
     case "restore":
-      return { ...action.state, savedAt };
+      return action.state;
     case "restart":
       return createInitialState();
   }
@@ -162,7 +163,9 @@ function isFunnelArtifacts(value: unknown): value is FunnelArtifacts {
       (typeof artifacts.versionNum === "number" && Number.isInteger(artifacts.versionNum))) &&
     (artifacts.lyrics === undefined ||
       (Array.isArray(artifacts.lyrics) &&
-        artifacts.lyrics.every((line) => typeof line === "string")))
+        artifacts.lyrics.every((line) => typeof line === "string"))) &&
+    (artifacts.previewRetryUsed === undefined ||
+      typeof artifacts.previewRetryUsed === "boolean")
   );
 }
 

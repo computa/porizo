@@ -102,10 +102,14 @@ describe("preview lifecycle", () => {
         isActive: () => true,
         wait: async () => undefined,
         onRetry,
+        acquireRetryToken: async () => "retry-token",
       }),
     ).resolves.toBe("/preview.mp3");
 
-    expect(post).toHaveBeenCalledWith("/tracks/track-1/versions/3/retry", {});
+    expect(post).toHaveBeenCalledWith("/tracks/track-1/versions/3/retry", {
+      render_type: "preview",
+      turnstile_token: "retry-token",
+    });
     expect(onRetry).toHaveBeenCalledWith("job-2");
     expect(get.mock.calls[1][0]).toBe("/jobs/job-2");
   });

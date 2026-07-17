@@ -163,6 +163,9 @@ describe("POST /auth/web/token", () => {
       });
       assert.equal(exchanged.statusCode, 200, exchanged.body);
       const exchangeCookies = String(exchanged.headers["set-cookie"]);
+      assert.match(exchangeCookies, /__Host-porizo_session=[^,]*SameSite=Strict/);
+      assert.match(exchangeCookies, /__Host-porizo_web_csrf=[^,]*SameSite=Strict/);
+      assert.match(exchangeCookies, /__Host-porizo_preauth=[^,]*SameSite=Lax/);
       const session = exchangeCookies.match(/__Host-porizo_session=([^;,]+)/)?.[1];
       const webCsrf = exchangeCookies.match(/__Host-porizo_web_csrf=([^;,]+)/)?.[1];
       assert.ok(session);

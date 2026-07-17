@@ -46,6 +46,7 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
   let app;
   let spendCalls;
   let lyricsCalls;
+  let previewTurnstileValid;
 
   beforeEach(async () => {
     process.env.JWT_SECRET = "test-jwt-secret-guest-render-preview-32";
@@ -56,6 +57,7 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     process.env.TRUST_CLOUDFLARE_CLIENT_IP = "true";
     spendCalls = 0;
     lyricsCalls = 0;
+    previewTurnstileValid = true;
     app = buildServer({
       db,
       config: {
@@ -89,7 +91,13 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
         }),
       },
       webFunnelServices: {
-        turnstileVerifier: { verify: async () => ({ success: true }) },
+        turnstileVerifier: {
+          verify: async ({ token }) => ({
+            success:
+              token === "valid-session" ||
+              (previewTurnstileValid && token === "valid-preview"),
+          }),
+        },
       },
     });
     await app.ready();
@@ -107,7 +115,10 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
       method: "POST",
       url: "/web/session",
       headers: { "cf-connecting-ip": ip },
-      payload: { turnstile_token: "valid", entry_url: "https://porizo.co/create" },
+      payload: {
+        turnstile_token: "valid-session",
+        entry_url: "https://porizo.co/create",
+      },
     });
     assert.equal(response.statusCode, 200, response.body);
     return response.json();
@@ -164,8 +175,34 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
         authorization: `Bearer ${accessToken}`,
         "cf-connecting-ip": ip,
       },
+      payload: { turnstile_token: "valid-preview" },
     });
   }
+
+  it("rejects an invalid spend-point Turnstile token before consuming preview budgets", async () => {
+    const ip = "203.0.113.29";
+    const guest = await startGuest(ip);
+    const trackId = await createTrack(guest.access_token);
+    const versionNum = await createApprovedVersion(
+      guest.access_token,
+      trackId,
+    );
+    previewTurnstileValid = false;
+
+    const response = await renderPreview(
+      guest.access_token,
+      trackId,
+      versionNum,
+      ip,
+    );
+
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().error, "TURNSTILE_INVALID");
+    const counters = await db.query(
+      "SELECT COUNT(*) AS count FROM rate_limits WHERE action_type LIKE 'web_preview_%'",
+    );
+    assert.equal(Number(counters.rows[0].count), 0);
+  });
 
   it("queues a guest preview with zero entitlements and leaves the spend stamp null", async () => {
     const ip = "203.0.113.30";
@@ -263,7 +300,10 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
         authorization: `Bearer ${guest.access_token}`,
         "cf-connecting-ip": "203.0.113.35",
       },
-      payload: { render_type: "preview" },
+      payload: {
+        render_type: "preview",
+        turnstile_token: "valid-preview",
+      },
     });
     assert.equal(retry.statusCode, 503, retry.body);
     assert.equal(retry.json().error, "FUNNEL_PAUSED");
@@ -312,6 +352,14 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     assert.equal(paused.statusCode, 503, paused.body);
     assert.equal(paused.json().error, "FUNNEL_PAUSED");
     assert.equal(spendCalls, 0);
+    const guestSpend = await db.query(
+      "SELECT SUM(count) AS count FROM rate_limits WHERE action_type = 'web_preview_guest_lifetime'",
+    );
+    const ipSpend = await db.query(
+      "SELECT SUM(count) AS count FROM rate_limits WHERE action_type = 'web_preview_ip_daily'",
+    );
+    assert.equal(Number(guestSpend.rows[0].count), 1);
+    assert.equal(Number(ipSpend.rows[0].count), 1);
   });
 
   it("blocks the eleventh preview from one trusted client IP across guests", async () => {
@@ -333,7 +381,7 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     assert.equal(lastResponse.json().error, "WEB_PREVIEW_IP_LIMIT_REACHED");
   });
 
-  it("keeps the existing entitlement path for a non-guest user", async () => {
+  it("keeps the token-free native entitlement path for a non-guest user", async () => {
     const userId = "user_active_preview_contract";
     await db.query(
       "INSERT INTO users (id, created_at, account_status) VALUES (?, CURRENT_TIMESTAMP, 'active')",
@@ -345,6 +393,7 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
       method: "POST",
       url: `/tracks/${trackId}/versions/${versionNum}/render_preview`,
       headers: { "x-user-id": userId },
+      payload: {},
     });
     assert.equal(response.statusCode, 402, response.body);
     assert.equal(response.json().error, "INSUFFICIENT_CREDITS");

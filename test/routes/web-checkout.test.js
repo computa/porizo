@@ -160,6 +160,10 @@ describe("Web checkout + orders", () => {
     });
     assert.equal(res.statusCode, 200, res.body);
     assert.match(res.json().checkout_url, /checkout\.stripe\.test/);
+    assert.match(
+      stripe.calls.create[0].cancel_url,
+      /cancelled=1&order_id=worder_/,
+    );
 
     const order = await db.query(
       "SELECT status, user_id, amount_cents FROM web_orders WHERE track_version_id = ?",
@@ -168,6 +172,36 @@ describe("Web checkout + orders", () => {
     assert.equal(order.rows[0].status, "pending");
     assert.equal(order.rows[0].user_id, userId);
     assert.equal(order.rows[0].amount_cents, 1999);
+  });
+
+  it("restores an owned pending order draft after checkout cancellation", async () => {
+    await activateProduct(db);
+    const { token, userId } = await seedActiveUserWithSession(db);
+    const { trackId, versionId } = await seedTrackVersion(db, { userId });
+    await db
+      .prepare(
+        `INSERT INTO web_orders
+         (id, checkout_session_id, user_id, track_id, track_version_id,
+          price_key, amount_cents, currency, status, render_attempts,
+          created_at, updated_at)
+         VALUES ('worder_cancel', 'cs_cancel', ?, ?, ?, 'gift_song', 1999,
+                 'usd', 'pending', 0, ?, ?)`,
+      )
+      .run(userId, trackId, versionId, NOW, NOW);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/web/order-drafts/worder_cancel",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json(), {
+      track_id: trackId,
+      track_version_id: versionId,
+      version_num: 1,
+      recipient_name: "Sarah",
+    });
   });
 
   it("rejects checkout for a track the caller does not own", async () => {
@@ -191,6 +225,36 @@ describe("Web checkout + orders", () => {
     });
     assert.equal(res.statusCode, 404);
     assert.equal(res.json().error, "TRACK_NOT_FOUND");
+  });
+
+  it("rejects a version id that belongs to a different owned track", async () => {
+    await activateProduct(db);
+    const { token, userId } = await seedActiveUserWithSession(db);
+    const first = await seedTrackVersion(db, {
+      userId,
+      trackId: "trk_first",
+      versionId: "trk_first_v1",
+    });
+    const second = await seedTrackVersion(db, {
+      userId,
+      trackId: "trk_second",
+      versionId: "trk_second_v1",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/web/checkout",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        track_id: first.trackId,
+        track_version_id: second.versionId,
+        price_key: "gift_song",
+      },
+    });
+
+    assert.equal(response.statusCode, 404, response.body);
+    assert.equal(response.json().error, "TRACK_NOT_FOUND");
+    assert.equal(stripe.calls.create.length, 0);
   });
 
   it("blocks checkout with 409 when PREVIEW_ONLY is set", async () => {
@@ -332,6 +396,59 @@ describe("Web checkout + orders", () => {
     );
     assert.equal(ticks, 1, "orchestrator kicked once");
   });
+
+  it("recovers the latest owned order with no session_id (cross-device sign-in)", async () => {
+    const { token, userId } = await seedActiveUserWithSession(db, "buyer_x");
+    const { trackId, versionId } = await seedTrackVersion(db, {
+      userId,
+      trackId: "trk_x",
+      versionId: "trk_x_v1",
+    });
+    await db
+      .prepare(
+        `INSERT INTO web_orders (id, checkout_session_id, user_id, track_id, track_version_id, price_key, amount_cents, currency, status, render_attempts, created_at, updated_at)
+         VALUES ('worder_x', 'cs_x', ?, ?, ?, 'gift_song', 1999, 'usd', 'delivered', 0, ?, ?)`,
+      )
+      .run(userId, trackId, versionId, NOW, NOW);
+    app.webOrderOrchestrator.describeOrderForStatus = async (order) => ({
+      status: order.status,
+      recipient_name: "Sarah",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/web/orders/latest",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.json().status, "delivered");
+    assert.equal(res.json().checkout_session_id, "cs_x");
+    assert.equal(res.json().order_reference, "worder_x");
+  });
+
+  it("never returns another user's order from /web/orders/latest", async () => {
+    // buyer_y owns an order; buyer_z (a different signed-in account) must not see it.
+    const buyerY = await seedActiveUserWithSession(db, "buyer_y");
+    const { trackId, versionId } = await seedTrackVersion(db, {
+      userId: buyerY.userId,
+      trackId: "trk_y",
+      versionId: "trk_y_v1",
+    });
+    await db
+      .prepare(
+        `INSERT INTO web_orders (id, checkout_session_id, user_id, track_id, track_version_id, price_key, amount_cents, currency, status, render_attempts, created_at, updated_at)
+         VALUES ('worder_y', 'cs_y', ?, ?, ?, 'gift_song', 1999, 'usd', 'delivered', 0, ?, ?)`,
+      )
+      .run(buyerY.userId, trackId, versionId, NOW, NOW);
+
+    const buyerZ = await seedActiveUserWithSession(db, "buyer_z");
+    const res = await app.inject({
+      method: "GET",
+      url: "/web/orders/latest",
+      headers: { authorization: `Bearer ${buyerZ.token}` },
+    });
+    assert.equal(res.statusCode, 404, res.body);
+  });
 });
 
 describe("deploy-before-setup: production boots without Stripe/Turnstile keys", () => {
@@ -345,10 +462,12 @@ describe("deploy-before-setup: production boots without Stripe/Turnstile keys", 
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
       "TURNSTILE_SECRET_KEY",
+      "TRUST_CLOUDFLARE_CLIENT_IP",
     ]) {
       savedEnv[key] = process.env[key];
     }
     process.env.CORS_ORIGIN = "https://porizo.co";
+    process.env.TRUST_CLOUDFLARE_CLIENT_IP = "true";
     delete process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_WEBHOOK_SECRET;
     delete process.env.TURNSTILE_SECRET_KEY;
@@ -378,7 +497,10 @@ describe("deploy-before-setup: production boots without Stripe/Turnstile keys", 
     const response = await app.inject({
       method: "POST",
       url: "/web/webhooks/stripe",
-      headers: { "content-type": "application/json", "stripe-signature": "t=1,v1=x" },
+      headers: {
+        "content-type": "application/json",
+        "stripe-signature": "t=1,v1=x",
+      },
       payload: "{}",
     });
     assert.equal(response.statusCode, 503, response.body);
