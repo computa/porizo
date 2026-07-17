@@ -37,9 +37,20 @@ function normalizeEmail(email) {
  */
 async function convergeOrderIdentity(
   query,
-  { buyerUserId, email, identityRepository },
+  { buyerUserId, email, name, identityRepository },
 ) {
   const normalized = normalizeEmail(email);
+  const displayName = String(name || "").trim();
+  // Populate the buyer's display_name only when it's currently empty — never
+  // clobber a real name (matters for the merge-into-existing-account case, which
+  // is why this is only applied on the guest-promotion branches below).
+  const setDisplayNameIfEmpty = async (userId) => {
+    if (!displayName) return;
+    await query(
+      "UPDATE users SET display_name = COALESCE(NULLIF(TRIM(display_name), ''), ?) WHERE id = ?",
+      [displayName, userId],
+    );
+  };
   const buyer = await query(
     "SELECT id, account_status FROM users WHERE id = ?",
     [buyerUserId],
@@ -60,6 +71,7 @@ async function convergeOrderIdentity(
     await query("UPDATE users SET account_status = 'active' WHERE id = ?", [
       buyerUserId,
     ]);
+    await setDisplayNameIfEmpty(buyerUserId);
     return { outcome: "no_email", userId: buyerUserId };
   }
 
@@ -104,6 +116,7 @@ async function convergeOrderIdentity(
   await query("UPDATE users SET account_status = 'active' WHERE id = ?", [
     buyerUserId,
   ]);
+  await setDisplayNameIfEmpty(buyerUserId);
   return { outcome: "attached", userId: buyerUserId };
 }
 

@@ -1,4 +1,23 @@
-# Occasion label→key bug — funnel sends display labels, artwork throws (2026-07-17) [ACTIVE]
+# Checkout crash + buyer-name capture (2026-07-18) [ACTIVE]
+
+**Why:** E2E test-purchase on prod surfaced two real bugs:
+
+1. CHECKOUT CRASHES for every buyer — createCheckoutSession passes `consent_collection: { promotions: "auto" }` (web-checkout.js:196), which Stripe rejects for the ACUOOS account's country (AU): "`consent_collection.promotions` is not available in your country." → 400 → funnel shows "Secure checkout didn't open." Total checkout blocker.
+2. BUYER NAME never captured → admin shows "No name". users.display_name column EXISTS (verified, migrations/pg/019); web_orders has NO name column (verified). Stripe returns session.customer_details.name once collected. Fix: capture at webhook, thread to convergence, write to display_name (COALESCE-guarded, never clobber).
+
+## Plan (TDD)
+
+- [ ] FIX 1: remove `consent_collection.promotions` from createCheckoutSession (country-gated, unnecessary). Test: session params no longer include consent_collection.
+- [ ] FIX 2a: add `billing_address_collection: "auto"` so name is captured on wallet/Link too (card already returns it).
+- [ ] FIX 2b: applyPaidTransition captures `session.customer_details.name`; thread through orchestrator.handlePaid → convergeOrderIdentity(name).
+- [ ] FIX 2c: convergeOrderIdentity writes display_name via `UPDATE users SET display_name = COALESCE(NULLIF(TRIM(display_name),''), ?)` in the no_email + attach branches; NEVER in merge-into-verified branch. Test: guest promotion sets display_name; existing name not clobbered.
+- [ ] VERIFY: web-checkout + web-order-identity suites green; deploy; re-run E2E purchase with test card 4242; confirm order→paid→delivered AND display_name populated.
+
+**Secondary (noted, not blocking checkout):** render used OpenAI Whisper for lyric alignment and hit `E401_WHISPER_ERROR: 429 quota exceeded` — the alignment step failed, which is why the client theater poll gave up and showed "Retry" despite the preview succeeding server-side. Separate issue (OpenAI billing/quota + client-poll-vs-server desync). Track separately.
+
+---
+
+# Occasion label→key bug — funnel sends display labels, artwork throws (2026-07-17) [DONE]
 
 **Why:** Live guest test: track stored `occasion="I Love You ❤️"` (emoji display label). iOS sends canonical enum keys (`i_love_you`:60, `celebration`:60, … — prod data confirms; only 1 label-form row exists, from the funnel). The render/lyrics path tolerates free-text occasion, but the artwork path requires the exact enum key: `extractArtworkVars` throws `unknown occasion`, AND its defaults fallback `getDefault()` ALSO throws `No defaults defined for occasion` — same mismatch turns graceful degradation into an unhandled throw. Artwork never signals ready → READY barrier stalls until timeout.
 

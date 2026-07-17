@@ -79,6 +79,7 @@ function createWebOrderOrchestrator({
         const result = await convergeOrderIdentity(query, {
           buyerUserId: order.user_id,
           email: order.email,
+          name: order.buyer_name,
           identityRepository,
         });
         ownerUserId = result.userId;

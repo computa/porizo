@@ -160,10 +160,17 @@ describe("Web checkout + orders", () => {
     });
     assert.equal(res.statusCode, 200, res.body);
     assert.match(res.json().checkout_url, /checkout\.stripe\.test/);
-    assert.match(
-      stripe.calls.create[0].cancel_url,
-      /cancelled=1&order_id=worder_/,
+    const createParams = stripe.calls.create[0];
+    assert.match(createParams.cancel_url, /cancelled=1&order_id=worder_/);
+    // consent_collection.promotions is country-gated (rejected in AU) — must not
+    // be sent, it crashed every checkout with a 400.
+    assert.equal(
+      createParams.consent_collection,
+      undefined,
+      "must not send country-gated consent_collection",
     );
+    // Collect the buyer's name for the account (fixes admin "No name").
+    assert.equal(createParams.billing_address_collection, "auto");
 
     const order = await db.query(
       "SELECT status, user_id, amount_cents FROM web_orders WHERE track_version_id = ?",

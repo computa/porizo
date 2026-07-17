@@ -46,7 +46,7 @@ async function seedContact(db, { userId, email, verified }) {
 
 // Run the convergence inside a transaction, wiring a transaction-scoped
 // identity repository — matches how the orchestrator calls it.
-async function runConverge(db, { buyerUserId, email }) {
+async function runConverge(db, { buyerUserId, email, name }) {
   return db.transaction(async (query) => {
     const identityRepository = createIdentityRepository(
       createPreparedDbFromQuery(query, db),
@@ -54,6 +54,7 @@ async function runConverge(db, { buyerUserId, email }) {
     return convergeOrderIdentity(query, {
       buyerUserId,
       email,
+      name,
       identityRepository,
     });
   });
@@ -75,6 +76,7 @@ describe("convergeOrderIdentity", () => {
     const result = await runConverge(db, {
       buyerUserId: "guest",
       email: "New.Buyer@Example.com",
+      name: "Ada Lovelace",
     });
     assert.equal(result.outcome, "attached");
     assert.equal(result.userId, "guest");
@@ -91,9 +93,35 @@ describe("convergeOrderIdentity", () => {
     assert.equal(contact.rows[0].source, "stripe_checkout");
 
     const user = await db.query(
-      "SELECT account_status FROM users WHERE id = 'guest'",
+      "SELECT account_status, display_name FROM users WHERE id = 'guest'",
     );
     assert.equal(user.rows[0].account_status, "active");
+    // The buyer's Stripe name populates the previously-nameless account.
+    assert.equal(user.rows[0].display_name, "Ada Lovelace");
+  });
+
+  it("sets display_name on the no-email promotion path, and never clobbers an existing name", async () => {
+    // no-email branch: guest promoted with just a name.
+    await seedUser(db, "guest", "guest");
+    await runConverge(db, { buyerUserId: "guest", email: "", name: "Grace H" });
+    let user = await db.query(
+      "SELECT account_status, display_name FROM users WHERE id = 'guest'",
+    );
+    assert.equal(user.rows[0].account_status, "active");
+    assert.equal(user.rows[0].display_name, "Grace H");
+
+    // Guard: a later convergence with a different name must NOT overwrite it.
+    await runConverge(db, {
+      buyerUserId: "guest",
+      email: "grace@example.com",
+      name: "Someone Else",
+    });
+    user = await db.query("SELECT display_name FROM users WHERE id = 'guest'");
+    assert.equal(
+      user.rows[0].display_name,
+      "Grace H",
+      "existing display_name must not be clobbered",
+    );
   });
 
   it("(b) merges the guest into an existing account on a VERIFIED email match", async () => {

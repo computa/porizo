@@ -112,6 +112,7 @@ function createWebOrdersRepository(db) {
     query = null,
     paymentIntentId = undefined,
     email = undefined,
+    buyerName = undefined,
     shareTokenId = undefined,
   }) {
     const run = query
@@ -126,6 +127,10 @@ function createWebOrdersRepository(db) {
     if (email !== undefined) {
       sets.push("email = COALESCE(?, email)");
       params.push(email);
+    }
+    if (buyerName !== undefined) {
+      sets.push("buyer_name = COALESCE(?, buyer_name)");
+      params.push(buyerName);
     }
     if (shareTokenId !== undefined) {
       sets.push("share_token_id = COALESCE(?, share_token_id)");

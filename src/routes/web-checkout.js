@@ -50,6 +50,10 @@ function registerWebCheckoutRoutes(
       session?.customer_email ||
       order.email ||
       null;
+    // The buyer's own name (Stripe returns it once billing details are entered);
+    // persisted on the order so the later paid->rendering convergence can set
+    // the account's display_name even when it runs via the sweep (no session).
+    const buyerName = session?.customer_details?.name?.trim() || null;
     const paymentIntentId =
       typeof session?.payment_intent === "string"
         ? session.payment_intent
@@ -64,6 +68,7 @@ function registerWebCheckoutRoutes(
       toStatus: "paid",
       paymentIntentId,
       email,
+      buyerName,
     });
     if (!advanced) {
       // Lost the race — another worker already flipped it. Do not grant again.
@@ -193,7 +198,10 @@ function registerWebCheckoutRoutes(
         client_reference_id: orderId,
         success_url: `${baseUrl()}/create/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl()}/create/?cancelled=1&order_id=${encodeURIComponent(orderId)}#offer`,
-        consent_collection: { promotions: "auto" },
+        // Collect the buyer's name (and address) so the account isn't nameless
+        // in admin. Card entry returns customer_details.name anyway; this also
+        // captures it on wallet/Link payments.
+        billing_address_collection: "auto",
         ...(appConfig.STRIPE_AUTOMATIC_TAX === true
           ? { automatic_tax: { enabled: true } }
           : {}),
