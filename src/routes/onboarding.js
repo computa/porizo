@@ -78,8 +78,11 @@ function firstName(displayName) {
 
 function buildSongTitle({ recipientName, occasionLabel, senderFirstName }) {
   const name = recipientName || "them";
-  const base = occasionLabel
-    ? `A ${occasionLabel} Song for ${name}`
+  // Some occasion labels already end in "Song" (e.g. i_love_you → "Love Song")
+  // — don't append a second one ("A Love Song Song for…").
+  const label = occasionLabel ? String(occasionLabel).trim() : "";
+  const base = label
+    ? `A ${label}${/song$/i.test(label) ? "" : " Song"} for ${name}`
     : `A Song for ${name}`;
   return senderFirstName ? `${base} by ${senderFirstName}` : base;
 }

@@ -3,6 +3,8 @@
 const { newUuid } = require("../utils/ids");
 const { createOrGetShareToken } = require("../services/share-service");
 const { nowIso, toJson, parseJson } = require("../utils/common");
+const { buildSongTitle } = require("./onboarding");
+const { formatOccasion } = require("../utils/og-text-utils");
 const {
   getClientIp: extractClientIp,
   getGuardClientIp,
@@ -31,8 +33,12 @@ const {
 // (e.g., a future "personalized_v2") were added.
 const { PERSONALIZED_VOICE_MODES } = require("../workflows/render-contract");
 const { enqueueArtworkJob } = require("../jobs/artwork-job");
-const { createTrackVersionRepository } = require("../database/track-version-repository");
-const { createShareTokenRepository } = require("../database/share-token-repository");
+const {
+  createTrackVersionRepository,
+} = require("../database/track-version-repository");
+const {
+  createShareTokenRepository,
+} = require("../database/share-token-repository");
 const {
   createTrackLibraryRepository,
 } = require("../database/track-library-repository");
@@ -332,24 +338,16 @@ function registerTrackRoutes(
       return null;
     }
     if (!guestLimit.allowed) {
-      sendError(
-        reply,
-        429,
-        guestLimitCode,
-        guestLimitMessage,
-        { retry_at: guestLimit.resetAt },
-      );
+      sendError(reply, 429, guestLimitCode, guestLimitMessage, {
+        retry_at: guestLimit.resetAt,
+      });
       return null;
     }
     if (!ipLimit.allowed) {
       await refundConsumptions();
-      sendError(
-        reply,
-        429,
-        ipLimitCode,
-        ipLimitMessage,
-        { retry_at: ipLimit.resetAt },
-      );
+      sendError(reply, 429, ipLimitCode, ipLimitMessage, {
+        retry_at: ipLimit.resetAt,
+      });
       return null;
     }
     if (!globalLimit.allowed) {
@@ -377,7 +375,10 @@ function registerTrackRoutes(
       });
     } catch (error) {
       if (!(error instanceof TurnstileUnavailableError)) {
-        request.log.error({ err: error }, "Unexpected preview Turnstile failure");
+        request.log.error(
+          { err: error },
+          "Unexpected preview Turnstile failure",
+        );
       }
       sendError(
         reply,
@@ -692,11 +693,24 @@ function registerTrackRoutes(
       const storyContextJson =
         Object.keys(storyContext).length > 0 ? toJson(storyContext) : null;
 
+      // Derive a title when the client doesn't send one (the web funnel omits
+      // it), so web tracks aren't "Untitled". Mirrors the app/story format
+      // "A {Occasion} Song for {Name} by {Sender}"; the sender clause is dropped
+      // here because the web buyer's name isn't known until checkout.
+      const derivedTitle =
+        body.title ||
+        buildSongTitle({
+          recipientName: body.recipient_name,
+          occasionLabel: body.occasion
+            ? formatOccasion(body.occasion, null)
+            : null,
+        });
+
       await trackVersionRepository.createTrack({
         id: trackId,
         userId,
         status: "draft",
-        title: body.title || null,
+        title: derivedTitle || null,
         occasion: body.occasion || null,
         recipientName: body.recipient_name || null,
         recipientPhone: body.recipient_phone || null,
@@ -819,9 +833,7 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await trackVersionRepository.findTrackById(
-      request.params.id,
-    );
+    const track = await trackVersionRepository.findTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -888,7 +900,9 @@ function registerTrackRoutes(
       if (!userId) {
         return;
       }
-      const track = await trackVersionRepository.findTrackById(request.params.id);
+      const track = await trackVersionRepository.findTrackById(
+        request.params.id,
+      );
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
@@ -917,22 +931,23 @@ function registerTrackRoutes(
       }
       const trackVersionId = newUuid();
       const now = nowIso();
-      const { versionNum } = await trackVersionRepository.createVersionWithNextNumber({
-        id: trackVersionId,
-        trackId: track.id,
-        parentVersionId: body.parent_version_id || null,
-        renderType,
-        paramsJson: toJson(body.params || {}),
-        paramsHash,
-        costEstimateJson: toJson({
-          credits: 1,
-          usd: renderType === "full" ? 0.25 : 0.15,
-        }),
-        storageRefPrefix: `tracks/${userId}/${track.id}/v`,
-        createdAt: now,
-        lyricsUpdatedAt: now,
-        streamBaseUrl,
-      });
+      const { versionNum } =
+        await trackVersionRepository.createVersionWithNextNumber({
+          id: trackVersionId,
+          trackId: track.id,
+          parentVersionId: body.parent_version_id || null,
+          renderType,
+          paramsJson: toJson(body.params || {}),
+          paramsHash,
+          costEstimateJson: toJson({
+            credits: 1,
+            usd: renderType === "full" ? 0.25 : 0.15,
+          }),
+          storageRefPrefix: `tracks/${userId}/${track.id}/v`,
+          createdAt: now,
+          lyricsUpdatedAt: now,
+          streamBaseUrl,
+        });
       reply.code(201).send({
         track_version_id: trackVersionId,
         version_num: versionNum,
@@ -958,11 +973,12 @@ function registerTrackRoutes(
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion =
-        await trackVersionRepository.findByTrackIdAndVersion({
+      const trackVersion = await trackVersionRepository.findByTrackIdAndVersion(
+        {
           trackId: track.id,
           versionNum,
-        });
+        },
+      );
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
@@ -1085,15 +1101,11 @@ function registerTrackRoutes(
       }
       const renderRequestStepData =
         buildRenderRequestStepData(personaPreflight);
-      const guestSession =
-        await webFunnelRepository.findGuestAccess(userId);
+      const guestSession = await webFunnelRepository.findGuestAccess(userId);
       const isFreeWebGuest =
         guestSession?.account_status === "guest" &&
         guestSession.funnel_enabled_at_entry;
-      if (
-        isFreeWebGuest &&
-        !(await verifyPreviewTurnstile(request, reply))
-      ) {
+      if (isFreeWebGuest && !(await verifyPreviewTurnstile(request, reply))) {
         return;
       }
       const guestPreviewAccess = await resolveGuestPreviewAccess(
@@ -1256,11 +1268,12 @@ function registerTrackRoutes(
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion =
-        await trackVersionRepository.findByTrackIdAndVersion({
+      const trackVersion = await trackVersionRepository.findByTrackIdAndVersion(
+        {
           trackId: track.id,
           versionNum,
-        });
+        },
+      );
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
@@ -1459,19 +1472,16 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await trackVersionRepository.findTrackById(
-      request.params.id,
-    );
+    const track = await trackVersionRepository.findTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion =
-      await trackVersionRepository.findByTrackIdAndVersion({
-        trackId: track.id,
-        versionNum,
-      });
+    const trackVersion = await trackVersionRepository.findByTrackIdAndVersion({
+      trackId: track.id,
+      versionNum,
+    });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1500,15 +1510,11 @@ function registerTrackRoutes(
         sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
         return;
       }
-      const guestSession =
-        await webFunnelRepository.findGuestAccess(userId);
+      const guestSession = await webFunnelRepository.findGuestAccess(userId);
       const isFreeWebGuest =
         guestSession?.account_status === "guest" &&
         guestSession.funnel_enabled_at_entry;
-      if (
-        isFreeWebGuest &&
-        !(await verifyPreviewTurnstile(request, reply))
-      ) {
+      if (isFreeWebGuest && !(await verifyPreviewTurnstile(request, reply))) {
         return;
       }
       guestPreviewAccess = await resolveGuestPreviewAccess(
@@ -1597,19 +1603,16 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await trackVersionRepository.findTrackById(
-      request.params.id,
-    );
+    const track = await trackVersionRepository.findTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion =
-      await trackVersionRepository.findByTrackIdAndVersion({
-        trackId: track.id,
-        versionNum,
-      });
+    const trackVersion = await trackVersionRepository.findByTrackIdAndVersion({
+      trackId: track.id,
+      versionNum,
+    });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1695,19 +1698,16 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await trackVersionRepository.findTrackById(
-      request.params.id,
-    );
+    const track = await trackVersionRepository.findTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion =
-      await trackVersionRepository.findByTrackIdAndVersion({
-        trackId: track.id,
-        versionNum,
-      });
+    const trackVersion = await trackVersionRepository.findByTrackIdAndVersion({
+      trackId: track.id,
+      versionNum,
+    });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1728,19 +1728,16 @@ function registerTrackRoutes(
       });
       return;
     }
-    const track = await trackVersionRepository.findTrackById(
-      request.params.id,
-    );
+    const track = await trackVersionRepository.findTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion =
-      await trackVersionRepository.findByTrackIdAndVersion({
-        trackId: track.id,
-        versionNum,
-      });
+    const trackVersion = await trackVersionRepository.findByTrackIdAndVersion({
+      trackId: track.id,
+      versionNum,
+    });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1822,11 +1819,12 @@ function registerTrackRoutes(
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion =
-        await trackVersionRepository.findByTrackIdAndVersion({
+      const trackVersion = await trackVersionRepository.findByTrackIdAndVersion(
+        {
           trackId: track.id,
           versionNum,
-        });
+        },
+      );
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
@@ -2000,11 +1998,12 @@ function registerTrackRoutes(
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion =
-        await trackVersionRepository.findByTrackIdAndVersion({
+      const trackVersion = await trackVersionRepository.findByTrackIdAndVersion(
+        {
           trackId: track.id,
           versionNum,
-        });
+        },
+      );
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
@@ -2079,9 +2078,7 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await trackVersionRepository.findTrackById(
-      request.params.id,
-    );
+    const track = await trackVersionRepository.findTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2137,11 +2134,10 @@ function registerTrackRoutes(
 
     // Idempotency check is handled inside createOrGetShareToken
     const versionNum = body.version_num || track.latest_version;
-    const trackVersion =
-      await trackVersionRepository.findByTrackIdAndVersion({
-        trackId: track.id,
-        versionNum,
-      });
+    const trackVersion = await trackVersionRepository.findByTrackIdAndVersion({
+      trackId: track.id,
+      versionNum,
+    });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;

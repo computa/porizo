@@ -9,7 +9,10 @@ const { afterEach, beforeEach, describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { initDb } = require("../../src/db");
 const { buildServer } = require("../../src/server");
-const { clearCache, setFeatureFlag } = require("../../src/services/feature-flags");
+const {
+  clearCache,
+  setFeatureFlag,
+} = require("../../src/services/feature-flags");
 
 function storageStub() {
   return {
@@ -162,7 +165,12 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
        SET lyrics_status = 'approved', moderation_status = 'passed',
            lyrics_json = ?, lyrics_updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [JSON.stringify({ sections: [{ name: "chorus", lines: ["Jordan, this is for you"] }] }), body.track_version_id],
+      [
+        JSON.stringify({
+          sections: [{ name: "chorus", lines: ["Jordan, this is for you"] }],
+        }),
+        body.track_version_id,
+      ],
     );
     return body.version_num;
   }
@@ -183,10 +191,7 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     const ip = "203.0.113.29";
     const guest = await startGuest(ip);
     const trackId = await createTrack(guest.access_token);
-    const versionNum = await createApprovedVersion(
-      guest.access_token,
-      trackId,
-    );
+    const versionNum = await createApprovedVersion(guest.access_token, trackId);
     previewTurnstileValid = false;
 
     const response = await renderPreview(
@@ -210,7 +215,12 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     const trackId = await createTrack(guest.access_token);
     const versionNum = await createApprovedVersion(guest.access_token, trackId);
 
-    const response = await renderPreview(guest.access_token, trackId, versionNum, ip);
+    const response = await renderPreview(
+      guest.access_token,
+      trackId,
+      versionNum,
+      ip,
+    );
     assert.equal(response.statusCode, 202, response.body);
     assert.equal(spendCalls, 0);
     const row = await db.query(
@@ -227,8 +237,16 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     const trackId = await createTrack(guest.access_token);
     const statuses = [];
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const versionNum = await createApprovedVersion(guest.access_token, trackId);
-      const response = await renderPreview(guest.access_token, trackId, versionNum, ip);
+      const versionNum = await createApprovedVersion(
+        guest.access_token,
+        trackId,
+      );
+      const response = await renderPreview(
+        guest.access_token,
+        trackId,
+        versionNum,
+        ip,
+      );
       statuses.push([response.statusCode, response.json().error]);
     }
     assert.deepEqual(statuses, [
@@ -333,8 +351,14 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     const second = await startGuest("203.0.113.33");
     const firstTrack = await createTrack(first.access_token, "Ari");
     const secondTrack = await createTrack(second.access_token, "Mina");
-    const firstVersion = await createApprovedVersion(first.access_token, firstTrack);
-    const secondVersion = await createApprovedVersion(second.access_token, secondTrack);
+    const firstVersion = await createApprovedVersion(
+      first.access_token,
+      firstTrack,
+    );
+    const secondVersion = await createApprovedVersion(
+      second.access_token,
+      secondTrack,
+    );
 
     const accepted = await renderPreview(
       first.access_token,
@@ -368,14 +392,18 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     for (let attempt = 0; attempt < 11; attempt += 1) {
       const guest = await startGuest(`198.51.100.${attempt + 1}`);
       const trackId = await createTrack(guest.access_token, `Guest${attempt}`);
-      const versionNum = await createApprovedVersion(guest.access_token, trackId);
+      const versionNum = await createApprovedVersion(
+        guest.access_token,
+        trackId,
+      );
       lastResponse = await renderPreview(
         guest.access_token,
         trackId,
         versionNum,
         previewIp,
       );
-      if (attempt < 10) assert.equal(lastResponse.statusCode, 202, lastResponse.body);
+      if (attempt < 10)
+        assert.equal(lastResponse.statusCode, 202, lastResponse.body);
     }
     assert.equal(lastResponse.statusCode, 429, lastResponse.body);
     assert.equal(lastResponse.json().error, "WEB_PREVIEW_IP_LIMIT_REACHED");
@@ -398,6 +426,28 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
     assert.equal(response.statusCode, 402, response.body);
     assert.equal(response.json().error, "INSUFFICIENT_CREDITS");
     assert.equal(spendCalls, 1);
+  });
+
+  it("derives a track title when the client omits one (web funnel parity)", async () => {
+    const guest = await startGuest("203.0.113.77");
+    // The web funnel sends occasion + recipient but NO title.
+    const response = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { authorization: `Bearer ${guest.access_token}` },
+      payload: {
+        occasion: "i_love_you",
+        recipient_name: "Chioma",
+        style: "acoustic, warm",
+        voice_mode: "ai_voice",
+      },
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const row = await db.query("SELECT title FROM tracks WHERE id = ?", [
+      response.json().track_id,
+    ]);
+    // Not "Untitled"/null — and no doubled "Song" for the Love Song occasion.
+    assert.equal(row.rows[0].title, "A Love Song for Chioma");
   });
 
   async function createTrackForDevUser(userId) {
@@ -432,7 +482,10 @@ describe("guest render-preview entitlement bypass and cost guards", () => {
       `UPDATE track_versions
        SET lyrics_status = 'approved', moderation_status = 'passed', lyrics_json = ?
        WHERE id = ?`,
-      [JSON.stringify({ sections: [{ name: "chorus", lines: ["For Sam"] }] }), body.track_version_id],
+      [
+        JSON.stringify({ sections: [{ name: "chorus", lines: ["For Sam"] }] }),
+        body.track_version_id,
+      ],
     );
     return body.version_num;
   }

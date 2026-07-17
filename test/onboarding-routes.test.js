@@ -5,7 +5,43 @@ const {
   loadOnboardingGraph,
   getOnboardingGraphPathCandidates,
   generateTemplateSuggestion,
+  buildSongTitle,
 } = require("../src/routes/onboarding");
+
+describe("buildSongTitle", () => {
+  it("composes occasion + recipient + sender", () => {
+    assert.equal(
+      buildSongTitle({
+        recipientName: "Chioma",
+        occasionLabel: "Thank You",
+        senderFirstName: "Ambrose",
+      }),
+      "A Thank You Song for Chioma by Ambrose",
+    );
+  });
+
+  it("does not double 'Song' when the occasion label already ends in Song", () => {
+    // i_love_you formats to "Love Song" — must not become "A Love Song Song…".
+    assert.equal(
+      buildSongTitle({ recipientName: "Chioma", occasionLabel: "Love Song" }),
+      "A Love Song for Chioma",
+    );
+  });
+
+  it("omits the occasion clause when there is none", () => {
+    assert.equal(
+      buildSongTitle({ recipientName: "Chioma", occasionLabel: null }),
+      "A Song for Chioma",
+    );
+  });
+
+  it("omits the sender clause when there is none", () => {
+    assert.equal(
+      buildSongTitle({ recipientName: "Chioma", occasionLabel: "Birthday" }),
+      "A Birthday Song for Chioma",
+    );
+  });
+});
 
 describe("onboarding routes", () => {
   it("loads the server-owned onboarding graph", async () => {
