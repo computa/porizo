@@ -116,25 +116,31 @@ async function findGiftFundingContent(db, {
   return null;
 }
 
-async function deleteGiftFundedReservationContent(db, reservationId, deletedAt) {
+async function deleteGiftFundedReservationContent(
+  db,
+  reservationId,
+  deletedAt,
+  externalQuery = null,
+) {
   if (!reservationId) {
     return { tracksDeleted: 0, poemsDeleted: 0 };
   }
 
   const timestamp = deletedAt || new Date().toISOString();
   const repository = createGiftFundingRepository(db);
-  const tracks = await repository.listActiveTracksForReservation(reservationId);
-  const poems = await repository.listActivePoemsForReservation(reservationId);
+  const tracks = await repository.listActiveTracksForReservation(reservationId, externalQuery);
+  const poems = await repository.listActivePoemsForReservation(reservationId, externalQuery);
 
   for (const track of tracks) {
     if (track.share_token_id) {
       await repository.revokeTrackShareToken({
         shareTokenId: track.share_token_id,
         timestamp,
+        query: externalQuery,
       });
     }
-    await repository.softDeleteTrack({ trackId: track.id, timestamp });
-    await repository.removeTrackLibraryEntry({ trackId: track.id, timestamp });
+    await repository.softDeleteTrack({ trackId: track.id, timestamp, query: externalQuery });
+    await repository.removeTrackLibraryEntry({ trackId: track.id, timestamp, query: externalQuery });
   }
 
   for (const poem of poems) {
@@ -142,10 +148,11 @@ async function deleteGiftFundedReservationContent(db, reservationId, deletedAt) 
       await repository.revokePoemShareToken({
         shareTokenId: poem.share_token_id,
         timestamp,
+        query: externalQuery,
       });
     }
-    await repository.softDeletePoem({ poemId: poem.id, timestamp });
-    await repository.removePoemLibraryEntry({ poemId: poem.id, timestamp });
+    await repository.softDeletePoem({ poemId: poem.id, timestamp, query: externalQuery });
+    await repository.removePoemLibraryEntry({ poemId: poem.id, timestamp, query: externalQuery });
   }
 
   return {

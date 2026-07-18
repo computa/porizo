@@ -19,9 +19,10 @@ const { nowIso } = require("../utils/common");
  *   4. share_tokens.bound_user_id — NULL any that pointed at the guest
  *   5. audit_logs.user_id
  *   6. gift_wallet balance — add guest balance to target, zero the guest
- *   7. web_orders.user_id
- *   8. jobs — no user_id column, references track_version_id (no change)
- *   9. billing_holds — retired in both engines (pg 095, sqlite 123); no-op
+ *   7. gift_reservations.user_id + gift_orders.sender_user_id
+ *   8. web_orders.user_id
+ *   9. jobs — no user_id column, references track_version_id (no change)
+ *  10. billing_holds — retired in both engines (pg 095, sqlite 123); no-op
  * Then the guest user row is soft-deleted (deleted_at set) so it disappears
  * from every `deleted_at IS NULL` query without breaking FK references.
  *
@@ -107,7 +108,18 @@ async function mergeGuestIntoUser(query, { guestUserId, targetUserId }) {
     [now, guestUserId],
   );
 
-  // 7. web_orders.user_id
+  // 7. Move the complete gift graph. Delivery preferences and outbox rows are
+  // keyed through reservation/order, so their ownership follows these roots.
+  await query(
+    "UPDATE gift_reservations SET user_id = ?, updated_at = ? WHERE user_id = ?",
+    [targetUserId, now, guestUserId],
+  );
+  await query(
+    "UPDATE gift_orders SET sender_user_id = ?, updated_at = ? WHERE sender_user_id = ?",
+    [targetUserId, now, guestUserId],
+  );
+
+  // 8. web_orders.user_id
   await query(
     "UPDATE web_orders SET user_id = ?, updated_at = ? WHERE user_id = ?",
     [targetUserId, now, guestUserId],

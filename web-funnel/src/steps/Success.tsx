@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
-import type { OrderStatus } from "../api/funnel";
+import { useEffect, useState, type ReactNode } from "react";
+import { contentStatus, type OrderStatus } from "../api/funnel";
 import { cssDurationMs } from "../motion";
 import { SiteSignInForm } from "../components/SiteChrome";
+import { DeliveryChooser } from "./DeliveryChooser";
+import type { deliveryRequest, DeliveryChannelName } from "../delivery-state";
 
 interface SuccessProps {
   order?: OrderStatus;
@@ -9,8 +11,15 @@ interface SuccessProps {
   onStartAnother: () => void;
   needsSignIn?: boolean;
   orderReference?: string;
+  orderReferenceKind?: "session" | "order";
   timedOut?: boolean;
   onRetryOrder?: () => void;
+  onCheckStatus?: () => void;
+  onSaveDelivery?: (body: ReturnType<typeof deliveryRequest>) => Promise<void>;
+  automatedDeliveryEnabled?: boolean;
+  onStopDeliveryChannel?: (channel: DeliveryChannelName) => Promise<void>;
+  onCancelGift?: () => Promise<void>;
+  error?: string;
 }
 
 export function Success({
@@ -18,9 +27,16 @@ export function Success({
   elapsedMs,
   needsSignIn,
   orderReference,
+  orderReferenceKind,
   timedOut,
   onRetryOrder,
+  onCheckStatus,
   onStartAnother,
+  onSaveDelivery,
+  automatedDeliveryEnabled = false,
+  onStopDeliveryChannel,
+  onCancelGift,
+  error,
 }: SuccessProps) {
   const [copied, setCopied] = useState(false);
   const recipient = order?.recipient_name ?? "Your";
@@ -40,7 +56,10 @@ export function Success({
         <section className="status-card" aria-live="polite">
           <h1>Your payment is safe.</h1>
           <p>Sign in with the email on your receipt to find this song on this device.</p>
-          <SiteSignInForm recoverySessionId={orderReference} />
+          <SiteSignInForm
+            recoverySessionId={orderReference}
+            recoveryKind={orderReferenceKind}
+          />
           <SupportDetails orderReference={orderReference} />
           <button
             className="btn-quiet success-reset"
@@ -74,7 +93,9 @@ export function Success({
     );
   }
 
-  if (!order || order.status === "pending") {
+  const content = contentStatus(order);
+
+  if (!order || content === "pending") {
     return (
       <StatusScreen
         title="Confirming your payment…"
@@ -85,16 +106,29 @@ export function Success({
     );
   }
 
-  if (order.status === "paid" || order.status === "rendering") {
+  if (content === "paid" || content === "rendering") {
     return (
-      <StatusScreen
-        title={`Finishing ${recipient}'s song…`}
-        body={order.progress_copy ?? "We're making the complete version now. We'll email you when it's ready."}
-      />
+      <main className="step success-step">
+        <StatusPanel
+          title={`Finishing ${recipient}'s song…`}
+          body={order.progress_copy ?? "We're making the complete version now. We'll email you when it's ready."}
+        />
+        {onSaveDelivery && onStopDeliveryChannel && (
+          <DeliveryChooser
+            recipient={recipient}
+            delivery={order.delivery}
+            deliveryStatus={order.delivery_status}
+            contentReady={false}
+            onSave={onSaveDelivery}
+            onStopChannel={onStopDeliveryChannel}
+            automatedDeliveryEnabled={automatedDeliveryEnabled}
+          />
+        )}
+      </main>
     );
   }
 
-  if (order.status === "failed") {
+  if (content === "failed") {
     return (
       <StatusScreen
         title="We couldn't finish the song."
@@ -106,7 +140,7 @@ export function Success({
     );
   }
 
-  if (order.status === "refunded") {
+  if (content === "refunded") {
     return (
       <StatusScreen
         title="We couldn't finish the song."
@@ -124,7 +158,20 @@ export function Success({
     <main className="step success-step">
       <p className="success-mark" aria-hidden="true">✓</p>
       <h1 className="q">{order.recipient_name ? `${recipient}'s song is ready.` : "Your song is ready."}</h1>
-      <p className="hint">Sent to your email too, with your receipt.</p>
+      <p className="hint">One gift credit was used. Your order details are saved here.</p>
+      {error && <p className="error-text" role="alert">{error}</p>}
+      {onSaveDelivery && onStopDeliveryChannel && (
+        <DeliveryChooser
+          recipient={recipient}
+          delivery={order.delivery}
+          deliveryStatus={order.delivery_status}
+          contentReady
+          shareUrl={order.share_url}
+          onSave={onSaveDelivery}
+          onStopChannel={onStopDeliveryChannel}
+          automatedDeliveryEnabled={automatedDeliveryEnabled}
+        />
+      )}
       <section className="card link-card">
         <p className="context-label">Their gift link</p>
         <p className="share-link">{link}</p>
@@ -140,12 +187,43 @@ export function Success({
       <div className="share-chips" aria-label="Share the song">
         <a className="chip" href={`sms:&body=${encodeURIComponent(shareText)}`}>Send in Messages</a>
         <a className="chip" href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}>WhatsApp</a>
+        {"share" in navigator && (
+          <button
+            className="chip"
+            type="button"
+            onClick={() => void navigator.share({ text: shareText, url: link })}
+          >
+            Share
+          </button>
+        )}
       </div>
       <section className="reaction-nudge">
         <h2>The best part is watching their face.</h2>
         <p>Play it in person if you can — and film it. Reactions like theirs are why this exists.</p>
       </section>
-      <p className="account-note">Your songs live in your Porizo account — we emailed a sign-in link.</p>
+      <p className="account-note">Your songs live in your Porizo account. Sign in with the same email whenever you need them.</p>
+      {onCheckStatus && (
+        <button className="btn-quiet" type="button" onClick={onCheckStatus}>
+          Check delivery status
+        </button>
+      )}
+      {order.can_cancel_gift && onCancelGift && (
+        <button
+          className="btn-quiet destructive-action"
+          type="button"
+          onClick={() => {
+            if (
+              confirm(
+                "Cancel this gift and return one gift credit? The gift link will stop working. This is different from stopping an unsent message.",
+              )
+            ) {
+              void onCancelGift();
+            }
+          }}
+        >
+          Cancel gift and return credit
+        </button>
+      )}
       <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
         Make another song
       </button>
@@ -168,18 +246,34 @@ function StatusScreen({
 }) {
   return (
     <main className="step step-centered">
-      <section className="status-card" aria-live="polite">
-        <div className="status-orbit" aria-hidden="true" />
-        <h1>{title}</h1>
-        <p>{body}</p>
+      <StatusPanel title={title} body={body}>
         <SupportDetails supportUrl={supportUrl} orderReference={orderReference} />
         {onStartAnother && (
           <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
             Make another song
           </button>
         )}
-      </section>
+      </StatusPanel>
     </main>
+  );
+}
+
+function StatusPanel({
+  title,
+  body,
+  children,
+}: {
+  title: string;
+  body: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="status-card" aria-live="polite">
+      <div className="status-orbit" aria-hidden="true" />
+      <h1>{title}</h1>
+      <p>{body}</p>
+      {children}
+    </section>
   );
 }
 

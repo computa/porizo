@@ -45,6 +45,7 @@ function createSchema(database) {
       dispatch_started_at TEXT,
       cancelled_at TEXT,
       idempotency_key TEXT,
+      origin_web_order_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -281,5 +282,23 @@ describe("GiftOrderRepository", () => {
     assert.deepEqual(JSON.parse(inserted.content_snapshot_json), {
       title: "Song",
     });
+  });
+
+  test("manual gifts are ready to share and have no requested dispatch", async () => {
+    await repository.insertScheduled({
+      id: "gift_manual", senderUserId: "gift_order_user", contentType: "song",
+      contentId: "track_manual", deliveryMode: "manual",
+      sendAt: "2026-06-28T10:30:00.000Z", senderTimezone: "UTC",
+      recipientName: "Ada", senderDisplayName: "Ambrose", channels: [],
+      shareTokenId: "share_manual", shareUrl: "https://porizo.co/g/share_manual",
+      claimPolicy: "default", expiresInDays: 30, tokenTransactionId: "gwtx_manual",
+      versionNum: 1, idempotencyKey: "manual_1", originWebOrderId: "order_manual",
+      timestamp: "2026-06-28T10:30:00.000Z",
+    });
+    const row = await repository.findById("gift_manual");
+    assert.equal(row.status, "ready_to_share");
+    assert.equal(row.dispatch_status, "not_requested");
+    assert.equal(row.origin_web_order_id, "order_manual");
+    assert.deepEqual(JSON.parse(row.channels_json), []);
   });
 });

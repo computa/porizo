@@ -66,6 +66,7 @@ function startGiftDispatchJob({
       await repository.recoverStaleSending({ staleCutoff, now });
 
       for (const row of staleSending) {
+        const retryable = row.channel === "email";
         await upsertGiftIncident(db, {
           incidentKey: `gift_channel_failure:${row.id}`,
           incidentType: "channel_delivery_failed",
@@ -74,9 +75,18 @@ function startGiftDispatchJob({
           outboxId: row.id,
           resourceType: "gift_order",
           resourceId: row.gift_order_id,
-          summary: "Gift channel send was recovered from a stale sending state",
-          detail: "The scheduler unlocked a stuck channel send and marked it failed for retry.",
-          metadata: { recovered_at: now, outbox_id: row.id },
+          summary: retryable
+            ? "Gift email send was recovered for an idempotent retry"
+            : "Gift SMS send outcome is uncertain after a stale send",
+          detail: retryable
+            ? "The scheduler unlocked the email send and marked it failed for a safe provider-idempotent retry."
+            : "The scheduler will not retry the SMS automatically because the provider may already have accepted it.",
+          metadata: {
+            recovered_at: now,
+            outbox_id: row.id,
+            channel: row.channel,
+            retryable,
+          },
         });
       }
 

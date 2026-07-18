@@ -129,6 +129,55 @@ describe("paid-order lifecycle", () => {
     expect(await screen.findByRole("button", { name: "Copied ✓" })).toBeVisible();
   });
 
+  it("does not call a wallet-funded gift a paid receipt", () => {
+    render(
+      <Success
+        elapsedMs={0}
+        onStartAnother={vi.fn()}
+        order={{
+          status: "delivered",
+          payment_source: "gift_wallet",
+          share_url: "https://porizo.co/play/wallet",
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/One gift credit was used/)).toBeVisible();
+    expect(screen.queryByText(/with your receipt/)).not.toBeInTheDocument();
+  });
+
+  it("uses the same fungible-credit confirmation for Stripe-funded gifts", () => {
+    render(
+      <Success
+        elapsedMs={0}
+        onStartAnother={vi.fn()}
+        order={{
+          status: "delivered",
+          payment_source: "stripe",
+          share_url: "https://porizo.co/play/stripe",
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/One gift credit was used/)).toBeVisible();
+    expect(screen.queryByText(/sent to your email/i)).not.toBeInTheDocument();
+  });
+
+  it("offers a manual delivery-status refresh", () => {
+    const check = vi.fn();
+    render(
+      <Success
+        elapsedMs={0}
+        onStartAnother={vi.fn()}
+        onCheckStatus={check}
+        order={{ status: "delivered", share_url: "https://porizo.co/play/status" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Check delivery status" }));
+    expect(check).toHaveBeenCalledOnce();
+  });
+
   it("starts another song from below the delivered share content", () => {
     const onStartAnother = vi.fn();
     render(

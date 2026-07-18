@@ -239,7 +239,8 @@
 
 .status-card,
 .offer-card,
-.link-card {
+.link-card,
+.delivery-card {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
@@ -249,6 +250,80 @@
 .offer-card .btn-primary,
 .link-card .btn-primary {
   width: 100%;
+}
+
+.wallet-choice {
+  padding-bottom: var(--sp-3);
+  border-bottom: var(--line-w) solid var(--hairline);
+}
+
+.wallet-choice p {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  margin-top: var(--sp-1);
+}
+
+.bundle-choices,
+.delivery-choice {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.bundle-choices legend,
+.delivery-choice legend {
+  flex-basis: 100%;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+
+.bundle-choices label,
+.delivery-choice label {
+  display: inline-flex;
+  gap: var(--sp-1);
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--line-w) solid var(--hairline);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.delivery-card {
+  margin-top: var(--sp-4);
+  text-align: left;
+}
+
+.delivery-card h2 {
+  font-size: var(--lyric-size);
+}
+
+.delivery-card > label {
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+
+.delivery-card textarea {
+  min-height: calc(var(--tap-min) * 2);
+  margin-top: var(--sp-1);
+}
+
+.delivery-channel-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--sp-2);
+  border-bottom: var(--line-w) solid var(--hairline);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
 }
 
 .inline-action,
@@ -427,6 +502,10 @@
 .success-reset {
   align-self: center;
   margin-top: var(--sp-3);
+}
+
+.destructive-action {
+  color: var(--coral-700);
 }
 
 .status-orbit {

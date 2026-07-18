@@ -22,6 +22,7 @@ afterEach(() => {
 
 function loadEmailService() {
   const sent = [];
+  const sendOptions = [];
   process.env.RESEND_API_KEY = "re_mock_email_links";
   process.env.PUBLIC_BASE_URL = "https://test.porizo.co";
   process.env.JWT_SECRET = "test-jwt-secret-email-app-link-rendering";
@@ -35,8 +36,9 @@ function loadEmailService() {
       Resend: class MockResend {
         constructor() {
           this.emails = {
-            send: async (payload) => {
+            send: async (payload, options) => {
               sent.push(payload);
+              sendOptions.push(options);
               return { data: { id: "email_mock" }, error: null };
             },
           };
@@ -47,7 +49,7 @@ function loadEmailService() {
 
   delete require.cache[require.resolve("../src/services/email-service")];
   const emailService = require("../src/services/email-service");
-  return { emailService, sent };
+  return { emailService, sent, sendOptions };
 }
 
 test("welcome email CTA opens the native create flow through /download intent", async () => {
@@ -81,7 +83,7 @@ test("share follow-up primary and secondary CTAs use app-open intents", async ()
 });
 
 test("gift delivery email maps gift URLs to app-open share intents", async () => {
-  const { emailService, sent } = loadEmailService();
+  const { emailService, sent, sendOptions } = loadEmailService();
 
   await emailService.sendGiftDeliveryEmail({
     to: "recipient@example.com",
@@ -91,9 +93,31 @@ test("gift delivery email maps gift URLs to app-open share intents", async () =>
     claimPin: "123456",
     contentType: "song",
     contentTitle: "A Song for Sarah",
+    idempotencyKey: "gift-email-outbox-123",
   });
 
   assert.equal(sent.length, 1);
   assert.match(sent[0].html, /intent=open_share&amp;share_id=gift_123&amp;content_kind=song/);
   assert.match(sent[0].text, /Open your gift: https:\/\/test\.porizo\.co\/download\?intent=open_share&/);
+  assert.match(sent[0].text, /one-time gift email/);
+  assert.deepEqual(sendOptions[0], { idempotencyKey: "gift-email-outbox-123" });
+});
+
+test("buyer completion email leads with exact order management and keeps sharing separate", async () => {
+  const { emailService, sent, sendOptions } = loadEmailService();
+
+  await emailService.sendGiftBuyerCompletionEmail({
+    to: "buyer@example.com",
+    recipientName: "Sarah",
+    shareUrl: "https://porizo.co/g/gift_123",
+    orderId: "worder_123",
+    idempotencyKey: "buyer-complete-worder-123",
+  });
+
+  assert.match(sent[0].html, /\/create\/success\?order_id=worder_123/);
+  assert.match(sent[0].html, /Manage delivery for this order/);
+  assert.match(sent[0].html, /Open the gift link to share it yourself/);
+  assert.deepEqual(sendOptions[0], {
+    idempotencyKey: "buyer-complete-worder-123",
+  });
 });

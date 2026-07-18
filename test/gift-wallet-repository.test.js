@@ -222,6 +222,85 @@ describe("GiftWalletRepository", () => {
     assert.equal(summary.transactions[0].amount, 2);
   });
 
+  test("purchase reversal records debt while exposing zero spendable balance", async () => {
+    const purchase = await repository.applyTransaction({
+      userId: "wallet_user",
+      type: "gift_purchase",
+      amount: 2,
+      source: "stripe_checkout",
+      idempotencyKey: "purchase_debt",
+    });
+    await repository.applyTransaction({
+      userId: "wallet_user",
+      type: "gift_reserve",
+      amount: -1,
+      idempotencyKey: "reserve_before_refund",
+    });
+
+    const reversed = await repository.applyPurchaseReversal({
+      userId: "wallet_user",
+      purchaseTransactionId: purchase.transactionId,
+      amount: -2,
+      source: "stripe",
+      referenceType: "provider_event",
+      referenceId: "evt_refund",
+      idempotencyKey: "stripe_refund_evt_refund",
+    });
+
+    assert.equal(reversed.balanceAfter, -1);
+    assert.equal(await repository.getBalance("wallet_user"), 0);
+    assert.equal(await repository.getNetBalance("wallet_user"), -1);
+
+    await repository.applyTransaction({
+      userId: "wallet_user",
+      type: "gift_purchase",
+      amount: 2,
+      idempotencyKey: "future_purchase",
+    });
+    assert.equal(await repository.getBalance("wallet_user"), 1);
+  });
+
+  test("purchase reversal is idempotent by provider event", async () => {
+    const purchase = await repository.applyTransaction({
+      userId: "wallet_user",
+      type: "gift_purchase",
+      amount: 1,
+      idempotencyKey: "purchase_refund_once",
+    });
+    const params = {
+      userId: "wallet_user",
+      purchaseTransactionId: purchase.transactionId,
+      amount: -1,
+      source: "apple",
+      referenceType: "provider_event",
+      referenceId: "apple_refund_1",
+      idempotencyKey: "apple_refund_1",
+    };
+    const first = await repository.applyPurchaseReversal(params);
+    const replay = await repository.applyPurchaseReversal(params);
+    assert.equal(replay.transactionId, first.transactionId);
+    assert.equal(replay.idempotent, true);
+    assert.equal(await repository.getNetBalance("wallet_user"), 0);
+  });
+
+  test("positive grants reduce wallet debt without becoming spendable too early", async () => {
+    await repository.ensureRow("wallet_user");
+    await db
+      .prepare("UPDATE gift_wallet SET balance = -3 WHERE user_id = ?")
+      .run("wallet_user");
+
+    const grant = await repository.applyTransaction({
+      userId: "wallet_user",
+      type: "gift_purchase",
+      amount: 1,
+      idempotencyKey: "debt_repayment_purchase",
+    });
+
+    assert.equal(grant.balanceAfter, -2);
+    assert.equal(await repository.getNetBalance("wallet_user"), -2);
+    assert.equal(await repository.getBalance("wallet_user"), 0);
+  });
+
   test("hasReceiptCredit checks receipt-backed ledger rows only", async () => {
     assert.equal(
       await repository.hasReceiptCredit({

@@ -37,13 +37,37 @@ enum GiftContentType: String, CaseIterable, Sendable {
 }
 
 enum GiftDeliveryMode: String, CaseIterable, Sendable {
+    case manual
     case immediate
     case scheduled
 }
 
-enum GiftDeliveryChannel: String, CaseIterable, Sendable {
+enum GiftDeliveryChannel: String, CaseIterable, Sendable, Identifiable {
     case sms
     case email
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .sms: return "SMS"
+        case .email: return "email"
+        }
+    }
+}
+
+struct GiftDeliveryChannelState: Codable, Sendable, Identifiable {
+    let channel: String
+    let status: String
+    let canStop: Bool
+
+    var id: String { channel }
+
+    enum CodingKeys: String, CodingKey {
+        case channel
+        case status
+        case canStop = "can_stop"
+    }
 }
 
 struct GiftOrder: Codable, Sendable, Identifiable {
@@ -70,6 +94,8 @@ struct GiftOrder: Codable, Sendable, Identifiable {
     let walletBalance: Int?
     let canEdit: Bool?
     let canCancel: Bool?
+    let canStopAny: Bool?
+    let deliveryChannels: [GiftDeliveryChannelState]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -95,6 +121,8 @@ struct GiftOrder: Codable, Sendable, Identifiable {
         case walletBalance = "wallet_balance"
         case canEdit = "can_edit"
         case canCancel = "can_cancel"
+        case canStopAny = "can_stop_any"
+        case deliveryChannels = "delivery_channels"
     }
 }
 
@@ -294,25 +322,67 @@ extension GiftOrder {
     }
 
     var managementStatusLabel: String {
+        if isManualReadyToShare {
+            return String(localized: "Ready to share")
+        }
+
         switch status.lowercased() {
+        case "ready_to_share":
+            return String(localized: "Ready to share")
+        case "delivered":
+            return String(localized: "Delivered")
+        case "delivery_failed":
+            return String(localized: "Delivery failed")
+        case "partial_delivery":
+            return String(localized: "Partly delivered")
+        case "cancelled":
+            return String(localized: "Cancelled")
         case "dispatch_retry":
-            return "Retrying"
+            return String(localized: "Retrying")
         case "dispatching":
-            return "Sending"
+            return String(localized: "Sending")
         default:
-            return "Scheduled"
+            return String(localized: "Scheduled")
         }
     }
 
     var managementStatusColor: Color {
+        if isManualReadyToShare {
+            return DesignTokens.gold
+        }
+
         switch status.lowercased() {
-        case "dispatch_retry":
+        case "dispatch_retry", "delivery_failed", "partial_delivery":
             return DesignTokens.warning
-        case "dispatching":
+        case "dispatching", "delivered":
             return DesignTokens.statusSuccess
+        case "cancelled":
+            return DesignTokens.textTertiary
         default:
             return DesignTokens.gold
         }
+    }
+
+    var isManualReadyToShare: Bool {
+        deliveryMode.lowercased() == GiftDeliveryMode.manual.rawValue
+            && (status.lowercased() == "ready_to_share"
+                || dispatchStatus.lowercased() == "not_requested")
+    }
+
+    var shouldAppearInGiftManagement: Bool {
+        if isManualReadyToShare {
+            return true
+        }
+
+        return deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue
+            && ["scheduled", "dispatch_retry", "dispatching"].contains(status.lowercased())
+    }
+
+    var stoppableDeliveryChannels: [GiftDeliveryChannel] {
+        deliveryChannels?
+            .filter(\.canStop)
+            .compactMap { GiftDeliveryChannel(rawValue: $0.channel.lowercased()) }
+            ?? []
     }
 
     var sendAtDate: Date {
@@ -389,6 +459,20 @@ struct CancelGiftResponse: Codable, Sendable {
         case cancelled
         case gift
         case walletBalance = "wallet_balance"
+    }
+}
+
+struct StopGiftDeliveryRequest: Encodable, Sendable {
+    let channels: [String]
+}
+
+struct StopGiftDeliveryResponse: Codable, Sendable {
+    let gift: GiftOrder
+    let stoppedChannels: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case gift
+        case stoppedChannels = "stopped_channels"
     }
 }
 

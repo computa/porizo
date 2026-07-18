@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createApiClient, ApiError } from "./api/client";
 import {
   approveAndRenderPreview,
   buildCheckoutRequest,
+  buildWalletOrderRequest,
   createEditableVersion,
   createSongDraft,
   isOrderStatus,
-  isTerminalOrderStatus,
+  isOrderPollingComplete,
   normalizeLyrics,
   pollPreviewUntilReady,
   type OrderStatus,
@@ -39,6 +40,8 @@ import { cssDurationMs } from "./motion";
 import { acquireTurnstileToken } from "./turnstile";
 import { actionErrorCopy, sessionStartErrorCopy } from "./session-errors";
 import { clearOrderRecovery, readOrderRecovery } from "./order-recovery";
+import { rememberOrderRecovery } from "./order-recovery";
+import type { deliveryRequest, DeliveryChannelName } from "./delivery-state";
 
 const STORAGE_KEY = "porizo.web-funnel.v1";
 const TOKEN_KEY = "porizo.web-funnel.token";
@@ -59,7 +62,7 @@ function readCookie(name: string) {
 
 function initialDemoProduct(): Product | undefined {
   const price = DEMO_PARAMS.get("price");
-  return price ? { price_key: "demo", localized_price: price } : undefined;
+  return price ? { price_key: "demo", localized_price: price, token_count: 1 } : undefined;
 }
 
 function initialDemoOrder(): OrderStatus | undefined {
@@ -106,11 +109,30 @@ export default function App() {
   const [product, setProduct] = useState<Product | undefined>(
     initialDemoProduct,
   );
+  const [products, setProducts] = useState<Product[]>(() => {
+    const demo = initialDemoProduct();
+    return demo ? [demo] : [];
+  });
+  const [walletBalance, setWalletBalance] = useState<number>();
   const [previewOnly, setPreviewOnly] = useState(false);
+  const [automatedDeliveryEnabled, setAutomatedDeliveryEnabled] =
+    useState(false);
   const [order, setOrder] = useState<OrderStatus | undefined>(initialDemoOrder);
-  const orderStatus = order?.status;
+  const orderContentStatus = order?.content_status ?? order?.status;
+  const orderDeliveryStatus = order?.delivery_status;
+  const orderPollingComplete = isOrderPollingComplete(order);
+  const recovery = readOrderRecovery();
   const checkoutSessionId =
-    RUNTIME_PARAMS.get("session_id") ?? readOrderRecovery();
+    RUNTIME_PARAMS.get("session_id") ??
+    (recovery?.kind === "session" ? recovery.value : null);
+  const checkoutOrderId =
+    RUNTIME_PARAMS.get("order_id") ??
+    (recovery?.kind === "order" ? recovery.value : null);
+  const orderStatusUrl = checkoutOrderId
+    ? `/web/orders/by-id/${encodeURIComponent(checkoutOrderId)}`
+    : checkoutSessionId
+      ? `/web/orders/${encodeURIComponent(checkoutSessionId)}`
+      : "/web/orders/latest";
   const [orderStartedAt] = useState(() => Date.now());
   const [orderElapsed, setOrderElapsed] = useState(0);
   const [orderNeedsSignIn, setOrderNeedsSignIn] = useState(false);
@@ -133,6 +155,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  const refreshOrderStatus = useCallback(async () => {
+    if (state.activeStep !== "success" || DEMO_PARAMS.has("status")) return;
+    try {
+      const next = await client.get<OrderStatus>(orderStatusUrl);
+      setOrder(next);
+      setOrderNeedsSignIn(false);
+      setOrderTimedOut(false);
+      setError(undefined);
+      if (next.order_id) {
+        rememberOrderRecovery({ kind: "order", value: next.order_id });
+      } else if (isOrderPollingComplete(next) && !checkoutOrderId) {
+        clearOrderRecovery();
+      }
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) {
+        setOrderNeedsSignIn(true);
+        return;
+      }
+      setError("We couldn't refresh the order yet. Try again shortly.");
+    }
+  }, [checkoutOrderId, client, orderStatusUrl, state.activeStep]);
 
   useEffect(() => {
     if (resumeCandidate) {
@@ -175,30 +219,57 @@ export default function App() {
   }, [state.savedAt]);
 
   useEffect(() => {
-    if (state.activeStep !== "offer") return;
+    if (state.activeStep !== "offer" && state.activeStep !== "success") return;
     if (DEMO_PARAMS.has("price")) return;
     let live = true;
     client
-      .get<{ products: Product[]; preview_only?: boolean } | Product[]>(
+      .get<{ products: Product[]; preview_only?: boolean; wallet_balance?: number; automated_delivery_enabled?: boolean } | Product[]>(
         "/web/products",
       )
       .then((response) => {
         if (!live) return;
         const products = Array.isArray(response) ? response : response.products;
+        setProducts(products);
+        if (!Array.isArray(response)) setWalletBalance(response.wallet_balance);
+        if (!Array.isArray(response)) {
+          setAutomatedDeliveryEnabled(
+            Boolean(response.automated_delivery_enabled),
+          );
+        }
         setPreviewOnly(
           !Array.isArray(response) && Boolean(response.preview_only),
         );
-        setProduct(products[0]);
+        setProduct((selected) => {
+          if (selected && products.some((candidate) => candidate.price_key === selected.price_key)) {
+            return products.find((candidate) => candidate.price_key === selected.price_key);
+          }
+          return products.length === 1 ? products[0] : undefined;
+        });
       })
-      .catch(() =>
-        setError(
-          "We couldn't load the price. Check your connection and try again.",
-        ),
-      );
+      .catch(() => {
+        if (state.activeStep === "offer") {
+          setError(
+            "We couldn't load the price. Check your connection and try again.",
+          );
+        }
+      });
     return () => {
       live = false;
     };
   }, [client, state.activeStep]);
+
+  useEffect(() => {
+    if (state.activeStep !== "success" || DEMO_PARAMS.has("status")) return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshOrderStatus();
+    };
+    addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshOrderStatus, state.activeStep]);
 
   useEffect(() => {
     const orderId = RUNTIME_PARAMS.get("order_id");
@@ -257,10 +328,8 @@ export default function App() {
     // lookup — login re-owns their paid order, so /web/orders/latest finds it.
     // That endpoint 401s harmlessly until they sign in, driving the same
     // recovery UI as the session_id path.
-    const orderUrl = sessionId
-      ? `/web/orders/${encodeURIComponent(sessionId)}`
-      : "/web/orders/latest";
-    if (isTerminalOrderStatus(orderStatus)) return;
+    const orderUrl = orderStatusUrl;
+    if (orderPollingComplete) return;
     let live = true;
     let pollTimer: number | undefined;
     let attempts = 0;
@@ -273,7 +342,11 @@ export default function App() {
           setOrder(next);
           setOrderNeedsSignIn(false);
           setOrderTimedOut(false);
-          if (isTerminalOrderStatus(next.status)) clearOrderRecovery();
+          if (next.order_id) {
+            rememberOrderRecovery({ kind: "order", value: next.order_id });
+          } else if (isOrderPollingComplete(next) && !checkoutOrderId) {
+            clearOrderRecovery();
+          }
         }
       } catch (caught) {
         if (live && caught instanceof ApiError && caught.status === 401) {
@@ -284,6 +357,7 @@ export default function App() {
         if (
           live &&
           !sessionId &&
+          !checkoutOrderId &&
           caught instanceof ApiError &&
           caught.status === 404
         ) {
@@ -326,10 +400,14 @@ export default function App() {
     };
   }, [
     checkoutSessionId,
+    checkoutOrderId,
     client,
-    orderStatus,
+    orderContentStatus,
+    orderDeliveryStatus,
+    orderPollingComplete,
     orderStartedAt,
     orderPollRun,
+    orderStatusUrl,
     state.activeStep,
   ]);
 
@@ -706,6 +784,100 @@ export default function App() {
     }
   }
 
+  async function startWalletOrder() {
+    if (!state.artifacts.trackId || !state.artifacts.versionId) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const result = await client.post<{ order_id: string; status_url?: string }>(
+        "/web/orders",
+        buildWalletOrderRequest(
+          state.artifacts.trackId,
+          state.artifacts.versionId,
+        ),
+        {
+          headers: {
+            "Idempotency-Key": `web-wallet-order:${state.artifacts.trackId}:${state.artifacts.versionId}`,
+          },
+        },
+      );
+      rememberOrderRecovery({ kind: "order", value: result.order_id });
+      history.replaceState({}, "", `/create/success?order_id=${encodeURIComponent(result.order_id)}`);
+      dispatch({ type: "advance", to: "success" });
+      setOrder(undefined);
+      setOrderPollRun((value) => value + 1);
+    } catch (caught) {
+      setError(actionErrorCopy(caught, "checkout").message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveDelivery(body: ReturnType<typeof deliveryRequest>) {
+    const reservationId = order?.gift_reservation_id;
+    if (!reservationId) throw new Error("Delivery is not ready to configure.");
+    setError(undefined);
+    try {
+      const response = await client.put<OrderStatus | { order?: OrderStatus }>(
+        `/gifts/reservations/${encodeURIComponent(reservationId)}/delivery`,
+        body,
+      );
+      if ("order" in response && response.order) setOrder(response.order);
+      else if ("content_status" in response || "status" in response) {
+        setOrder(response as OrderStatus);
+      }
+      setOrderPollRun((value) => value + 1);
+    } catch (caught) {
+      setError(actionErrorCopy(caught, "checkout").message);
+      if (caught instanceof ApiError && caught.status === 409) {
+        setOrderPollRun((value) => value + 1);
+      }
+      throw caught;
+    }
+  }
+
+  async function stopDeliveryChannel(channel: DeliveryChannelName) {
+    const giftId = order?.gift_id ?? order?.gift_order_id;
+    if (!giftId) throw new Error("This delivery has not been finalized yet.");
+    setError(undefined);
+    try {
+      await client.post(
+        `/gifts/${encodeURIComponent(giftId)}/delivery/stop`,
+        { channels: [channel] },
+        {
+          headers: {
+            "Idempotency-Key": `web-delivery-stop:${giftId}:${channel}`,
+          },
+        },
+      );
+      setOrderPollRun((value) => value + 1);
+    } catch (caught) {
+      setError(actionErrorCopy(caught, "checkout").message);
+      throw caught;
+    }
+  }
+
+  async function cancelGift() {
+    const giftId = order?.gift_id ?? order?.gift_order_id;
+    if (!giftId) throw new Error("This gift has not been finalized yet.");
+    setError(undefined);
+    try {
+      await client.post(
+        `/gifts/${encodeURIComponent(giftId)}/cancel`,
+        {},
+        {
+          headers: {
+            "Idempotency-Key": `web-gift-cancel:${giftId}`,
+          },
+        },
+      );
+      setOrderPollRun((value) => value + 1);
+    } catch (caught) {
+      setError(actionErrorCopy(caught, "checkout").message);
+      throw caught;
+    }
+  }
+
   function reset() {
     localStorage.removeItem(STORAGE_KEY);
     clearOrderRecovery();
@@ -798,25 +970,38 @@ export default function App() {
             {state.activeStep === "offer" && (
               <Offer
                 recipient={recipient}
-                product={product}
+                products={products}
+                selectedPriceKey={product?.price_key}
+                walletBalance={walletBalance}
                 loading={busy}
                 error={error}
                 cancelled={RUNTIME_PARAMS.get("cancelled") === "1"}
                 previewOnly={previewOnly}
+                onSelectProduct={(priceKey) =>
+                  setProduct(products.find((candidate) => candidate.price_key === priceKey))
+                }
                 onCheckout={() => void checkout()}
+                onUseCredit={() => void startWalletOrder()}
               />
             )}
             {state.activeStep === "success" && (
               <Success
                 order={order}
+                error={error}
                 elapsedMs={orderElapsed}
                 needsSignIn={orderNeedsSignIn}
                 timedOut={orderTimedOut}
-                orderReference={checkoutSessionId ?? undefined}
+                orderReference={checkoutOrderId ?? checkoutSessionId ?? undefined}
+                orderReferenceKind={checkoutOrderId ? "order" : "session"}
+                onSaveDelivery={saveDelivery}
+                automatedDeliveryEnabled={automatedDeliveryEnabled}
+                onStopDeliveryChannel={stopDeliveryChannel}
+                onCancelGift={cancelGift}
                 onRetryOrder={() => {
                   setOrderTimedOut(false);
                   setOrderPollRun((value) => value + 1);
                 }}
+                onCheckStatus={() => void refreshOrderStatus()}
                 onStartAnother={reset}
               />
             )}

@@ -43,9 +43,11 @@ function SignInDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | 
 export function SiteSignInForm({
   onClose,
   recoverySessionId,
+  recoveryKind = "session",
 }: {
   onClose?: () => void;
   recoverySessionId?: string;
+  recoveryKind?: "session" | "order";
 }) {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
@@ -64,7 +66,9 @@ export function SiteSignInForm({
         body: JSON.stringify({ email: email.trim(), platform: "web", purpose: "login" }),
       });
       if (!response.ok) throw new Error("Sign-in request failed");
-      if (recoverySessionId) rememberOrderRecovery(recoverySessionId);
+      if (recoverySessionId) {
+        rememberOrderRecovery({ kind: recoveryKind, value: recoverySessionId });
+      }
       setSent(true);
     } catch {
       setError("Sign-in could not be completed. Try again or contact support.");

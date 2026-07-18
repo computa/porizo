@@ -5,27 +5,104 @@ import type { ApiClient } from "./client";
 export interface Product {
   price_key: string;
   localized_price: string;
+  token_count: number;
   currency?: string;
   name?: string;
 }
 
+export type ContentStatus =
+  | "pending"
+  | "paid"
+  | "rendering"
+  | "ready"
+  | "failed"
+  | "refunded";
+
+export type DeliveryChannelStatus =
+  | "pending"
+  | "accepted"
+  | "delivered"
+  | "failed"
+  | "cancelled";
+
+export interface DeliveryChannel {
+  channel: "sms" | "email";
+  masked_destination?: string;
+  status: DeliveryChannelStatus;
+  can_stop?: boolean;
+}
+
+export interface OrderDelivery {
+  mode: "manual" | "immediate" | "scheduled";
+  revision?: number;
+  can_edit?: boolean;
+  can_stop_any?: boolean;
+  sender_display_name?: string;
+  send_at?: string;
+  timezone?: string;
+  channels?: DeliveryChannel[];
+}
+
 export interface OrderStatus {
-  status: "pending" | "paid" | "rendering" | "delivered" | "failed" | "refunded";
+  order_id?: string;
+  status?: "pending" | "paid" | "rendering" | "delivered" | "failed" | "refunded";
+  content_status?: ContentStatus;
+  delivery_status?:
+    | "not_requested"
+    | "draft"
+    | "ready_to_share"
+    | "scheduled"
+    | "accepted"
+    | "sending"
+    | "partial"
+    | "delivered"
+    | "failed"
+    | "cancelled";
   recipient_name?: string;
   progress_copy?: string;
   share_url?: string;
   support_url?: string;
   order_reference?: string;
+  gift_reservation_id?: string;
+  gift_id?: string;
+  gift_order_id?: string;
+  wallet_balance?: number;
+  payment_source?: "stripe" | "gift_wallet";
+  can_cancel_gift?: boolean;
+  delivery?: OrderDelivery;
 }
 
 const ORDER_STATUSES = ["pending", "paid", "rendering", "delivered", "failed", "refunded"] as const;
 
-export function isOrderStatus(value: string | null): value is OrderStatus["status"] {
-  return value !== null && ORDER_STATUSES.includes(value as OrderStatus["status"]);
+export function isOrderStatus(
+  value: string | null,
+): value is NonNullable<OrderStatus["status"]> {
+  return value !== null && ORDER_STATUSES.includes(value as NonNullable<OrderStatus["status"]>);
 }
 
 export function isTerminalOrderStatus(status: OrderStatus["status"] | undefined) {
   return status === "delivered" || status === "refunded";
+}
+
+export function contentStatus(order: OrderStatus | undefined): ContentStatus | undefined {
+  if (order?.content_status) return order.content_status;
+  if (order?.status === "delivered") return "ready";
+  return order?.status;
+}
+
+export function isOrderPollingComplete(order: OrderStatus | undefined) {
+  const content = contentStatus(order);
+  if (content === "failed" || content === "refunded") return true;
+  if (content !== "ready") return false;
+  return [
+    "not_requested",
+    "ready_to_share",
+    "scheduled",
+    "accepted",
+    "delivered",
+    "failed",
+    "cancelled",
+  ].includes(order?.delivery_status ?? "not_requested");
 }
 
 export function buildCheckoutRequest(
@@ -37,6 +114,14 @@ export function buildCheckoutRequest(
     track_id: trackId,
     track_version_id: trackVersionId,
     price_key: priceKey,
+  };
+}
+
+export function buildWalletOrderRequest(trackId: string, trackVersionId: string) {
+  return {
+    track_id: trackId,
+    track_version_id: trackVersionId,
+    payment_method: "gift_credit" as const,
   };
 }
 

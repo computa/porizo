@@ -73,7 +73,7 @@ const NOTIFICATION_SUBTYPES = {
  * @returns {Object} Webhook handler methods
  */
 function createAppleWebhookHandler(db, options = {}) {
-  const { subscriptionManager, appleValidator } = options;
+  const { subscriptionManager, appleValidator, giftPurchaseReversal } = options;
 
   if (!subscriptionManager) {
     throw new Error("subscriptionManager is required");
@@ -593,6 +593,19 @@ function createAppleWebhookHandler(db, options = {}) {
    */
   async function handleRefund(subscription, txInfo) {
     if (!subscription) {
+      if (giftPurchaseReversal && txInfo.transactionId) {
+        const reversal = await giftPurchaseReversal({
+          transactionId: txInfo.transactionId,
+          reversed: false,
+        });
+        if (reversal) {
+          return {
+            handled: true,
+            action: "gift_purchase_refunded",
+            refundedTransactionId: txInfo.transactionId,
+          };
+        }
+      }
       return {
         handled: false,
         action: "skipped",
@@ -620,6 +633,19 @@ function createAppleWebhookHandler(db, options = {}) {
    */
   async function handleRefundReversed(subscription, userId, txInfo) {
     if (!subscription || !userId) {
+      if (giftPurchaseReversal && txInfo.transactionId) {
+        const reversal = await giftPurchaseReversal({
+          transactionId: txInfo.transactionId,
+          reversed: true,
+        });
+        if (reversal) {
+          return {
+            handled: true,
+            action: "gift_purchase_refund_reversed",
+            reversedTransactionId: txInfo.transactionId,
+          };
+        }
+      }
       return {
         handled: false,
         action: "deferred",

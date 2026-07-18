@@ -2,12 +2,12 @@
 //  GiftScheduleManagementView.swift
 //  PorizoApp
 //
-//  Sender-side management surfaces for scheduled gifts.
+//  Sender-side management surfaces for scheduled and manually shared gifts.
 //
 
 import SwiftUI
 
-struct ScheduledGiftListSheet: View {
+struct ManagedGiftListSheet: View {
     let gifts: [GiftOrder]
     let onSelect: (GiftOrder) -> Void
 
@@ -20,10 +20,10 @@ struct ScheduledGiftListSheet: View {
 
                 if gifts.isEmpty {
                     VStack(spacing: 12) {
-                        Text("No scheduled gifts")
+                        Text("No gifts to manage")
                             .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
                             .foregroundStyle(DesignTokens.textPrimary)
-                        Text("Scheduled gifts will appear here until they are delivered.")
+                        Text("Scheduled and ready-to-share gifts will appear here.")
                             .font(DesignTokens.bodyFont(size: 14))
                             .foregroundStyle(DesignTokens.textSecondary)
                             .multilineTextAlignment(.center)
@@ -49,7 +49,7 @@ struct ScheduledGiftListSheet: View {
                     }
                 }
             }
-            .navigationTitle("Scheduled Gifts")
+            .navigationTitle("Your Gifts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -82,9 +82,15 @@ struct ScheduledGiftListSheet: View {
                     .clipShape(Capsule())
             }
 
-            Text("Delivery: \(gift.sendAtLabel)")
-                .font(DesignTokens.bodyFont(size: 13))
-                .foregroundStyle(DesignTokens.textSecondary)
+            if gift.isManualReadyToShare {
+                Label("Share manually", systemImage: "square.and.arrow.up")
+                    .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                    .foregroundStyle(DesignTokens.gold)
+            } else {
+                Text("Delivery: \(gift.sendAtLabel)")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -114,8 +120,10 @@ struct GiftManagementSheet: View {
     @State private var showCountryPicker = false
     @State private var isSaving = false
     @State private var isCancelling = false
+    @State private var isStoppingDelivery = false
     @State private var errorMessage: String?
     @State private var showCancelConfirmation = false
+    @State private var pendingStopChannel: GiftDeliveryChannel?
 
     init(
         apiClient: APIClient,
@@ -146,10 +154,14 @@ struct GiftManagementSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         headerCard
-                        channelSection
-                        recipientSection
-                        deliverySection
-                        messageSection
+                        if gift.isManualReadyToShare {
+                            manualShareSection
+                        } else {
+                            channelSection
+                            recipientSection
+                            deliverySection
+                            messageSection
+                        }
 
                         if let errorMessage {
                             Text(errorMessage)
@@ -165,7 +177,7 @@ struct GiftManagementSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
-                        .disabled(isSaving || isCancelling)
+                        .disabled(isSaving || isCancelling || isStoppingDelivery)
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -179,13 +191,23 @@ struct GiftManagementSheet: View {
         .sheet(isPresented: $showCountryPicker) {
             CountryPickerSheet(selectedCountry: $selectedCountry, isPresented: $showCountryPicker)
         }
-        .confirmationDialog("Cancel this scheduled gift?", isPresented: $showCancelConfirmation, titleVisibility: .visible) {
+        .confirmationDialog("Cancel this gift?", isPresented: $showCancelConfirmation, titleVisibility: .visible) {
             Button("Cancel Gift", role: .destructive) {
                 Task { await cancelGift() }
             }
             Button("Keep Gift", role: .cancel) {}
         } message: {
-            Text("This releases the gift credit and removes the scheduled delivery.")
+            Text("This cancels the whole gift, removes its share, and returns the gift credit when the gift is still eligible.")
+        }
+        .alert(item: $pendingStopChannel) { channel in
+            Alert(
+                title: Text("Stop \(channel.displayName) delivery?"),
+                message: Text("The gift and its share stay available. This does not return a gift credit."),
+                primaryButton: .destructive(Text("Stop delivery")) {
+                    Task { await stopDelivery(channel: channel) }
+                },
+                secondaryButton: .cancel()
+            )
         }
     }
 
@@ -202,11 +224,57 @@ struct GiftManagementSheet: View {
                 }
             }
 
-            Text(gift.canEdit != true
-                 ? "Delivery has already started, so this gift is now read-only."
-                 : "Make sure the recipient and delivery time are correct before we send it.")
+            Text(headerGuidance)
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textSecondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+    }
+
+    private var headerGuidance: String {
+        if gift.isManualReadyToShare {
+            return String(localized: "This gift is ready. Share the private link when the moment feels right.")
+        }
+        if gift.canEdit != true {
+            return "Delivery has already started, so this gift is now read-only."
+        }
+        return "Make sure the recipient and delivery time are correct before we send it."
+    }
+
+    @ViewBuilder
+    private var manualShareSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel(String(localized: "Share this gift"))
+
+            Text("Porizo will not send this gift automatically.")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            if let shareURLString = gift.shareUrl,
+               let shareURL = URL(string: shareURLString) {
+                ShareLink(
+                    item: shareURL,
+                    subject: Text(gift.displayTitle),
+                    message: Text("I made this gift for you.")
+                ) {
+                    Label("Share gift", systemImage: "square.and.arrow.up")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(DesignTokens.gold)
+                        .clipShape(.rect(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the system share sheet with the private gift link.")
+            } else {
+                Text("The private share link is not available yet. Refresh and try again.")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.warning)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -331,24 +399,48 @@ struct GiftManagementSheet: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
-            Button {
-                Task { await saveChanges() }
-            } label: {
-                HStack {
-                    if isSaving {
-                        ProgressView().tint(.white)
+            if !gift.isManualReadyToShare {
+                Button {
+                    Task { await saveChanges() }
+                } label: {
+                    HStack {
+                        if isSaving {
+                            ProgressView().tint(.white)
+                        }
+                        Text("Save changes")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     }
-                    Text("Save changes")
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .background(canSave ? DesignTokens.gold : DesignTokens.surfaceMuted)
+                    .clipShape(.rect(cornerRadius: 14))
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(canSave ? DesignTokens.gold : DesignTokens.surfaceMuted)
-                .clipShape(.rect(cornerRadius: 14))
+                .disabled(gift.canEdit != true || !canSave || isSaving || isCancelling || isStoppingDelivery)
+                .buttonStyle(.plain)
             }
-            .disabled(gift.canEdit != true || !canSave || isSaving || isCancelling)
-            .buttonStyle(.plain)
+
+            ForEach(gift.stoppableDeliveryChannels) { channel in
+                Button {
+                    pendingStopChannel = channel
+                } label: {
+                    HStack {
+                        if isStoppingDelivery {
+                            ProgressView().tint(DesignTokens.warning)
+                        }
+                        Text("Stop \(channel.displayName) delivery")
+                            .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(DesignTokens.warning)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(DesignTokens.cardBackground)
+                    .clipShape(.rect(cornerRadius: 14))
+                }
+                .disabled(isSaving || isCancelling || isStoppingDelivery)
+                .buttonStyle(.plain)
+                .accessibilityHint("Keeps the gift and share available without returning a gift credit.")
+            }
 
             if gift.canCancel != false {
                 Button {
@@ -367,7 +459,7 @@ struct GiftManagementSheet: View {
                     .background(DesignTokens.cardBackground)
                     .clipShape(.rect(cornerRadius: 14))
                 }
-                .disabled(isSaving || isCancelling)
+                .disabled(isSaving || isCancelling || isStoppingDelivery)
                 .buttonStyle(.plain)
             }
         }
@@ -473,6 +565,24 @@ struct GiftManagementSheet: View {
         do {
             let response = try await apiClient.cancelGift(giftId: gift.id)
             onGiftCancelled(response.gift, response.walletBalance)
+            dismiss()
+        } catch {
+            errorMessage = giftUserFacingMessage(for: error)
+        }
+    }
+
+    private func stopDelivery(channel: GiftDeliveryChannel) async {
+        isStoppingDelivery = true
+        errorMessage = nil
+        defer { isStoppingDelivery = false }
+
+        do {
+            let response = try await apiClient.stopGiftDelivery(
+                giftId: gift.id,
+                channels: [channel],
+                idempotencyKey: "gift_delivery_stop_ios_\(gift.id)_\(channel.rawValue)_\(UUID().uuidString.lowercased())"
+            )
+            onGiftUpdated(response.gift)
             dismiss()
         } catch {
             errorMessage = giftUserFacingMessage(for: error)

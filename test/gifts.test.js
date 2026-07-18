@@ -1,4 +1,5 @@
 require("dotenv/config");
+process.env.NODE_ENV = "test";
 const { describe, it, before } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
@@ -292,6 +293,159 @@ describe("Gift scheduling and wallet", () => {
     assert.strictEqual(cancelled.cancelled, true);
     assert.strictEqual(cancelled.gift.status, "cancelled");
     assert.ok(cancelled.wallet_balance >= 2);
+    const replay = await app.inject({
+      method: "POST",
+      url: `/gifts/${gift.id}/cancel`,
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(replay.statusCode, 200, replay.body);
+    const refundCount = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM gift_wallet_transactions WHERE user_id = ? AND idempotency_key = ?",
+      )
+      .get(userId, `gift_refund_${gift.id}`);
+    assert.strictEqual(Number(refundCount.count), 1);
+  });
+
+  it("does not refund a gift when stale SMS acceptance is uncertain", async () => {
+    await creditGiftToken(`gift_tx_uncertain_sms_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const createGiftRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        send_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        sender_timezone: "UTC",
+        channels: ["sms"],
+        recipient_phone: "+12025550123",
+      },
+    });
+    assert.strictEqual(createGiftRes.statusCode, 200, createGiftRes.body);
+    const gift = JSON.parse(createGiftRes.body).gift;
+    db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'uncertain', locked_at = NULL, next_retry_at = NULL
+       WHERE gift_order_id = ? AND channel = 'sms'`,
+    ).run(gift.id);
+    db.prepare(
+      "UPDATE gift_orders SET status = 'dispatch_retry', dispatch_status = 'error' WHERE id = ?",
+    ).run(gift.id);
+    const balanceBefore = Number(
+      db
+        .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
+        .get(userId).balance,
+    );
+
+    const cancelRes = await app.inject({
+      method: "POST",
+      url: `/gifts/${gift.id}/cancel`,
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(cancelRes.statusCode, 409, cancelRes.body);
+    assert.strictEqual(
+      JSON.parse(cancelRes.body).error,
+      "GIFT_ALREADY_PARTIALLY_DISPATCHED",
+    );
+    assert.strictEqual(
+      Number(
+        db
+          .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
+          .get(userId).balance,
+      ),
+      balanceBefore,
+    );
+    assert.strictEqual(
+      db.prepare("SELECT status FROM gift_orders WHERE id = ?").get(gift.id)
+        .status,
+      "dispatch_retry",
+    );
+  });
+
+  it("stops one unsent delivery channel without refunding or revoking the gift", async () => {
+    await creditGiftToken(`gift_tx_stop_channel_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const sendAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const walletBefore = Number(
+      db
+        .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
+        .get(userId).balance,
+    );
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        send_at: sendAt,
+        sender_timezone: "Australia/Perth",
+        channels: ["sms", "email"],
+        recipient_phone: "+61406371221",
+        recipient_email: "recipient@example.com",
+      },
+    });
+    assert.strictEqual(createResponse.statusCode, 200, createResponse.body);
+    const gift = JSON.parse(createResponse.body).gift;
+    const balanceAfterCreate = Number(
+      db
+        .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
+        .get(userId).balance,
+    );
+    assert.strictEqual(balanceAfterCreate, walletBefore - 1);
+
+    const stopResponse = await app.inject({
+      method: "POST",
+      url: `/gifts/${gift.id}/delivery/stop`,
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `stop-sms-${gift.id}`,
+      },
+      payload: { channels: ["sms"] },
+    });
+    assert.strictEqual(stopResponse.statusCode, 200, stopResponse.body);
+    assert.deepStrictEqual(JSON.parse(stopResponse.body).stopped_channels, [
+      "sms",
+    ]);
+    const stopReplay = await app.inject({
+      method: "POST",
+      url: `/gifts/${gift.id}/delivery/stop`,
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `stop-sms-${gift.id}`,
+      },
+      payload: { channels: ["sms"] },
+    });
+    assert.strictEqual(stopReplay.statusCode, 200, stopReplay.body);
+    assert.deepStrictEqual(stopReplay.json().stopped_channels, ["sms"]);
+    const rows = db
+      .prepare(
+        "SELECT channel, status FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY channel",
+      )
+      .all(gift.id);
+    assert.deepStrictEqual(
+      rows.map((row) => [row.channel, row.status]),
+      [
+        ["email", "pending"],
+        ["sms", "cancelled"],
+      ],
+    );
+    const balanceAfterStop = Number(
+      db
+        .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
+        .get(userId).balance,
+    );
+    assert.strictEqual(balanceAfterStop, balanceAfterCreate);
+    const share = db
+      .prepare("SELECT status FROM share_tokens WHERE id = ?")
+      .get(gift.share_token_id);
+    assert.notStrictEqual(share.status, "revoked");
   });
 
   it("persists recipient name through gift creation, listing, and updates", async () => {
@@ -452,6 +606,138 @@ describe("Gift scheduling and wallet", () => {
       finalizedReservation.gift_order_id,
       finalizeBody.gift.id,
     );
+  });
+
+  it("stores recipient delivery preferences with optimistic revision control", async () => {
+    setFeatureFlag("web_automated_gift_delivery", true);
+    await creditGiftToken(`gift_tx_delivery_pref_${Date.now()}`);
+    const reserveRes = await app.inject({
+      method: "POST",
+      url: "/gifts/reservations",
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `delivery_pref_${Date.now()}`,
+      },
+      payload: { flow_type: "gift" },
+    });
+    assert.strictEqual(reserveRes.statusCode, 200, reserveRes.body);
+    const reservation = JSON.parse(reserveRes.body).reservation;
+
+    const first = await app.inject({
+      method: "PUT",
+      url: `/gifts/reservations/${reservation.id}/delivery`,
+      headers: { "x-user-id": userId },
+      payload: {
+        delivery_mode: "scheduled",
+        channels: ["email"],
+        recipient_email: "recipient@example.com",
+        sender_display_name: "Ambrose",
+        timezone: "Australia/Perth",
+        send_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        personal_note: "For you",
+        revision: 0,
+      },
+    });
+    assert.strictEqual(first.statusCode, 200, first.body);
+    assert.strictEqual(JSON.parse(first.body).delivery.revision, 1);
+
+    const stale = await app.inject({
+      method: "PUT",
+      url: `/gifts/reservations/${reservation.id}/delivery`,
+      headers: { "x-user-id": userId },
+      payload: {
+        delivery_mode: "manual",
+        revision: 0,
+      },
+    });
+    assert.strictEqual(stale.statusCode, 409, stale.body);
+    assert.strictEqual(JSON.parse(stale.body).error, "DELIVERY_PREFERENCE_CONFLICT");
+    const cancel = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/cancel`,
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(cancel.statusCode, 200, cancel.body);
+    setFeatureFlag("web_automated_gift_delivery", false);
+  });
+
+  it("materializes late automated delivery from an already-ready manual gift", async () => {
+    setFeatureFlag("web_automated_gift_delivery", true);
+    await creditGiftToken(`gift_tx_late_delivery_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const reservation = await reserveAndAttachSong(trackId, versionNum);
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/finalize`,
+      headers: { "x-user-id": userId },
+      payload: { delivery_mode: "manual" },
+    });
+    assert.strictEqual(finalize.statusCode, 200, finalize.body);
+    const gift = JSON.parse(finalize.body).gift;
+    assert.strictEqual(gift.status, "ready_to_share");
+
+    const sendAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const configure = await app.inject({
+      method: "PUT",
+      url: `/gifts/reservations/${reservation.id}/delivery`,
+      headers: { "x-user-id": userId },
+      payload: {
+        delivery_mode: "scheduled",
+        channels: ["email"],
+        recipient_email: "late@example.com",
+        sender_display_name: "Ambrose",
+        timezone: "Australia/Perth",
+        send_at: sendAt,
+        revision: 0,
+      },
+    });
+    assert.strictEqual(configure.statusCode, 200, configure.body);
+    const materialized = db
+      .prepare("SELECT status, delivery_mode FROM gift_orders WHERE id = ?")
+      .get(gift.id);
+    assert.deepEqual(materialized, {
+      status: "scheduled",
+      delivery_mode: "scheduled",
+    });
+    const rows = db
+      .prepare("SELECT channel, status FROM gift_delivery_outbox WHERE gift_order_id = ?")
+      .all(gift.id);
+    assert.deepEqual(rows, [{ channel: "email", status: "pending" }]);
+    setFeatureFlag("web_automated_gift_delivery", false);
+  });
+
+  it("cancels an unopened manual gift and restores its reserved credit", async () => {
+    await creditGiftToken(`gift_tx_manual_cancel_${Date.now()}`);
+    const balanceBefore = Number(
+      db.prepare("SELECT balance FROM gift_wallet WHERE user_id = ?").get(userId)
+        .balance,
+    );
+    const { trackId, versionNum } = await createRenderedTrack();
+    const reservation = await reserveAndAttachSong(trackId, versionNum);
+    const finalized = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/finalize`,
+      headers: { "x-user-id": userId },
+      payload: { delivery_mode: "manual" },
+    });
+    assert.strictEqual(finalized.statusCode, 200, finalized.body);
+    const gift = JSON.parse(finalized.body).gift;
+    assert.strictEqual(gift.status, "ready_to_share");
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/gifts/${gift.id}/cancel`,
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(cancelled.statusCode, 200, cancelled.body);
+    const body = JSON.parse(cancelled.body);
+    assert.strictEqual(body.cancelled, true);
+    assert.strictEqual(body.gift.status, "cancelled");
+    assert.strictEqual(body.wallet_balance, balanceBefore);
+    const share = db
+      .prepare("SELECT status FROM share_tokens WHERE gift_order_id = ?")
+      .get(gift.id);
+    assert.strictEqual(share.status, "revoked");
   });
 
   it("refunds reservation token on cancellation", async () => {
@@ -742,7 +1028,7 @@ describe("Gift scheduling and wallet", () => {
     db.prepare("UPDATE users SET display_name = NULL WHERE id = ?").run(userId);
   });
 
-  it("auto-refunds token on permanent dispatch failure", async () => {
+  it("keeps the gift and share available after permanent dispatch failure", async () => {
     await creditGiftToken("gift_tx_refund_1");
     setFeatureFlag("gift_sms_enabled", false);
 
@@ -786,25 +1072,27 @@ describe("Gift scheduling and wallet", () => {
       // Call dispatchGiftById directly
       await app.dispatchGiftById(gift.id);
 
-      // Check gift is now 'failed' with a refund
+      // Provider delivery is a notification channel, not the purchased gift.
+      // Exhaustion must preserve both the wallet spend and the share.
       const updatedGift = db
         .prepare("SELECT * FROM gift_orders WHERE id = ?")
         .get(gift.id);
       assert.strictEqual(updatedGift.status, "failed");
-      assert.ok(
-        updatedGift.refund_transaction_id,
-        "Should have a refund transaction ID",
-      );
+      assert.strictEqual(updatedGift.refund_transaction_id, null);
 
-      // Verify wallet balance was restored
+      // Wallet remains spent because the generated gift still exists.
       const walletAfter = db
         .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
         .get(userId);
       assert.strictEqual(
         Number(walletAfter.balance),
-        balanceBefore,
-        "Token should be refunded",
+        balanceBefore - 1,
+        "Delivery failure must not refund an existing gift",
       );
+      const share = db
+        .prepare("SELECT status FROM share_tokens WHERE id = ?")
+        .get(gift.share_token_id);
+      assert.notStrictEqual(share.status, "revoked");
     } finally {
       setFeatureFlag("gift_sms_enabled", true);
     }

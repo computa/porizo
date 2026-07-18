@@ -72,17 +72,19 @@ function createGiftDispatchRepository(db) {
     return (existingResult?.rows || []).length > 0;
   }
 
-  async function hasSentDelivery({ giftOrderId }) {
-    const row = await db
+  async function hasSentDelivery({ giftOrderId, query = null }) {
+    const row = await runner(query)
       .prepare(
-        "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1",
+        `SELECT id FROM gift_delivery_outbox
+         WHERE gift_order_id = ? AND status IN ('sent', 'uncertain')
+         LIMIT 1`,
       )
       .get(giftOrderId);
     return Boolean(row);
   }
 
-  async function cancelUnsentRows({ giftOrderId, updatedAt }) {
-    return db
+  async function cancelUnsentRows({ giftOrderId, updatedAt, query = null }) {
+    return runner(query)
       .prepare(
         `UPDATE gift_delivery_outbox
          SET status = 'cancelled',
@@ -92,6 +94,31 @@ function createGiftDispatchRepository(db) {
          WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'sending')`,
       )
       .run(updatedAt, giftOrderId);
+  }
+
+  async function cancelUnsentChannels({
+    giftOrderId,
+    channels,
+    updatedAt,
+    query = null,
+  }) {
+    const normalized = [...new Set(channels || [])].filter((channel) =>
+      ["sms", "email"].includes(channel),
+    );
+    if (!normalized.length) return { changes: 0 };
+    const placeholders = normalized.map(() => "?").join(", ");
+    return runner(query)
+      .prepare(
+        `UPDATE gift_delivery_outbox
+         SET status = 'cancelled',
+             next_retry_at = NULL,
+             locked_at = NULL,
+             updated_at = ?
+         WHERE gift_order_id = ?
+           AND channel IN (${placeholders})
+           AND status IN ('pending', 'failed')`,
+      )
+      .run(updatedAt, giftOrderId, ...normalized);
   }
 
   async function resetRetryableRows({ giftOrderId, nextRetryAt, updatedAt }) {
@@ -169,8 +196,8 @@ function createGiftDispatchRepository(db) {
       .run(lockedAt, lockedAt, lockedAt, deliveryId);
   }
 
-  async function listOutboxRowsForGift({ giftOrderId }) {
-    return db
+  async function listOutboxRowsForGift({ giftOrderId, query = null }) {
+    return runner(query)
       .prepare(
         `SELECT *
          FROM gift_delivery_outbox
@@ -443,21 +470,48 @@ function createGiftDispatchRepository(db) {
     receiptPayload,
     updatedAt,
   }) {
+    const normalizedReceiptStatus = String(receiptStatus || "").toLowerCase();
+    const isTerminalFailure = [
+      "bounced",
+      "complained",
+      "failed",
+      "undelivered",
+      "canceled",
+      "cancelled",
+    ].includes(normalizedReceiptStatus);
+    const isDelivered = normalizedReceiptStatus === "delivered";
     await db
       .prepare(
         `UPDATE gift_delivery_outbox
-         SET receipt_status = ?,
+         SET status = CASE
+               WHEN ? = 1 THEN 'failed'
+               WHEN ? = 1 THEN 'sent'
+               ELSE status
+             END,
+             receipt_status = ?,
              receipt_event_at = ?,
              receipt_updated_at = ?,
              receipt_payload_json = ?,
+             last_error = CASE
+               WHEN ? = 1 THEN ?
+               WHEN ? = 1 THEN NULL
+               ELSE last_error
+             END,
+             next_retry_at = CASE WHEN ? = 1 THEN NULL ELSE next_retry_at END,
              updated_at = ?
          WHERE id = ?`,
       )
       .run(
+        isTerminalFailure ? 1 : 0,
+        isDelivered ? 1 : 0,
         receiptStatus,
         receiptEventAt,
         updatedAt,
         toJson(receiptPayload),
+        isTerminalFailure ? 1 : 0,
+        isTerminalFailure ? `provider_receipt_${normalizedReceiptStatus}` : null,
+        isDelivered ? 1 : 0,
+        isTerminalFailure ? 1 : 0,
         updatedAt,
         deliveryId,
       );
@@ -467,9 +521,9 @@ function createGiftDispatchRepository(db) {
     return db
       .prepare(
         `UPDATE gift_delivery_outbox
-         SET status = 'failed',
+         SET status = CASE WHEN channel = 'email' THEN 'failed' ELSE 'uncertain' END,
              last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
-             next_retry_at = ?,
+             next_retry_at = CASE WHEN channel = 'email' THEN ? ELSE NULL END,
              locked_at = NULL,
              updated_at = ?
          WHERE gift_order_id = ? AND status = 'sending'`,
@@ -509,7 +563,7 @@ function createGiftDispatchRepository(db) {
   async function listStaleSending({ staleCutoff }) {
     return db
       .prepare(
-        `SELECT id, gift_order_id
+        `SELECT id, gift_order_id, channel
          FROM gift_delivery_outbox
          WHERE status = 'sending'
            AND locked_at IS NOT NULL
@@ -522,9 +576,9 @@ function createGiftDispatchRepository(db) {
     return db
       .prepare(
         `UPDATE gift_delivery_outbox
-         SET status = 'failed',
+         SET status = CASE WHEN channel = 'email' THEN 'failed' ELSE 'uncertain' END,
              last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
-             next_retry_at = ?,
+             next_retry_at = CASE WHEN channel = 'email' THEN ? ELSE NULL END,
              locked_at = NULL,
              updated_at = ?
          WHERE status = 'sending'
@@ -579,6 +633,7 @@ function createGiftDispatchRepository(db) {
     hasOutboxRows,
     hasSentDelivery,
     cancelUnsentRows,
+    cancelUnsentChannels,
     resetRetryableRows,
     deleteUnsentRows,
     listFinalizeIntegrityRows,

@@ -133,4 +133,23 @@ extension APIClient {
         let (data, _) = try await executeWithAuthRetry(request: request)
         return try decodeResponse(CancelGiftResponse.self, from: data)
     }
+
+    /// Stops only the selected unsent delivery channels.
+    ///
+    /// This deliberately does not cancel the gift, revoke its share, or refund
+    /// its gift-wallet credit. Use `cancelGift(giftId:)` for full cancellation.
+    func stopGiftDelivery(
+        giftId: String,
+        channels: [GiftDeliveryChannel],
+        idempotencyKey: String
+    ) async throws -> StopGiftDeliveryResponse {
+        let url = URL(string: "\(baseURL)/gifts/\(giftId)/delivery/stop")!
+        var request = try await makeRequest(url: url, method: "POST")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        request.httpBody = try JSONEncoder().encode(
+            StopGiftDeliveryRequest(channels: channels.map(\.rawValue))
+        )
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        return try decodeResponse(StopGiftDeliveryResponse.self, from: data)
+    }
 }

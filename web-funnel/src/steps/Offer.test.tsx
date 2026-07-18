@@ -7,14 +7,54 @@ describe("offer", () => {
     render(
       <Offer
         recipient="Sarah"
-        product={{ price_key: "gift", localized_price: "€17,42" }}
+        products={[{ price_key: "gift", localized_price: "€17,42", token_count: 1 }]}
         loading={false}
+        onSelectProduct={vi.fn()}
         onCheckout={vi.fn()}
+        onUseCredit={vi.fn()}
       />,
     );
     expect(screen.getByText("€17,42")).toBeVisible();
     const cta = screen.getByRole("button", { name: "Unlock for €17,42" });
     expect(cta).toBeEnabled();
     expect(cta.closest(".cta-bar")).not.toBeNull();
+  });
+
+  it("uses a fungible wallet credit without showing Stripe checkout copy", () => {
+    const useCredit = vi.fn();
+    render(
+      <Offer
+        recipient="Sarah"
+        products={[{ price_key: "bundle", localized_price: "$39.99", token_count: 3 }]}
+        walletBalance={2}
+        loading={false}
+        onSelectProduct={vi.fn()}
+        onCheckout={vi.fn()}
+        onUseCredit={useCredit}
+      />,
+    );
+
+    expect(screen.getByText("2 gift credits available in Porizo")).toBeVisible();
+    screen.getByRole("button", { name: "Use 1 gift credit" }).click();
+    expect(useCredit).toHaveBeenCalledOnce();
+  });
+
+  it("requires an explicit bundle choice when several products are returned", () => {
+    render(
+      <Offer
+        recipient="Sarah"
+        products={[
+          { price_key: "one", localized_price: "$19.99", token_count: 1 },
+          { price_key: "three", localized_price: "$39.99", token_count: 3 },
+        ]}
+        loading={false}
+        onSelectProduct={vi.fn()}
+        onCheckout={vi.fn()}
+        onUseCredit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Loading price…" })).toBeDisabled();
+    expect(screen.getByText("3 gift credits · $39.99")).toBeVisible();
   });
 });

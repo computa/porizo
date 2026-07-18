@@ -27,11 +27,17 @@ function createSchema(database) {
       expires_at TEXT,
       cancel_reason TEXT,
       created_at TEXT,
-      updated_at TEXT
+      updated_at TEXT,
+      purpose TEXT NOT NULL DEFAULT 'interactive_draft',
+      origin_web_order_id TEXT
     );
     CREATE TABLE tracks (
       id TEXT PRIMARY KEY,
       gift_reservation_id TEXT
+    );
+    CREATE TABLE web_orders (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL
     );
   `);
 }
@@ -51,6 +57,8 @@ async function seedReservation({
   cancelReason = null,
   createdAt = "2026-06-28T04:00:00.000Z",
   updatedAt = "2026-06-28T04:00:00.000Z",
+  purpose = "interactive_draft",
+  originWebOrderId = null,
 }) {
   await db
     .prepare(
@@ -68,8 +76,10 @@ async function seedReservation({
         expires_at,
         cancel_reason,
         created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        updated_at,
+        purpose,
+        origin_web_order_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -86,6 +96,8 @@ async function seedReservation({
       cancelReason,
       createdAt,
       updatedAt,
+      purpose,
+      originWebOrderId,
     );
 }
 
@@ -179,6 +191,15 @@ describe("GiftReservationRepository", () => {
       id: "gres_future",
       expiresAt: "2026-06-28T05:00:00.000Z",
     });
+    await db
+      .prepare("INSERT INTO web_orders (id, status) VALUES (?, ?)")
+      .run("worder_rendering", "rendering");
+    await seedReservation({
+      id: "gres_paid_rendering",
+      expiresAt: "2026-06-28T02:30:00.000Z",
+      purpose: "paid_web_order",
+      originWebOrderId: "worder_rendering",
+    });
 
     const rows = await repository.listExpiredActive({
       now: "2026-06-28T04:00:00.000Z",
@@ -230,6 +251,7 @@ describe("GiftReservationRepository", () => {
   test("markRefunded preserves an existing refund transaction id", async () => {
     await seedReservation({
       id: "gres_refunded",
+      status: "refunding",
       refundTransactionId: "existing_refund",
     });
 
@@ -289,10 +311,15 @@ describe("GiftReservationRepository", () => {
   });
 
   test("markFinalized participates in caller transaction rollback", async () => {
-    await seedReservation({ id: "gres_finalize" });
+    await seedReservation({ id: "gres_finalize", status: "content_ready" });
 
     await assert.rejects(
       db.transaction(async (query) => {
+        await repository.claimForFinalization({
+          reservationId: "gres_finalize",
+          updatedAt: "2026-06-28T04:39:00.000Z",
+          query,
+        });
         await repository.markFinalized({
           reservationId: "gres_finalize",
           giftOrderId: "gift_rollback",
@@ -305,10 +332,15 @@ describe("GiftReservationRepository", () => {
     );
 
     const rolledBack = await repository.getById("gres_finalize");
-    assert.equal(rolledBack.status, "reserved");
+    assert.equal(rolledBack.status, "content_ready");
     assert.equal(rolledBack.gift_order_id, null);
 
     await db.transaction(async (query) => {
+      await repository.claimForFinalization({
+        reservationId: "gres_finalize",
+        updatedAt: "2026-06-28T04:40:30.000Z",
+        query,
+      });
       await repository.markFinalized({
         reservationId: "gres_finalize",
         giftOrderId: "gift_commit",

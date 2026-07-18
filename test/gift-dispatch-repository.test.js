@@ -183,8 +183,15 @@ describe("GiftDispatchRepository", () => {
     await insertGiftOrder({ id: "gift_outbox" });
     await insertGiftOrder({ id: "gift_outbox_recent" });
     await insertOutbox({
-      id: "outbox_stale",
+      id: "outbox_stale_email",
       giftOrderId: "gift_outbox",
+      status: "sending",
+      lockedAt: "2026-06-27T09:00:00.000Z",
+    });
+    await insertOutbox({
+      id: "outbox_stale_sms",
+      giftOrderId: "gift_outbox",
+      channel: "sms",
       status: "sending",
       lockedAt: "2026-06-27T09:00:00.000Z",
     });
@@ -199,7 +206,16 @@ describe("GiftDispatchRepository", () => {
       staleCutoff: "2026-06-27T09:30:00.000Z",
     });
     assert.deepEqual(stale, [
-      { id: "outbox_stale", gift_order_id: "gift_outbox" },
+      {
+        id: "outbox_stale_email",
+        gift_order_id: "gift_outbox",
+        channel: "email",
+      },
+      {
+        id: "outbox_stale_sms",
+        gift_order_id: "gift_outbox",
+        channel: "sms",
+      },
     ]);
 
     await repository.recoverStaleSending({
@@ -211,13 +227,29 @@ describe("GiftDispatchRepository", () => {
       .prepare(
         "SELECT status, last_error, next_retry_at, locked_at FROM gift_delivery_outbox WHERE id = ?",
       )
-      .get("outbox_stale");
+      .get("outbox_stale_email");
     assert.deepEqual(recovered, {
       status: "failed",
       last_error: "stale_channel_send_recovered",
       next_retry_at: NOW,
       locked_at: null,
     });
+
+    const uncertainSms = await db
+      .prepare(
+        "SELECT status, last_error, next_retry_at, locked_at FROM gift_delivery_outbox WHERE id = ?",
+      )
+      .get("outbox_stale_sms");
+    assert.deepEqual(uncertainSms, {
+      status: "uncertain",
+      last_error: "stale_channel_send_recovered",
+      next_retry_at: null,
+      locked_at: null,
+    });
+    assert.equal(
+      await repository.hasSentDelivery({ giftOrderId: "gift_outbox" }),
+      true,
+    );
 
     const recent = await db
       .prepare("SELECT status, locked_at FROM gift_delivery_outbox WHERE id = ?")
@@ -481,12 +513,97 @@ describe("GiftDispatchRepository", () => {
     });
   });
 
+  test("maps every negative provider receipt to a failed non-retryable outbox state", async () => {
+    for (const receiptStatus of [
+      "bounced",
+      "complained",
+      "failed",
+      "undelivered",
+      "canceled",
+      "cancelled",
+    ]) {
+      const giftOrderId = `gift_negative_${receiptStatus}`;
+      const deliveryId = `outbox_negative_${receiptStatus}`;
+      await insertGiftOrder({ id: giftOrderId });
+      await insertOutbox({
+        id: deliveryId,
+        giftOrderId,
+        channel: receiptStatus === "undelivered" ? "sms" : "email",
+        status: "sent",
+        nextRetryAt: "2026-06-27T10:15:00.000Z",
+      });
+
+      await repository.updateDeliveryReceipt({
+        deliveryId,
+        receiptStatus,
+        receiptEventAt: NOW,
+        receiptPayload: { event: receiptStatus },
+        updatedAt: NOW,
+      });
+
+      const updated = await db
+        .prepare(
+          "SELECT status, receipt_status, last_error, next_retry_at FROM gift_delivery_outbox WHERE id = ?",
+        )
+        .get(deliveryId);
+      assert.deepEqual(updated, {
+        status: "failed",
+        receipt_status: receiptStatus,
+        last_error: `provider_receipt_${receiptStatus}`,
+        next_retry_at: null,
+      });
+    }
+  });
+
+  test("restores sent when a stronger delivered receipt follows a failure", async () => {
+    await insertGiftOrder({ id: "gift_receipt_recovered" });
+    await insertOutbox({
+      id: "outbox_receipt_recovered",
+      giftOrderId: "gift_receipt_recovered",
+      status: "sent",
+    });
+
+    await repository.updateDeliveryReceipt({
+      deliveryId: "outbox_receipt_recovered",
+      receiptStatus: "failed",
+      receiptEventAt: "2026-06-27T09:59:00.000Z",
+      receiptPayload: { event: "failed" },
+      updatedAt: "2026-06-27T09:59:00.000Z",
+    });
+    await repository.updateDeliveryReceipt({
+      deliveryId: "outbox_receipt_recovered",
+      receiptStatus: "delivered",
+      receiptEventAt: NOW,
+      receiptPayload: { event: "delivered" },
+      updatedAt: NOW,
+    });
+
+    const updated = await db
+      .prepare(
+        "SELECT status, receipt_status, last_error, next_retry_at FROM gift_delivery_outbox WHERE id = ?",
+      )
+      .get("outbox_receipt_recovered");
+    assert.deepEqual(updated, {
+      status: "sent",
+      receipt_status: "delivered",
+      last_error: null,
+      next_retry_at: null,
+    });
+  });
+
   test("recovers sending rows for one gift without touching other gifts", async () => {
     await insertGiftOrder({ id: "gift_recover_one" });
     await insertGiftOrder({ id: "gift_recover_other" });
     await insertOutbox({
       id: "outbox_recover_one",
       giftOrderId: "gift_recover_one",
+      status: "sending",
+      lockedAt: "2026-06-27T09:59:00.000Z",
+    });
+    await insertOutbox({
+      id: "outbox_recover_sms",
+      giftOrderId: "gift_recover_one",
+      channel: "sms",
       status: "sending",
       lockedAt: "2026-06-27T09:59:00.000Z",
     });
@@ -510,6 +627,17 @@ describe("GiftDispatchRepository", () => {
     assert.deepEqual(recovered, {
       status: "failed",
       next_retry_at: NOW,
+      locked_at: null,
+    });
+
+    const recoveredSms = await db
+      .prepare(
+        "SELECT status, next_retry_at, locked_at FROM gift_delivery_outbox WHERE id = ?",
+      )
+      .get("outbox_recover_sms");
+    assert.deepEqual(recoveredSms, {
+      status: "uncertain",
+      next_retry_at: null,
       locked_at: null,
     });
 

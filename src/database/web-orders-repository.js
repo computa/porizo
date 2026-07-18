@@ -60,6 +60,10 @@ function createWebOrdersRepository(db) {
     return db.prepare("SELECT * FROM web_orders WHERE id = ?").get(orderId);
   }
 
+  async function findOwnedById({ orderId, userId }) {
+    return db.prepare("SELECT * FROM web_orders WHERE id = ? AND user_id = ?").get(orderId, userId);
+  }
+
   async function insertOrder({
     id,
     checkoutSessionId,
@@ -73,16 +77,24 @@ function createWebOrdersRepository(db) {
     utmSource = null,
     utmMedium = null,
     utmCampaign = null,
+    paymentSource = "stripe",
+    fundingModel = "legacy_song_spend",
+    purchaseTransactionId = null,
+    giftReservationId = null,
+    status = "pending",
+    query = null,
   }) {
     const now = nowIso();
-    await db
+    const target = query ? createPreparedDbFromQuery(query, db) : db;
+    await target
       .prepare(
         `INSERT INTO web_orders (
            id, checkout_session_id, user_id, track_id, track_version_id,
            price_key, amount_cents, currency, email, status,
            render_attempts, utm_source, utm_medium, utm_campaign,
+           payment_source, funding_model, purchase_transaction_id, gift_reservation_id,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -94,13 +106,40 @@ function createWebOrdersRepository(db) {
         amountCents,
         currency,
         email,
+        status,
         utmSource,
         utmMedium,
         utmCampaign,
+        paymentSource,
+        fundingModel,
+        purchaseTransactionId,
+        giftReservationId,
         now,
         now,
       );
-    return findById(id);
+    return target.prepare("SELECT * FROM web_orders WHERE id = ?").get(id);
+  }
+
+  async function linkGiftReservation({
+    orderId,
+    userId,
+    giftReservationId,
+    purchaseTransactionId = null,
+    paymentSource,
+    query = null,
+  }) {
+    const run = query
+      ? (sql, params) => query(sql, params)
+      : (sql, params) => db.prepare(sql).run(...params);
+    const result = await run(
+      `UPDATE web_orders SET
+         gift_reservation_id = ?, purchase_transaction_id = COALESCE(?, purchase_transaction_id),
+         payment_source = ?, funding_model = 'gift_reservation_v1', updated_at = ?
+       WHERE id = ? AND user_id = ?
+         AND (gift_reservation_id IS NULL OR gift_reservation_id = ?)`,
+      [giftReservationId, purchaseTransactionId, paymentSource, nowIso(), orderId, userId, giftReservationId],
+    );
+    return result?.rowCount ?? result?.changes ?? 0;
   }
 
   // Compare-and-set the order status. Returns the number of affected rows so
@@ -191,7 +230,9 @@ function createWebOrdersRepository(db) {
     findOpenPendingOrder,
     findByCheckoutSessionId,
     findById,
+    findOwnedById,
     insertOrder,
+    linkGiftReservation,
     updateStatus,
     incrementRenderAttempts,
     findResumableOrders,

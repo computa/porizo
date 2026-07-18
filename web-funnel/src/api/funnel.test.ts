@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./client";
 import {
   buildCheckoutRequest,
+  buildWalletOrderRequest,
   createSongDraft,
   createEditableVersion,
   fetchPreviewUrl,
   isTerminalOrderStatus,
+  isOrderPollingComplete,
   pollPreviewUntilReady,
 } from "./funnel";
 import { createInitialState, funnelReducer } from "../state/funnel";
@@ -193,6 +195,35 @@ describe("paid lifecycle", () => {
       track_version_id: "version-1",
       price_key: "gift-song-au",
     });
+  });
+
+  it("builds a wallet-funded order without inventing a Stripe session", () => {
+    expect(buildWalletOrderRequest("track-1", "version-1")).toEqual({
+      track_id: "track-1",
+      track_version_id: "version-1",
+      payment_method: "gift_credit",
+    });
+  });
+
+  it("keeps content readiness separate from recipient delivery", () => {
+    expect(
+      isOrderPollingComplete({
+        content_status: "ready",
+        delivery_status: "sending",
+      }),
+    ).toBe(false);
+    expect(
+      isOrderPollingComplete({
+        content_status: "ready",
+        delivery_status: "scheduled",
+      }),
+    ).toBe(true);
+    expect(
+      isOrderPollingComplete({
+        status: "delivered",
+        delivery_status: "not_requested",
+      }),
+    ).toBe(true);
   });
 });
 

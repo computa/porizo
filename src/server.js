@@ -74,11 +74,17 @@ const {
   createWebOrderOrchestrator,
 } = require("./services/web-order-orchestrator");
 const {
+  createGiftPurchaseReversalService,
+} = require("./services/gift-purchase-reversal");
+const {
   createOrGetShareToken: createGiftShareToken,
 } = require("./services/share-service");
 const {
   getFeatureFlag: getWebFunnelFlag,
 } = require("./services/feature-flags");
+const {
+  aggregateGiftDeliveryStatus,
+} = require("./services/gift-delivery-state");
 const { registerLegalRoutes } = require("./routes/legal");
 const { registerWellKnownRoutes } = require("./routes/well-known");
 const {
@@ -118,6 +124,18 @@ const {
 const {
   createGiftWalletRepository,
 } = require("./database/gift-wallet-repository");
+const {
+  createGiftReservationRepository,
+} = require("./database/gift-reservation-repository");
+const {
+  createGiftDeliveryPreferenceRepository,
+} = require("./database/gift-delivery-preference-repository");
+const {
+  createGiftOrderRepository,
+} = require("./database/gift-order-repository");
+const {
+  createGiftDispatchRepository,
+} = require("./database/gift-dispatch-repository");
 const writer = require("./writer");
 const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
@@ -436,6 +454,9 @@ function buildServer({
   const cdnSignerInstance = cdnSigner;
 
   const giftWalletRepository = createGiftWalletRepository(db);
+  const giftPurchaseReversalService = createGiftPurchaseReversalService({
+    giftWalletRepository,
+  });
 
   // Initialize billing services (use passed-in services or create new ones)
   const planConfigService =
@@ -472,6 +493,32 @@ function buildServer({
       subscriptionManager,
       appleValidator,
       planConfigService,
+      giftPurchaseReversal: async ({ transactionId, reversed }) => {
+        const purchase = await db
+          .prepare(
+            `SELECT pr.id AS receipt_id, pr.user_id, gwt.id AS wallet_transaction_id,
+                    gwt.amount AS token_count
+             FROM purchase_receipts pr
+             JOIN gift_wallet_transactions gwt
+               ON gwt.reference_type = 'receipt'
+              AND gwt.reference_id = pr.id
+              AND gwt.type = 'gift_purchase'
+             WHERE pr.platform = 'apple'
+               AND (pr.transaction_id = ? OR pr.original_transaction_id = ?)
+             ORDER BY gwt.created_at ASC
+             LIMIT 1`,
+          )
+          .get(transactionId, transactionId);
+        if (!purchase) return null;
+        return giftPurchaseReversalService.reverseGiftPurchaseGrant({
+          userId: purchase.user_id,
+          purchaseTransactionId: purchase.wallet_transaction_id,
+          tokenCount: Number(purchase.token_count),
+          provider: "apple",
+          providerEventId: transactionId,
+          reversed,
+        });
+      },
     });
 
   // Initialize auth service for JWT verification
@@ -2623,6 +2670,12 @@ function buildServer({
     twilioStatusCallbackBaseUrl,
   });
 
+  const webGiftReservationRepository = createGiftReservationRepository(db);
+  const webGiftDeliveryPreferenceRepository =
+    createGiftDeliveryPreferenceRepository(db);
+  const webGiftOrderRepository = createGiftOrderRepository(db);
+  const webGiftDispatchRepository = createGiftDispatchRepository(db);
+
   // ============ Web Funnel Checkout (Stripe) ============
   const stripeService =
     webFunnelServices?.stripeService ||
@@ -2672,11 +2725,27 @@ function buildServer({
         throw new Error("ALREADY_RENDERING");
       }
       if (!version.song_entitlement_consumed_at) {
-        await giftWalletRepository.spendSongTokenInTransaction(query, {
-          userId,
-          trackId,
-          trackVersionId,
-        });
+        const fundingResult = await query(
+          `SELECT t.funding_source, r.id AS active_reservation_id
+           FROM tracks t
+           LEFT JOIN gift_reservations r
+             ON r.id = t.gift_reservation_id
+            AND r.status IN ('reserved', 'content_ready', 'finalized')
+           WHERE t.id = ? AND t.user_id = ?`,
+          [trackId, userId],
+        );
+        const funding = fundingResult?.rows?.[0];
+        const isReservedGift =
+          ["gift_wallet", "gift_token"].includes(
+            String(funding?.funding_source || ""),
+          ) && Boolean(funding?.active_reservation_id);
+        if (!isReservedGift) {
+          await giftWalletRepository.spendSongTokenInTransaction(query, {
+            userId,
+            trackId,
+            trackVersionId,
+          });
+        }
         await trackVersionRepository.markSongEntitlementConsumed({
           trackVersionId,
           consumedAt: nowIso(),
@@ -2728,6 +2797,255 @@ function buildServer({
       });
       return { shareId: result.shareId, shareUrl: result.shareUrl };
     },
+    finalizeGiftOrder: async ({ order }) => {
+      const reservation = await webGiftReservationRepository.getById(order.gift_reservation_id);
+      if (!reservation || reservation.user_id !== order.user_id) {
+        throw new Error("WEB_GIFT_RESERVATION_NOT_FOUND");
+      }
+      const preference =
+        (await webGiftDeliveryPreferenceRepository.findOwned({
+          reservationId: reservation.id,
+          userId: order.user_id,
+        })) || {};
+      const automationEnabled = await getWebFunnelFlag(
+        db,
+        "web_automated_gift_delivery",
+      );
+      const requestedMode = preference.mode || "manual";
+      const deliveryMode =
+        automationEnabled || requestedMode === "manual" ? requestedMode : "manual";
+      const channels = deliveryMode === "manual"
+        ? []
+        : parseJson(preference.channels_json, []);
+      const created = await db.transaction(async (query) => {
+        const orderResult = await query(
+          `SELECT * FROM web_orders WHERE id = ?${
+            db.isPostgres ? " FOR UPDATE" : ""
+          }`,
+          [order.id],
+        );
+        const lockedOrder = orderResult?.rows?.[0] || null;
+        if (!lockedOrder) {
+          throw new Error("WEB_ORDER_NOT_FOUND");
+        }
+        if (lockedOrder.status !== "rendering") {
+          if (lockedOrder.status === "delivered" && lockedOrder.share_token_id) {
+            const deliveredGiftResult = await query(
+              "SELECT * FROM gift_orders WHERE origin_web_order_id = ? LIMIT 1",
+              [order.id],
+            );
+            return {
+              gift: deliveredGiftResult?.rows?.[0] || null,
+              idempotent: true,
+              orderTransitioned: false,
+            };
+          }
+          return {
+            aborted: true,
+            orderStatus: lockedOrder.status,
+            idempotent: true,
+          };
+        }
+        const completeLockedOrder = async (gift, { idempotent }) => {
+          if (!gift) {
+            throw new Error("WEB_GIFT_ORDER_NOT_FOUND");
+          }
+          const delivered = await query(
+            `UPDATE web_orders
+             SET status = 'delivered',
+                 share_token_id = COALESCE(?, share_token_id),
+                 updated_at = ?
+             WHERE id = ? AND status = 'rendering'`,
+            [gift.share_token_id, nowIso(), order.id],
+          );
+          if (!Number(delivered?.changes ?? delivered?.rowCount ?? 0)) {
+            throw new Error("WEB_ORDER_FINALIZE_INTEGRITY_FAILED");
+          }
+          return {
+            gift,
+            idempotent,
+            orderTransitioned: true,
+          };
+        };
+        const latest = await webGiftReservationRepository.getById(
+          reservation.id,
+          query,
+        );
+        if (latest?.gift_order_id) {
+          const existingGiftResult = await query(
+            "SELECT * FROM gift_orders WHERE id = ?",
+            [latest.gift_order_id],
+          );
+          return completeLockedOrder(existingGiftResult?.rows?.[0] || null, {
+            idempotent: true,
+          });
+        }
+        const claim = await webGiftReservationRepository.claimForFinalization({
+          reservationId: reservation.id,
+          updatedAt: nowIso(),
+          query,
+        });
+        if (!Number(claim?.changes ?? claim?.rowCount ?? 0)) {
+          const winner = await webGiftReservationRepository.getById(
+            reservation.id,
+            query,
+          );
+          if (winner?.gift_order_id) {
+            const winnerGiftResult = await query(
+              "SELECT * FROM gift_orders WHERE id = ?",
+              [winner.gift_order_id],
+            );
+            return completeLockedOrder(winnerGiftResult?.rows?.[0] || null, {
+              idempotent: true,
+            });
+          }
+          throw new Error("WEB_GIFT_RESERVATION_NOT_FINALIZABLE");
+        }
+        const result = await app.createGiftOrderFromPayload({
+          userId: order.user_id,
+          contentType: "song",
+          contentId: order.track_id,
+          versionNum: null,
+          deliveryMode,
+          channels: Array.isArray(channels) ? channels : [],
+          recipientPhone:
+            deliveryMode === "manual" ? null : preference.recipient_phone || null,
+          recipientEmail:
+            deliveryMode === "manual" ? null : preference.recipient_email || null,
+          senderDisplayName: preference.sender_display_name || order.buyer_name,
+          senderTimezone: preference.sender_timezone || "UTC",
+          sendAtIso: preference.send_at || nowIso(),
+          message: preference.message || null,
+          expiresInDays: Number(preference.expires_in_days || 30),
+          idempotencyKey: `web_order_finalize:${order.id}`,
+          tokenTransactionId: reservation.token_transaction_id,
+          originWebOrderId: order.id,
+          externalQuery: query,
+          skipDispatch: true,
+          skipSideEffects: true,
+        });
+        const finalized = await webGiftReservationRepository.markFinalized({
+          reservationId: reservation.id,
+          giftOrderId: result.gift.id,
+          updatedAt: nowIso(),
+          query,
+        });
+        if (!Number(finalized?.changes ?? finalized?.rowCount ?? 0)) {
+          throw new Error("WEB_GIFT_FINALIZE_INTEGRITY_FAILED");
+        }
+        return completeLockedOrder(result.gift, {
+          idempotent: Boolean(result.idempotent),
+        });
+      });
+      if (created.aborted) {
+        return {
+          aborted: true,
+          orderStatus: created.orderStatus,
+          orderDelivered: false,
+        };
+      }
+      if (created.gift.delivery_mode === "immediate" && !created.idempotent) {
+        await app.dispatchGiftById(created.gift.id);
+      }
+      const gift = await webGiftOrderRepository.findById(created.gift.id);
+      return {
+        shareId: gift.share_token_id,
+        shareUrl: gift.share_url,
+        orderDelivered: true,
+        orderTransitioned: Boolean(created.orderTransitioned),
+      };
+    },
+    refundGiftReservation: async ({ order }) =>
+      app.refundGiftReservationById({
+        reservationId: order.gift_reservation_id,
+        userId: order.user_id,
+      }),
+    getDeliveryState: async ({ order }) => {
+      const reservationId = order.gift_reservation_id;
+      if (!reservationId) return null;
+      const [preference, gift, walletBalance, automatedDeliveryEnabled] = await Promise.all([
+        webGiftDeliveryPreferenceRepository.findOwned({
+          reservationId,
+          userId: order.user_id,
+        }),
+        webGiftOrderRepository.findById(
+          (
+            await webGiftReservationRepository.getById(reservationId)
+          )?.gift_order_id,
+        ),
+        giftWalletRepository.getBalance(order.user_id),
+        getWebFunnelFlag(db, "web_automated_gift_delivery"),
+      ]);
+      const deliveryMode = gift?.delivery_mode || preference?.mode || "manual";
+      const rows = gift
+        ? await webGiftDispatchRepository.listOutboxRowsForGift({
+            giftOrderId: gift.id,
+          })
+        : [];
+      const channels = rows.map((row) => {
+        const destination = String(row.recipient || "");
+        const masked =
+          row.channel === "email"
+            ? destination.replace(/^(.).*(?=@)/, "$1•••")
+            : destination.replace(/.(?=.{4})/g, "•");
+        const receiptStatus = String(row.receipt_status || "").toLowerCase();
+        const receiptFailed = [
+          "bounced",
+          "complained",
+          "failed",
+          "undelivered",
+          "canceled",
+          "cancelled",
+        ].includes(receiptStatus);
+        const status = receiptFailed
+          ? "failed"
+          : row.status === "sent"
+            ? receiptStatus === "delivered"
+              ? "delivered"
+              : "accepted"
+            : row.status;
+        return {
+          channel: row.channel,
+          masked_destination: masked,
+          status,
+          can_stop: ["pending", "failed"].includes(row.status),
+        };
+      });
+      const deliveryStatus = gift
+        ? aggregateGiftDeliveryStatus({ gift, channels })
+        : preference
+          ? "draft"
+          : "not_requested";
+      return {
+        gift_id: gift?.id || undefined,
+        gift_order_id: gift?.id || undefined,
+        wallet_balance: walletBalance,
+        delivery_status: deliveryStatus,
+        automated_delivery_enabled: Boolean(automatedDeliveryEnabled),
+        can_cancel_gift: Boolean(
+          gift &&
+            ["scheduled", "dispatch_retry", "ready_to_share"].includes(
+              gift.status,
+            ),
+        ),
+        delivery: {
+          mode: deliveryMode,
+          revision: Number(preference?.revision || 0),
+          can_edit: Boolean(
+            !gift ||
+              (gift.delivery_mode === "manual" &&
+                gift.status === "ready_to_share"),
+          ),
+          can_stop_any: channels.some((channel) => channel.can_stop),
+          sender_display_name:
+            gift?.sender_display_name || preference?.sender_display_name || undefined,
+          send_at: gift?.send_at || preference?.send_at || undefined,
+          timezone:
+            gift?.sender_timezone || preference?.sender_timezone || undefined,
+          channels,
+        },
+      };
+    },
     sendDeliveryEmail: async ({ order, shareUrl }) => {
       if (!order.email || !emailService.isConfigured()) return;
       const track = await trackVersionRepository.findTrackById(order.track_id);
@@ -2741,6 +3059,18 @@ function buildServer({
         occasion: track?.occasion || null,
         message: track?.message || null,
         tags: [{ name: "type", value: "web_gift_delivery" }],
+        idempotencyKey: `web-gift-delivery-${order.id}`,
+      });
+    },
+    sendBuyerCompletionEmail: async ({ order, shareUrl }) => {
+      if (!order.email || !emailService.isConfigured()) return;
+      const track = await trackVersionRepository.findTrackById(order.track_id);
+      await emailService.sendGiftBuyerCompletionEmail({
+        to: order.email,
+        recipientName: track?.recipient_name || null,
+        shareUrl,
+        orderId: order.id,
+        idempotencyKey: `web-gift-buyer-completion-${order.id}`,
       });
     },
     sendApologyEmail: async ({ order }) => {
@@ -2755,6 +3085,7 @@ function buildServer({
         message:
           "We couldn't finish this song and have refunded you in full. We're sorry — please try again any time.",
         tags: [{ name: "type", value: "web_gift_apology" }],
+        idempotencyKey: `web-gift-apology-${order.id}`,
       });
     },
     refundOrder: async ({ order }) => {
@@ -3257,10 +3588,41 @@ async function start() {
     appleValidator,
     googleValidator,
   });
+  const runtimeGiftWalletRepository = createGiftWalletRepository(db);
+  const runtimeGiftPurchaseReversalService =
+    createGiftPurchaseReversalService({
+      giftWalletRepository: runtimeGiftWalletRepository,
+    });
   const appleWebhookHandler = createAppleWebhookHandler(db, {
     subscriptionManager,
     appleValidator,
     planConfigService,
+    giftPurchaseReversal: async ({ transactionId, reversed }) => {
+      const purchase = await db
+        .prepare(
+          `SELECT pr.user_id, gwt.id AS wallet_transaction_id,
+                  gwt.amount AS token_count
+           FROM purchase_receipts pr
+           JOIN gift_wallet_transactions gwt
+             ON gwt.reference_type = 'receipt'
+            AND gwt.reference_id = pr.id
+            AND gwt.type = 'gift_purchase'
+           WHERE pr.platform = 'apple'
+             AND (pr.transaction_id = ? OR pr.original_transaction_id = ?)
+           ORDER BY gwt.created_at ASC
+           LIMIT 1`,
+        )
+        .get(transactionId, transactionId);
+      if (!purchase) return null;
+      return runtimeGiftPurchaseReversalService.reverseGiftPurchaseGrant({
+        userId: purchase.user_id,
+        purchaseTransactionId: purchase.wallet_transaction_id,
+        tokenCount: Number(purchase.token_count),
+        provider: "apple",
+        providerEventId: transactionId,
+        reversed,
+      });
+    },
   });
   const billingServices = {
     planConfigService,

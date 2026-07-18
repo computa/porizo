@@ -29,6 +29,15 @@ const {
 const {
   createIdentityRepository,
 } = require("../database/identity-repository");
+const {
+  createGiftDeliveryPreferenceRepository,
+} = require("../database/gift-delivery-preference-repository");
+const {
+  createGiftWalletRepository,
+} = require("../database/gift-wallet-repository");
+const {
+  createGiftReservationService,
+} = require("../services/gift-reservation-service");
 
 const ACTIVE_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
 const publicGiftIndexPage = loadPublicFile("gifts/index.html", {
@@ -69,6 +78,13 @@ function registerGiftRoutes(app, {
   const giftReservationRepository = createGiftReservationRepository(db);
   const giftDispatchRepository = createGiftDispatchRepository(db);
   const giftOrderRepository = createGiftOrderRepository(db);
+  const giftDeliveryPreferenceRepository =
+    createGiftDeliveryPreferenceRepository(db);
+  const giftReservationService = createGiftReservationService({
+    db,
+    giftWalletRepository: createGiftWalletRepository(db),
+    giftReservationRepository,
+  });
   const shareTokenRepository = createShareTokenRepository(db);
   const identityRepository = createIdentityRepository(db);
 
@@ -99,6 +115,40 @@ function registerGiftRoutes(app, {
       cancel_reason: reservationRow.cancel_reason,
       created_at: reservationRow.created_at,
       updated_at: reservationRow.updated_at,
+    };
+  }
+
+  async function renderGiftSummaryWithDelivery(giftRow) {
+    const summary = renderGiftSummary(giftRow);
+    const rows = await giftDispatchRepository.listOutboxRowsForGift({
+      giftOrderId: giftRow.id,
+    });
+    const deliveryChannels = rows.map((row) => {
+      const receiptStatus = String(row.receipt_status || "").toLowerCase();
+      const receiptFailed = [
+        "bounced",
+        "complained",
+        "failed",
+        "undelivered",
+        "canceled",
+        "cancelled",
+      ].includes(receiptStatus);
+      return {
+        channel: row.channel,
+        status: receiptFailed
+          ? "failed"
+          : row.status === "sent"
+            ? receiptStatus === "delivered"
+              ? "delivered"
+              : "accepted"
+            : row.status,
+        can_stop: ["pending", "failed"].includes(row.status),
+      };
+    });
+    return {
+      ...summary,
+      can_stop_any: deliveryChannels.some((channel) => channel.can_stop),
+      delivery_channels: deliveryChannels,
     };
   }
 
@@ -265,7 +315,9 @@ function registerGiftRoutes(app, {
     const senderDisplayName = typeof body.sender_display_name === "string"
       ? body.sender_display_name.trim().slice(0, 100)
       : "";
-    const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
+    const deliveryMode = ["manual", "scheduled"].includes(body.delivery_mode)
+      ? body.delivery_mode
+      : "immediate";
     const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
       ? body.sender_timezone.trim()
       : "UTC";
@@ -275,8 +327,12 @@ function registerGiftRoutes(app, {
     const message = typeof body.message === "string" ? body.message.trim().slice(0, 500) : "";
     const expiresInDays = Math.max(1, Math.min(Number(body.expires_in_days || 30), 90));
 
-    if (!channels.length) {
+    if (deliveryMode !== "manual" && !channels.length) {
       sendError(reply, 400, "INVALID_CHANNELS", "At least one channel is required.");
+      return null;
+    }
+    if (deliveryMode === "manual" && channels.length) {
+      sendError(reply, 400, "INVALID_CHANNELS", "Manual delivery cannot request provider channels.");
       return null;
     }
     if (channels.includes("sms") && !recipientPhone) {
@@ -396,42 +452,84 @@ function registerGiftRoutes(app, {
     description,
     auditAction,
     eventName,
+    externalQuery = null,
+    skipSideEffects = false,
   }) {
-    let refundTxId = reservation.refund_transaction_id || null;
-    await deleteGiftFundedReservationContent(db, reservation.id, nowIso());
-    if (!refundTxId) {
-      const refundTx = await applyGiftWalletTransaction({
-        userId: reservation.user_id,
-        type: "gift_reserve_refund",
-        amount: 1,
-        source,
-        referenceType: "gift_reservation",
-        referenceId: reservation.id,
-        description,
-        metadata: { reservation_id: reservation.id, reason: cancelReason },
-        idempotencyKey: `gift_reserve_refund_${reservation.id}`,
+    const execute = async (query) => {
+      const timestamp = nowIso();
+      const claim = await giftReservationRepository.claimForRefund({
+        reservationId: reservation.id,
+        updatedAt: timestamp,
+        query,
       });
-      refundTxId = refundTx.transactionId;
+      const claimed = Number(claim?.changes ?? claim?.rowCount ?? 0) > 0;
+      if (!claimed) {
+        const current = await giftReservationRepository.getById(reservation.id, query);
+        if (["cancelled", "expired", "refunded"].includes(current?.status)) {
+          return {
+            reservation: current,
+            refundTxId: current.refund_transaction_id || null,
+            idempotent: true,
+          };
+        }
+        const err = new Error("GIFT_RESERVATION_STATUS_CHANGED");
+        err.code = "GIFT_RESERVATION_STATUS_CHANGED";
+        throw err;
+      }
+
+      await deleteGiftFundedReservationContent(db, reservation.id, timestamp, query);
+      let refundTxId = reservation.refund_transaction_id || null;
+      if (!refundTxId) {
+        const refundTx = await applyGiftWalletTransaction({
+          userId: reservation.user_id,
+          type: "gift_reserve_refund",
+          amount: 1,
+          source,
+          referenceType: "gift_reservation",
+          referenceId: reservation.id,
+          description,
+          metadata: { reservation_id: reservation.id, reason: cancelReason },
+          idempotencyKey: `gift_reserve_refund_${reservation.id}`,
+          externalQuery: query,
+        });
+        refundTxId = refundTx.transactionId;
+      }
+
+      const marked = await giftReservationRepository.markRefunded({
+        reservationId: reservation.id,
+        status,
+        refundTransactionId: refundTxId,
+        cancelReason,
+        updatedAt: timestamp,
+        query,
+      });
+      if (!Number(marked?.changes ?? marked?.rowCount ?? 0)) {
+        const err = new Error("GIFT_RESERVATION_STATUS_CHANGED");
+        err.code = "GIFT_RESERVATION_STATUS_CHANGED";
+        throw err;
+      }
+      return {
+        reservation: await giftReservationRepository.getById(reservation.id, query),
+        refundTxId,
+        idempotent: false,
+      };
+    };
+    const result = externalQuery
+      ? await execute(externalQuery)
+      : await db.transaction(execute);
+
+    if (!result.idempotent && !skipSideEffects) {
+      await emitGiftActivity({
+        userId: reservation.user_id,
+        action: auditAction,
+        eventName,
+        resourceType: "gift_reservation",
+        resourceId: reservation.id,
+        metadata: { refund_transaction_id: result.refundTxId, reason: cancelReason },
+      });
     }
 
-    await giftReservationRepository.markRefunded({
-      reservationId: reservation.id,
-      status,
-      refundTransactionId: refundTxId,
-      cancelReason,
-      updatedAt: nowIso(),
-    });
-
-    await emitGiftActivity({
-      userId: reservation.user_id,
-      action: auditAction,
-      eventName,
-      resourceType: "gift_reservation",
-      resourceId: reservation.id,
-      metadata: { refund_transaction_id: refundTxId, reason: cancelReason },
-    });
-
-    return giftReservationRepository.getById(reservation.id);
+    return result.reservation;
   }
 
   async function expireReservationIfNeeded(reservation) {
@@ -499,6 +597,7 @@ function registerGiftRoutes(app, {
     externalQuery = null,
     skipDispatch = false,
     skipSideEffects = false,
+    originWebOrderId = null,
   }) {
     const validated = await validateGiftContent({ userId, contentType, contentId, versionNum });
     const requireAppClaim = await getFeatureFlag(db, "gift_require_app_claim");
@@ -608,6 +707,7 @@ function registerGiftRoutes(app, {
           versionNum: validated.versionNum,
           contentSnapshot: validated.contentSnapshot,
           idempotencyKey,
+          originWebOrderId,
           timestamp,
           query,
         });
@@ -652,8 +752,8 @@ function registerGiftRoutes(app, {
       delivery_mode: deliveryMode,
       channels,
       send_at: sendAtIso,
-      recipient_phone: recipientPhone,
-      recipient_email: recipientEmail,
+      has_recipient_phone: Boolean(recipientPhone),
+      has_recipient_email: Boolean(recipientEmail),
     });
 
     if (!skipSideEffects) {
@@ -781,77 +881,123 @@ function registerGiftRoutes(app, {
         idempotent: true,
       };
     }
-    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+    if (!["scheduled", "dispatch_retry", "ready_to_share"].includes(gift.status)) {
       const err = new Error("GIFT_NOT_CANCELLABLE");
       err.code = "GIFT_NOT_CANCELLABLE";
       throw err;
     }
 
-    const sentDelivery = await giftDispatchRepository.hasSentDelivery({
-      giftOrderId: gift.id,
-    });
-    if (sentDelivery) {
-      const err = new Error("GIFT_ALREADY_PARTIALLY_DISPATCHED");
-      err.code = "GIFT_ALREADY_PARTIALLY_DISPATCHED";
-      throw err;
-    }
+    const cancelled = await db.transaction(async (query) => {
+      const lockSql = `SELECT * FROM gift_orders WHERE id = ?${
+        db.isPostgres ? " FOR UPDATE" : ""
+      }`;
+      const lockedResult = await query(lockSql, [gift.id]);
+      const lockedGift = lockedResult?.rows?.[0] || null;
+      if (!lockedGift) {
+        const err = new Error("GIFT_NOT_FOUND");
+        err.code = "GIFT_NOT_FOUND";
+        throw err;
+      }
+      if (lockedGift.status === "cancelled") {
+        return { gift: lockedGift, refundTxId: lockedGift.refund_transaction_id, idempotent: true };
+      }
+      if (!["scheduled", "dispatch_retry", "ready_to_share"].includes(lockedGift.status)) {
+        const err = new Error("GIFT_STATUS_CHANGED");
+        err.code = "GIFT_STATUS_CHANGED";
+        throw err;
+      }
+      if (await giftDispatchRepository.hasSentDelivery({
+        giftOrderId: lockedGift.id,
+        query,
+      })) {
+        const err = new Error("GIFT_ALREADY_PARTIALLY_DISPATCHED");
+        err.code = "GIFT_ALREADY_PARTIALLY_DISPATCHED";
+        throw err;
+      }
 
-    let refundTxId = gift.refund_transaction_id || null;
-    if (!refundTxId) {
-      const refundTx = await applyGiftWalletTransaction({
-        userId: gift.sender_user_id,
-        type: "gift_refund",
-        amount: 1,
-        source: actorType === "admin" ? "gift_cancel_admin" : "gift_cancel",
-        referenceType: "gift_order",
-        referenceId: gift.id,
-        description: "Gift token refunded after cancellation",
-        metadata: { gift_id: gift.id, actor_type: actorType, actor_user_id: actorUserId || null },
-        idempotencyKey: `gift_refund_${gift.id}`,
+      const timestamp = nowIso();
+      const shareTable =
+        lockedGift.content_type === "poem" ? "poem_share_tokens" : "share_tokens";
+      const revoked = await query(
+        `UPDATE ${shareTable}
+         SET status = 'revoked',
+             expires_at = COALESCE(expires_at, ?)
+         WHERE id = ? AND gift_order_id = ?
+           AND COALESCE(access_count, 0) = 0
+           AND bound_user_id IS NULL
+           AND bound_at IS NULL
+           AND status NOT IN ('claimed', 'revoked')`,
+        [timestamp, lockedGift.share_token_id, lockedGift.id],
+      );
+      if (!Number(revoked?.rowCount ?? revoked?.changes ?? 0)) {
+        const err = new Error("GIFT_ALREADY_ACCESSED");
+        err.code = "GIFT_ALREADY_ACCESSED";
+        throw err;
+      }
+
+      const cancelResult = await giftOrderRepository.markCancelled({
+        giftId: lockedGift.id,
+        refundTransactionId: lockedGift.refund_transaction_id,
+        timestamp,
+        query,
       });
-      refundTxId = refundTx.transactionId;
+      if (!Number(cancelResult?.changes ?? cancelResult?.rowCount ?? 0)) {
+        const err = new Error("GIFT_STATUS_CHANGED");
+        err.code = "GIFT_STATUS_CHANGED";
+        throw err;
+      }
+      await giftDispatchRepository.cancelUnsentRows({
+        giftOrderId: lockedGift.id,
+        updatedAt: timestamp,
+        query,
+      });
+
+      let refundTxId = lockedGift.refund_transaction_id || null;
+      if (!refundTxId) {
+        const refundTx = await applyGiftWalletTransaction({
+          userId: lockedGift.sender_user_id,
+          type: "gift_refund",
+          amount: 1,
+          source: actorType === "admin" ? "gift_cancel_admin" : "gift_cancel",
+          referenceType: "gift_order",
+          referenceId: lockedGift.id,
+          description: "Gift token refunded after cancellation",
+          metadata: {
+            gift_id: lockedGift.id,
+            actor_type: actorType,
+            actor_user_id: actorUserId || null,
+          },
+          idempotencyKey: `gift_refund_${lockedGift.id}`,
+          externalQuery: query,
+        });
+        refundTxId = refundTx.transactionId;
+        await query(
+          "UPDATE gift_orders SET refund_transaction_id = ?, updated_at = ? WHERE id = ? AND status = 'cancelled'",
+          [refundTxId, timestamp, lockedGift.id],
+        );
+      }
+      return {
+        gift: await giftOrderRepository.findById(lockedGift.id, query),
+        refundTxId,
+        idempotent: false,
+      };
+    });
+
+    if (!cancelled.idempotent) {
+      logGiftLifecycle("warn", "cancelled", {
+        gift_id: gift.id,
+        actor_type: actorType,
+        actor_user_id: actorUserId || null,
+        refund_transaction_id: cancelled.refundTxId,
+      });
     }
 
-    const timestamp = nowIso();
-    const cancelResult = await giftOrderRepository.markCancelled({
-      giftId: gift.id,
-      refundTransactionId: refundTxId,
-      timestamp,
-    });
-
-    if (!cancelResult.changes) {
-      // Gift transitioned to dispatching/dispatched between SELECT and UPDATE
-      const err = new Error("GIFT_STATUS_CHANGED");
-      err.code = "GIFT_STATUS_CHANGED";
-      throw err;
-    }
-
-    await giftDispatchRepository.cancelUnsentRows({
-      giftOrderId: gift.id,
-      updatedAt: timestamp,
-    });
-
-    await shareTokenRepository.revokeGiftShare({
-      contentType: gift.content_type,
-      shareTokenId: gift.share_token_id,
-      giftOrderId: gift.id,
-      expiresAt: timestamp,
-    });
-
-    logGiftLifecycle("warn", "cancelled", {
-      gift_id: gift.id,
-      actor_type: actorType,
-      actor_user_id: actorUserId || null,
-      refund_transaction_id: refundTxId,
-    });
-
-    const updated = await giftOrderRepository.findById(gift.id);
     return {
-      gift: updated,
+      gift: cancelled.gift,
       walletBalance: (await ensureGiftWalletRow(gift.sender_user_id)).balance,
       cancelled: true,
-      idempotent: false,
-      refundTxId,
+      idempotent: cancelled.idempotent,
+      refundTxId: cancelled.refundTxId,
     };
   }
 
@@ -870,7 +1016,7 @@ function registerGiftRoutes(app, {
       err.code = "GIFT_CANCELLED";
       throw err;
     }
-    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+    if (!["scheduled", "dispatch_retry", "ready_to_share"].includes(gift.status)) {
       const err = new Error("GIFT_NOT_RETRYABLE");
       err.code = "GIFT_NOT_RETRYABLE";
       throw err;
@@ -915,6 +1061,47 @@ function registerGiftRoutes(app, {
 
   app.decorate("retryGiftOrderById", retryGiftOrderById);
   app.decorate("cancelGiftOrderById", cancelGiftOrderById);
+  app.decorate("createGiftOrderFromPayload", createGiftOrderFromPayload);
+  app.decorate(
+    "refundGiftReservationById",
+    async ({
+      reservationId,
+      userId,
+      reason = "content_generation_failed",
+      source = "web_render_failure",
+      description = "Gift credit restored after song generation failed",
+      externalQuery = null,
+      skipSideEffects = false,
+    }) => {
+      const reservation = await giftReservationRepository.getById(
+        reservationId,
+        externalQuery,
+      );
+      if (!reservation || reservation.user_id !== userId) {
+        const err = new Error("RESERVATION_NOT_FOUND");
+        err.code = "RESERVATION_NOT_FOUND";
+        throw err;
+      }
+      if (["cancelled", "expired", "refunded"].includes(reservation.status)) {
+        return reservation;
+      }
+      if (reservation.status === "finalized") {
+        const err = new Error("RESERVATION_ALREADY_FINALIZED");
+        err.code = "RESERVATION_ALREADY_FINALIZED";
+        throw err;
+      }
+      return refundReservationTokenIfNeeded(reservation, {
+        status: "refunded",
+        cancelReason: reason,
+        source,
+        description,
+        auditAction: "gift_reservation_refunded",
+        eventName: "gift_reservation_refunded",
+        externalQuery,
+        skipSideEffects,
+      });
+    },
+  );
 
   app.decorate("expireGiftReservations", expireGiftReservations);
 
@@ -966,34 +1153,13 @@ function registerGiftRoutes(app, {
     }
 
     try {
-      const wallet = await ensureGiftWalletRow(userId);
-      if (wallet.balance < 1) {
-        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "Unlock a gift credit to keep going.");
-        return;
-      }
-
-      const reservationId = `gres_${crypto.randomBytes(12).toString("hex")}`;
-      const tokenTx = await applyGiftWalletTransaction({
-        userId,
-        type: "gift_reserve",
-        amount: -1,
-        source: "gift_reservation",
-        referenceType: "gift_reservation",
-        referenceId: reservationId,
-        description: "Gift token reserved before content creation",
-        metadata: { flow_type: "gift" },
-        idempotencyKey: idempotencyKey ? `gift_reserve_${idempotencyKey}` : null,
-      });
-
-      const createdAt = nowIso();
-      await giftReservationRepository.createReservation({
-        id: reservationId,
+      const reserved = await giftReservationService.reserveGiftCredit({
         userId,
         idempotencyKey,
-        tokenTransactionId: tokenTx.transactionId,
         expiresAt: expiresAtFromNow(),
-        createdAt,
+        purpose: "interactive_draft",
       });
+      const reservationId = reserved.reservation.id;
 
       await emitGiftActivity({
         userId,
@@ -1003,10 +1169,11 @@ function registerGiftRoutes(app, {
         metadata: { expires_in_minutes: Math.round(reservationTtlMs / 60000) },
       });
 
-      const reservation = await giftReservationRepository.getById(reservationId);
       reply.send({
-        reservation: renderGiftReservation(reservation),
-        wallet_balance: (await ensureGiftWalletRow(userId)).balance,
+        reservation: renderGiftReservation(reserved.reservation),
+        wallet_balance:
+          reserved.balanceAfter ?? (await ensureGiftWalletRow(userId)).balance,
+        idempotent: Boolean(reserved.idempotent),
       });
     } catch (err) {
       if (err.code === "INSUFFICIENT_GIFT_TOKENS") {
@@ -1127,6 +1294,206 @@ function registerGiftRoutes(app, {
     }
   });
 
+  app.put("/gifts/reservations/:id/delivery", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const reservation = await giftReservationRepository.getById(
+      request.params.id,
+    );
+    if (!reservation || reservation.user_id !== userId) {
+      sendError(reply, 404, "RESERVATION_NOT_FOUND", "Gift reservation not found.");
+      return;
+    }
+    const finalizedGift = reservation.gift_order_id
+      ? await giftOrderRepository.findById(reservation.gift_order_id)
+      : null;
+    const canMaterializeLateDelivery =
+      reservation.status === "finalized" &&
+      finalizedGift?.delivery_mode === "manual" &&
+      finalizedGift?.status === "ready_to_share";
+    if (
+      !["reserved", "content_ready"].includes(reservation.status) &&
+      !canMaterializeLateDelivery
+    ) {
+      sendError(
+        reply,
+        409,
+        "DELIVERY_PREFERENCE_LOCKED",
+        "Delivery can no longer be changed.",
+      );
+      return;
+    }
+
+    const body = request.body || {};
+    const parsed = parseGiftDeliveryRequest(
+      {
+        ...body,
+        message: body.personal_note ?? body.message,
+        sender_timezone: body.timezone ?? body.sender_timezone,
+      },
+      reply,
+    );
+    if (!parsed) return;
+    if (
+      parsed.deliveryMode !== "manual" &&
+      !(await getFeatureFlag(db, "web_automated_gift_delivery"))
+    ) {
+      sendError(
+        reply,
+        503,
+        "WEB_AUTOMATED_DELIVERY_DISABLED",
+        "Automatic delivery is unavailable. You can still send the gift link yourself.",
+      );
+      return;
+    }
+
+    const expectedRevision =
+      body.revision === undefined || body.revision === null
+        ? 0
+        : Number(body.revision);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      sendError(reply, 400, "INVALID_REVISION", "revision must be a non-negative integer.");
+      return;
+    }
+
+    const preference = {
+      mode: parsed.deliveryMode,
+      channels: parsed.channels,
+      recipientPhone: parsed.recipientPhone,
+      recipientEmail: parsed.recipientEmail,
+      senderDisplayName: parsed.senderDisplayName,
+      senderTimezone: parsed.senderTimezone,
+      sendAt: parsed.sendAtIso,
+      message: parsed.message,
+      expiresInDays: parsed.expiresInDays,
+    };
+    let updated;
+    try {
+      if (canMaterializeLateDelivery && parsed.deliveryMode !== "manual") {
+        const timestamp = nowIso();
+        updated = await db.transaction(async (query) => {
+          const saved = await giftDeliveryPreferenceRepository.upsertOwned({
+            reservationId: reservation.id,
+            userId,
+            expectedRevision,
+            timestamp,
+            preference,
+            query,
+          });
+          if (!saved) {
+            const err = new Error("DELIVERY_PREFERENCE_CONFLICT");
+            err.code = "DELIVERY_PREFERENCE_CONFLICT";
+            throw err;
+          }
+        const existingRows = await giftDispatchRepository.listOutboxRowsForGift({
+          giftOrderId: finalizedGift.id,
+          query,
+        });
+        if (existingRows.length) {
+          const err = new Error("DELIVERY_ALREADY_MATERIALIZED");
+          err.code = "DELIVERY_ALREADY_MATERIALIZED";
+          throw err;
+        }
+        const materialized = await query(
+          `UPDATE gift_orders
+           SET delivery_mode = ?, status = 'scheduled', dispatch_status = 'pending',
+               channels_json = ?, recipient_phone = ?, recipient_email = ?,
+               sender_display_name = COALESCE(?, sender_display_name),
+               sender_timezone = ?, send_at = ?, next_retry_at = ?, message = ?,
+               updated_at = ?
+           WHERE id = ? AND delivery_mode = 'manual' AND status = 'ready_to_share'`,
+          [
+            parsed.deliveryMode,
+            JSON.stringify(parsed.channels),
+            parsed.recipientPhone,
+            parsed.recipientEmail,
+            parsed.senderDisplayName || null,
+            parsed.senderTimezone,
+            parsed.sendAtIso,
+            parsed.sendAtIso,
+            parsed.message || null,
+            timestamp,
+            finalizedGift.id,
+          ],
+        );
+        const changed = materialized?.rowCount ?? materialized?.changes ?? 0;
+        if (!changed) {
+          const err = new Error("DELIVERY_ALREADY_MATERIALIZED");
+          err.code = "DELIVERY_ALREADY_MATERIALIZED";
+          throw err;
+        }
+        await createGiftDeliveryOutboxRows({
+          giftOrderId: finalizedGift.id,
+          channels: parsed.channels,
+          recipientPhone: parsed.recipientPhone,
+          recipientEmail: parsed.recipientEmail,
+          sendAtIso: parsed.sendAtIso,
+          externalQuery: query,
+        });
+        await shareTokenRepository.updateGiftShareSchedule({
+          contentType: finalizedGift.content_type,
+          shareTokenId: finalizedGift.share_token_id,
+          giftOrderId: finalizedGift.id,
+          dispatchAt: parsed.sendAtIso,
+          expiresAt: computeGiftShareExpiresAt(
+            parsed.sendAtIso,
+            parsed.expiresInDays,
+          ),
+          query,
+        });
+          return saved;
+        });
+        if (parsed.deliveryMode === "immediate") {
+          await dispatchGiftById(finalizedGift.id);
+        }
+      } else {
+        updated = await giftDeliveryPreferenceRepository.upsertOwned({
+          reservationId: reservation.id,
+          userId,
+          expectedRevision,
+          timestamp: nowIso(),
+          preference,
+        });
+      }
+    } catch (err) {
+      if (
+        ["DELIVERY_PREFERENCE_CONFLICT", "DELIVERY_ALREADY_MATERIALIZED"].includes(
+          err.code,
+        )
+      ) {
+        sendError(
+          reply,
+          409,
+          err.code,
+          "Delivery changed somewhere else. Refresh and try again.",
+        );
+        return;
+      }
+      throw err;
+    }
+    if (!updated) {
+      sendError(
+        reply,
+        409,
+        "DELIVERY_PREFERENCE_CONFLICT",
+        "Delivery changed somewhere else. Refresh and try again.",
+      );
+      return;
+    }
+
+    reply.send({
+      delivery: {
+        mode: updated.mode,
+        revision: Number(updated.revision),
+        can_edit: true,
+        sender_display_name: updated.sender_display_name || undefined,
+        send_at: updated.send_at || undefined,
+        timezone: updated.sender_timezone || undefined,
+      },
+    });
+  });
+
   app.post("/gifts/reservations/:id/finalize", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
@@ -1215,6 +1582,26 @@ function registerGiftRoutes(app, {
           err.code = "RESERVATION_NOT_FINALIZABLE";
           throw err;
         }
+        const claim = await giftReservationRepository.claimForFinalization({
+          reservationId: latestReservation.id,
+          updatedAt: nowIso(),
+          query,
+        });
+        if (!Number(claim?.changes ?? claim?.rowCount ?? 0)) {
+          const winner = await giftReservationRepository.getById(
+            latestReservation.id,
+            query,
+          );
+          if (winner?.gift_order_id) {
+            return {
+              gift: await giftOrderRepository.findById(winner.gift_order_id, query),
+              idempotent: true,
+            };
+          }
+          const err = new Error("RESERVATION_NOT_FINALIZABLE");
+          err.code = "RESERVATION_NOT_FINALIZABLE";
+          throw err;
+        }
 
         const createdGift = await createGiftOrderFromPayload({
           userId,
@@ -1238,12 +1625,17 @@ function registerGiftRoutes(app, {
           skipSideEffects: true,
         });
 
-        await giftReservationRepository.markFinalized({
+        const finalized = await giftReservationRepository.markFinalized({
           reservationId: latestReservation.id,
           giftOrderId: createdGift.gift.id,
           updatedAt: nowIso(),
           query,
         });
+        if (!Number(finalized?.changes ?? finalized?.rowCount ?? 0)) {
+          const err = new Error("GIFT_FINALIZE_INTEGRITY_FAILED");
+          err.code = "GIFT_FINALIZE_INTEGRITY_FAILED";
+          throw err;
+        }
 
         return createdGift;
       });
@@ -1459,7 +1851,7 @@ function registerGiftRoutes(app, {
       });
 
       reply.send({
-        gifts: rows.map(renderGiftSummary),
+        gifts: await Promise.all(rows.map(renderGiftSummaryWithDelivery)),
         wallet_balance: (await ensureGiftWalletRow(userId)).balance,
       });
     } catch (err) {
@@ -1477,7 +1869,7 @@ function registerGiftRoutes(app, {
       sendError(reply, 404, "GIFT_NOT_FOUND", "Gift not found.");
       return;
     }
-    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+    if (!["scheduled", "dispatch_retry", "ready_to_share"].includes(gift.status)) {
       sendError(reply, 409, "GIFT_NOT_EDITABLE", "Gift can no longer be edited.");
       return;
     }
@@ -1574,6 +1966,89 @@ function registerGiftRoutes(app, {
     reply.send({ gift: renderGiftSummary(updated) });
   });
 
+  app.post("/gifts/:id/delivery/stop", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const gift = await giftOrderRepository.findById(request.params.id);
+    if (!gift || gift.sender_user_id !== userId) {
+      sendError(reply, 404, "GIFT_NOT_FOUND", "Gift not found.");
+      return;
+    }
+    const channels = normalizeGiftChannels(request.body?.channels);
+    if (!channels.length) {
+      sendError(
+        reply,
+        400,
+        "INVALID_CHANNELS",
+        "Choose at least one delivery channel to stop.",
+      );
+      return;
+    }
+
+    const timestamp = nowIso();
+    const stopResult = await db.transaction(async (query) => {
+      const cancelled = await giftDispatchRepository.cancelUnsentChannels({
+        giftOrderId: gift.id,
+        channels,
+        updatedAt: timestamp,
+        query,
+      });
+      const allResult = await query(
+        "SELECT channel, status FROM gift_delivery_outbox WHERE gift_order_id = ?",
+        [gift.id],
+      );
+      const allRows = allResult?.rows || [];
+      const hasActive = allRows.some((row) =>
+        ["pending", "failed", "sending"].includes(row.status),
+      );
+      const hasAccepted = allRows.some((row) => row.status === "sent");
+      if (!hasActive) {
+        await query(
+          `UPDATE gift_orders
+           SET status = ?,
+               dispatch_status = ?,
+               next_retry_at = NULL,
+               updated_at = ?
+           WHERE id = ? AND status != 'cancelled'`,
+          [
+            hasAccepted ? "dispatched" : "ready_to_share",
+            hasAccepted ? "partial" : "cancelled",
+            timestamp,
+            gift.id,
+          ],
+        );
+      }
+      const afterResult = await query(
+        `SELECT channel, status
+         FROM gift_delivery_outbox
+         WHERE gift_order_id = ? AND channel IN (${channels.map(() => "?").join(", ")})`,
+        [gift.id, ...channels],
+      );
+      return {
+        channels: (afterResult?.rows || [])
+          .filter((row) => row.status === "cancelled")
+          .map((row) => row.channel),
+        changed: Number(cancelled?.changes ?? cancelled?.rowCount ?? 0) > 0,
+      };
+    });
+
+    if (stopResult.changed) {
+      await emitGiftActivity({
+        userId,
+        action: "gift_delivery_stopped",
+        resourceType: "gift_order",
+        resourceId: gift.id,
+        metadata: { channels: stopResult.channels },
+      });
+    }
+    const updated = await giftOrderRepository.findById(gift.id);
+    reply.send({
+      gift: await renderGiftSummaryWithDelivery(updated),
+      stopped_channels: stopResult.channels,
+    });
+  });
+
   app.post("/gifts/:id/cancel", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
@@ -1595,7 +2070,7 @@ function registerGiftRoutes(app, {
       });
       return;
     }
-    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+    if (!["scheduled", "dispatch_retry", "ready_to_share"].includes(gift.status)) {
       sendError(reply, 409, "GIFT_NOT_CANCELLABLE", "Gift cannot be cancelled in its current state.");
       return;
     }
@@ -1616,6 +2091,15 @@ function registerGiftRoutes(app, {
     } catch (err) {
       if (err.code === "GIFT_ALREADY_PARTIALLY_DISPATCHED") {
         sendError(reply, 409, "GIFT_ALREADY_PARTIALLY_DISPATCHED", "Gift delivery already started and can no longer be cancelled.");
+        return;
+      }
+      if (err.code === "GIFT_ALREADY_ACCESSED") {
+        sendError(
+          reply,
+          409,
+          "GIFT_ALREADY_ACCESSED",
+          "The recipient already opened this gift, so the credit cannot be restored.",
+        );
         return;
       }
       if (err.code === "GIFT_ALREADY_DISPATCHED") {

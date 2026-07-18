@@ -1,28 +1,34 @@
 "use strict";
 
+const { createPreparedDbFromQuery } = require("../utils/db-adapter");
+
 function createGiftFundingRepository(db) {
-  async function getReservationById(reservationId) {
-    return db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(reservationId);
+  function runner(query = null) {
+    return query ? createPreparedDbFromQuery(query, db) : db;
   }
 
-  async function getActiveTrackForReservation(reservationId) {
-    return db
+  async function getReservationById(reservationId, query = null) {
+    return runner(query).prepare("SELECT * FROM gift_reservations WHERE id = ?").get(reservationId);
+  }
+
+  async function getActiveTrackForReservation(reservationId, query = null) {
+    return runner(query)
       .prepare(
         "SELECT id FROM tracks WHERE gift_reservation_id = ? AND deleted_at IS NULL LIMIT 1",
       )
       .get(reservationId);
   }
 
-  async function getActivePoemForReservation(reservationId) {
-    return db
+  async function getActivePoemForReservation(reservationId, query = null) {
+    return runner(query)
       .prepare(
         "SELECT id FROM poems WHERE gift_reservation_id = ? AND deleted_at IS NULL LIMIT 1",
       )
       .get(reservationId);
   }
 
-  async function findLatestTrackForReservation(reservationId) {
-    return db
+  async function findLatestTrackForReservation(reservationId, query = null) {
+    return runner(query)
       .prepare(
         `SELECT id, latest_version, status, updated_at
          FROM tracks
@@ -33,8 +39,8 @@ function createGiftFundingRepository(db) {
       .get(reservationId);
   }
 
-  async function findLatestPoemForReservation(reservationId) {
-    return db
+  async function findLatestPoemForReservation(reservationId, query = null) {
+    return runner(query)
       .prepare(
         `SELECT id, status, updated_at
          FROM poems
@@ -45,24 +51,24 @@ function createGiftFundingRepository(db) {
       .get(reservationId);
   }
 
-  async function listActiveTracksForReservation(reservationId) {
-    return db
+  async function listActiveTracksForReservation(reservationId, query = null) {
+    return runner(query)
       .prepare(
         "SELECT id, share_token_id FROM tracks WHERE gift_reservation_id = ? AND deleted_at IS NULL",
       )
       .all(reservationId);
   }
 
-  async function listActivePoemsForReservation(reservationId) {
-    return db
+  async function listActivePoemsForReservation(reservationId, query = null) {
+    return runner(query)
       .prepare(
         "SELECT id, share_token_id FROM poems WHERE gift_reservation_id = ? AND deleted_at IS NULL",
       )
       .all(reservationId);
   }
 
-  async function revokeTrackShareToken({ shareTokenId, timestamp }) {
-    return db
+  async function revokeTrackShareToken({ shareTokenId, timestamp, query = null }) {
+    return runner(query)
       .prepare(
         `UPDATE share_tokens
          SET status = 'revoked',
@@ -74,24 +80,24 @@ function createGiftFundingRepository(db) {
       .run(timestamp, shareTokenId);
   }
 
-  async function softDeleteTrack({ trackId, timestamp }) {
-    return db
+  async function softDeleteTrack({ trackId, timestamp, query = null }) {
+    return runner(query)
       .prepare(
         "UPDATE tracks SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       )
       .run(timestamp, timestamp, trackId);
   }
 
-  async function removeTrackLibraryEntry({ trackId, timestamp }) {
-    return db
+  async function removeTrackLibraryEntry({ trackId, timestamp, query = null }) {
+    return runner(query)
       .prepare(
         "UPDATE track_library_entries SET removed_at = COALESCE(removed_at, ?), updated_at = ? WHERE track_id = ? AND removed_at IS NULL",
       )
       .run(timestamp, timestamp, trackId);
   }
 
-  async function revokePoemShareToken({ shareTokenId, timestamp }) {
-    return db
+  async function revokePoemShareToken({ shareTokenId, timestamp, query = null }) {
+    return runner(query)
       .prepare(
         `UPDATE poem_share_tokens
          SET status = 'revoked',
@@ -102,16 +108,16 @@ function createGiftFundingRepository(db) {
       .run(timestamp, shareTokenId);
   }
 
-  async function softDeletePoem({ poemId, timestamp }) {
-    return db
+  async function softDeletePoem({ poemId, timestamp, query = null }) {
+    return runner(query)
       .prepare(
         "UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       )
       .run(timestamp, timestamp, poemId);
   }
 
-  async function removePoemLibraryEntry({ poemId, timestamp }) {
-    return db
+  async function removePoemLibraryEntry({ poemId, timestamp, query = null }) {
+    return runner(query)
       .prepare(
         "UPDATE poem_library_entries SET removed_at = COALESCE(removed_at, ?), updated_at = ? WHERE poem_id = ? AND removed_at IS NULL",
       )

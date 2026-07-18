@@ -51,7 +51,11 @@ function createWebOrderOrchestrator({
   renderFullVersion,
   getVersionRenderState,
   createGiftShare,
+  finalizeGiftOrder = null,
+  getDeliveryState = async () => null,
+  refundGiftReservation = null,
   sendDeliveryEmail,
+  sendBuyerCompletionEmail = async () => {},
   sendApologyEmail,
   refundOrder,
   alertAdmin = async () => {},
@@ -157,24 +161,64 @@ function createWebOrderOrchestrator({
     });
 
     if (state.ready) {
-      const share = await createGiftShare({ order });
+      const reservationBacked =
+        order.funding_model === "gift_reservation_v1" && finalizeGiftOrder;
+      const share = reservationBacked
+        ? await finalizeGiftOrder({ order })
+        : await createGiftShare({ order });
+      if (share?.aborted) {
+        return {
+          status: share.orderStatus || "refunded",
+          alreadyAdvanced: true,
+        };
+      }
+      if (reservationBacked && share.orderTransitioned === false) {
+        return {
+          status: "delivered",
+          shareUrl: share.shareUrl,
+          alreadyAdvanced: true,
+        };
+      }
       // The song is rendered and the share exists — the order IS delivered.
       // Flip to delivered BEFORE the email so a delivery-email failure (Resend
       // outage, bad address) can never strand a paid, rendered order in
       // `rendering` forever. The email is a best-effort notification, not a gate.
-      await orders.updateStatus({
-        orderId: order.id,
-        fromStatus: "rendering",
-        toStatus: "delivered",
-        shareTokenId: share.shareId,
-      });
-      try {
-        await sendDeliveryEmail({ order, shareUrl: share.shareUrl });
-      } catch (err) {
-        logger.error?.(
-          { err, orderId: order.id },
-          "Delivery email failed after delivery; order is delivered, share is live",
-        );
+      const delivered = reservationBacked
+        ? Number(share.orderDelivered)
+        : await orders.updateStatus({
+            orderId: order.id,
+            fromStatus: "rendering",
+            toStatus: "delivered",
+            shareTokenId: share.shareId,
+          });
+      if (!delivered) {
+        return {
+          status: "delivered",
+          shareUrl: share.shareUrl,
+          alreadyAdvanced: true,
+        };
+      }
+      if (order.funding_model !== "gift_reservation_v1") {
+        try {
+          await sendDeliveryEmail({ order, shareUrl: share.shareUrl });
+        } catch (err) {
+          logger.error?.(
+            { err, orderId: order.id },
+            "Delivery email failed after delivery; order is delivered, share is live",
+          );
+        }
+      } else {
+        try {
+          await sendBuyerCompletionEmail({
+            order,
+            shareUrl: share.shareUrl,
+          });
+        } catch (err) {
+          logger.error?.(
+            { err, orderId: order.id },
+            "Buyer completion email failed after gift finalization",
+          );
+        }
       }
       return { status: "delivered", shareUrl: share.shareUrl };
     }
@@ -198,6 +242,24 @@ function createWebOrderOrchestrator({
   }
 
   async function refundForFailure(order) {
+    if (
+      order.funding_model === "gift_reservation_v1" &&
+      order.gift_reservation_id &&
+      refundGiftReservation
+    ) {
+      await refundGiftReservation({ order });
+      await orders.updateStatus({
+        orderId: order.id,
+        fromStatus: ["rendering", "failed"],
+        toStatus: "failed",
+      });
+      await safeAlert("Web gift reservation refunded after render failure", {
+        orderId: order.id,
+        giftReservationId: order.gift_reservation_id,
+      });
+      return { status: "failed", reservationRefunded: true };
+    }
+
     try {
       await refundOrder({ order });
     } catch (err) {
@@ -275,11 +337,21 @@ function createWebOrderOrchestrator({
         ? meta.buildShareUrl(order.share_token_id)
         : undefined;
     }
+    const deliveryState = await getDeliveryState({ order });
     return {
+      order_id: order.id,
       status: order.status,
+      content_status: order.status === "delivered" ? "ready" : order.status,
       recipient_name: recipientName || undefined,
       progress_copy: progressCopy(order.status, recipientName),
       share_url: shareUrl,
+      order_reference: order.id,
+      gift_reservation_id: order.gift_reservation_id || undefined,
+      payment_source: order.payment_source || undefined,
+      buyer_email_sent: Boolean(order.email),
+      receipt_available:
+        order.payment_source === "stripe" && Number(order.amount_cents || 0) > 0,
+      ...deliveryState,
     };
   }
 

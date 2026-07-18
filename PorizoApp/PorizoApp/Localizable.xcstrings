@@ -1,5 +1,99 @@
 {
   "sourceLanguage" : "en",
-  "strings" : {},
+  "strings" : {
+    "Cancel this gift?" : {
+      "comment" : "Confirmation title before cancelling a managed gift."
+    },
+    "Cancelled" : {
+      "comment" : "Gift delivery status after cancellation."
+    },
+    "Delivered" : {
+      "comment" : "Gift delivery status after successful delivery."
+    },
+    "Delivery failed" : {
+      "comment" : "Gift delivery status after all delivery attempts fail."
+    },
+    "Gift is ready to share" : {
+      "comment" : "Success title for a manual gift."
+    },
+    "I made this gift for you." : {
+      "comment" : "Default message included when the sender shares a manual gift."
+    },
+    "No gifts to manage" : {
+      "comment" : "Empty state title for the sender gift-management list."
+    },
+    "Keeps the gift and share available without returning a gift credit." : {
+      "comment" : "Accessibility hint for stopping one automatic delivery channel."
+    },
+    "Manage scheduled gift" : {
+      "comment" : "Action for opening a scheduled gift's management screen."
+    },
+    "Opens the system share sheet with the private gift link." : {
+      "comment" : "Accessibility hint for sharing a manual gift."
+    },
+    "Porizo will not send this gift automatically." : {
+      "comment" : "Explains that a manual gift must be shared by the sender."
+    },
+    "Partly delivered" : {
+      "comment" : "Gift status after only some requested delivery channels succeed."
+    },
+    "Ready to share" : {
+      "comment" : "Gift status when the sender must share the private link."
+    },
+    "Retrying" : {
+      "comment" : "Gift status while automatic delivery is waiting to retry."
+    },
+    "Scheduled" : {
+      "comment" : "Gift status while waiting for its scheduled delivery time."
+    },
+    "Scheduled and ready-to-share gifts will appear here." : {
+      "comment" : "Empty state detail for the sender gift-management surface."
+    },
+    "Share gift" : {
+      "comment" : "Primary action for sharing a manual gift."
+    },
+    "Share manually" : {
+      "comment" : "Delivery detail shown for a gift that the sender must share."
+    },
+    "Share this gift" : {
+      "comment" : "Section title above the manual gift share action."
+    },
+    "Share this gift with %@ when you’re ready." : {
+      "comment" : "Manual gift success detail; the placeholder is the recipient name."
+    },
+    "Sending" : {
+      "comment" : "Gift status while automatic delivery is in progress."
+    },
+    "Stop delivery" : {
+      "comment" : "Destructive confirmation action for stopping an automatic delivery channel."
+    },
+    "Stop %@ delivery" : {
+      "comment" : "Action for stopping one delivery channel; the placeholder is the channel name."
+    },
+    "Stop %@ delivery?" : {
+      "comment" : "Confirmation title for stopping one delivery channel; the placeholder is the channel name."
+    },
+    "The gift and its share stay available. This does not return a gift credit." : {
+      "comment" : "Explains the consequences of stopping one delivery channel."
+    },
+    "This cancels the whole gift, removes its share, and returns the gift credit when the gift is still eligible." : {
+      "comment" : "Explains the consequences of cancelling a gift."
+    },
+    "The private share link is not available yet. Refresh and try again." : {
+      "comment" : "Shown when a manual gift is ready but its private share URL is unavailable."
+    },
+    "This gift is ready. Share the private link when the moment feels right." : {
+      "comment" : "Guidance shown when managing a manual gift."
+    },
+    "View all gifts" : {
+      "comment" : "Action that opens the full sender gift-management list."
+    },
+    "Your Gifts" : {
+      "comment" : "Navigation title for the sender gift-management list."
+    },
+    "Your gifts" : {
+      "comment" : "Heading for the sender gift-management card."
+    }
+  },
   "version" : "1.0"
 }

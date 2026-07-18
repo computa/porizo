@@ -48,8 +48,13 @@ function createGiftOrderRepository(db) {
       .all(userId, limit, offset);
   }
 
-  async function markCancelled({ giftId, refundTransactionId, timestamp }) {
-    return db
+  async function markCancelled({
+    giftId,
+    refundTransactionId,
+    timestamp,
+    query = null,
+  }) {
+    return runner(query)
       .prepare(
         `UPDATE gift_orders
          SET status = 'cancelled',
@@ -59,7 +64,8 @@ function createGiftOrderRepository(db) {
              next_retry_at = NULL,
              dispatch_started_at = NULL,
              updated_at = ?
-         WHERE id = ? AND status IN ('scheduled', 'dispatch_retry', 'cancelled')`,
+         WHERE id = ?
+           AND status IN ('scheduled', 'dispatch_retry', 'ready_to_share')`,
       )
       .run(timestamp, refundTransactionId, timestamp, giftId);
   }
@@ -140,6 +146,7 @@ function createGiftOrderRepository(db) {
     versionNum,
     contentSnapshot,
     idempotencyKey,
+    originWebOrderId = null,
     timestamp,
     query = null,
   }) {
@@ -150,28 +157,29 @@ function createGiftOrderRepository(db) {
           send_at, sender_timezone, recipient_name, sender_display_name, channels_json, recipient_phone, recipient_email, message,
           share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
           last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
-          version_num, content_snapshot_json, next_retry_at, dispatch_started_at, idempotency_key, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          version_num, content_snapshot_json, next_retry_at, dispatch_started_at, idempotency_key,
+          origin_web_order_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         senderUserId,
         contentType,
         contentId,
-        "scheduled",
-        "pending",
+        deliveryMode === "manual" ? "ready_to_share" : "scheduled",
+        deliveryMode === "manual" ? "not_requested" : "pending",
         deliveryMode,
         sendAt,
         senderTimezone,
-        recipientName,
-        senderDisplayName,
+        recipientName || null,
+        senderDisplayName || null,
         toJson(channels),
-        recipientPhone,
-        recipientEmail,
+        recipientPhone || null,
+        recipientEmail || null,
         message || null,
         shareTokenId,
         shareUrl,
-        claimPin,
+        claimPin || null,
         claimPolicy,
         expiresInDays,
         0,
@@ -180,11 +188,12 @@ function createGiftOrderRepository(db) {
         null,
         tokenTransactionId,
         null,
-        versionNum,
+        versionNum ?? null,
         contentSnapshot ? toJson(contentSnapshot) : null,
         sendAt,
         null,
         idempotencyKey,
+        originWebOrderId,
         timestamp,
         timestamp,
       );

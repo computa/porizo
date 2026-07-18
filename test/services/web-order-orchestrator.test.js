@@ -188,6 +188,43 @@ describe("web order orchestrator", () => {
     assert.equal(order.rows[0].share_token_id, "sh_1");
   });
 
+  it("finalizes the common gift reservation without buyer-email delivery", async () => {
+    await seedOrder(db, { status: "rendering" });
+    await db
+      .prepare(
+        "UPDATE web_orders SET funding_model = 'gift_reservation_v1', gift_reservation_id = 'gres_web_1' WHERE id = 'worder_1'",
+      )
+      .run();
+    const { deps, calls } = makeDeps({
+      getVersionRenderState: async () => ({ ready: true, failed: false }),
+      extra: {
+        finalizeGiftOrder: async () => {
+          await db
+            .prepare(
+              "UPDATE web_orders SET status = 'delivered', share_token_id = ? WHERE id = ? AND status = 'rendering'",
+            )
+            .run("sh_common", "worder_1");
+          return {
+            shareId: "sh_common",
+            shareUrl: "https://porizo.co/play/sh_common",
+            orderDelivered: true,
+            orderTransitioned: true,
+          };
+        },
+      },
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    const result = await orch.tick("worder_1");
+    assert.equal(result.status, "delivered");
+    assert.equal(calls.share, 0, "legacy share creation is bypassed");
+    assert.equal(calls.delivery.length, 0, "buyer receipt is not recipient delivery");
+    const order = await db
+      .prepare("SELECT share_token_id FROM web_orders WHERE id = ?")
+      .get("worder_1");
+    assert.equal(order.share_token_id, "sh_common");
+  });
+
   it("still delivers when the delivery email fails (email is best-effort, not a gate)", async () => {
     await seedOrder(db, { status: "rendering" });
     const { deps, calls } = makeDeps({
@@ -244,6 +281,31 @@ describe("web order orchestrator", () => {
       "SELECT status FROM web_orders WHERE id = 'worder_1'",
     );
     assert.equal(order.rows[0].status, "refunded");
+  });
+
+  it("restores only the reserved credit when a common-wallet render fails", async () => {
+    await seedOrder(db, { status: "rendering", attempts: 2 });
+    await db
+      .prepare(
+        "UPDATE web_orders SET funding_model = 'gift_reservation_v1', gift_reservation_id = 'gres_failed' WHERE id = 'worder_1'",
+      )
+      .run();
+    let reservationRefunds = 0;
+    const { deps, calls } = makeDeps({
+      getVersionRenderState: async () => ({ ready: false, failed: true }),
+      extra: {
+        refundGiftReservation: async () => {
+          reservationRefunds += 1;
+        },
+      },
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    const result = await orch.tick("worder_1");
+    assert.equal(result.status, "failed");
+    assert.equal(result.reservationRefunded, true);
+    assert.equal(reservationRefunds, 1);
+    assert.equal(calls.refund, 0, "Stripe purchase remains a fungible wallet grant");
   });
 
   it("retries the render when failures remain under the cap", async () => {

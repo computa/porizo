@@ -92,14 +92,17 @@ function isConfigured() {
   return Boolean(config.apiKey);
 }
 
-async function sendLifecyclePayload(email, payload) {
+async function sendLifecyclePayload(email, payload, { idempotencyKey } = {}) {
   if (contactDeliveryPolicy) {
     const decision = await contactDeliveryPolicy.canSendLifecycleEmail({ email });
     if (!decision.allowed && decision.reason === "contact_suppressed") {
       return { data: { id: null }, error: null };
     }
   }
-  return getClient().emails.send(payload);
+  return getClient().emails.send(
+    payload,
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
 }
 
 async function sendLifecycleEmail({
@@ -677,6 +680,7 @@ If this wasn't you, please secure your account immediately by resetting your pas
  * @param {string} payload.contentType - "song" or "poem"
  * @param {string} [payload.message] - Optional sender message
  * @param {Array<{name: string, value: string}>} [payload.tags] - Optional provider tags
+ * @param {string} [payload.idempotencyKey] - Stable provider idempotency key
  */
 async function sendGiftDeliveryEmail(payload) {
   const {
@@ -690,6 +694,7 @@ async function sendGiftDeliveryEmail(payload) {
     occasion,
     message,
     tags,
+    idempotencyKey,
   } = payload;
 
   const noun = contentType === "poem" ? "poem" : "song";
@@ -820,7 +825,7 @@ async function sendGiftDeliveryEmail(payload) {
 
   <tr><td align="center" style="padding: 20px 40px 28px;">
     <p style="margin: 0; font-size: 12px; color: #BBBBBB; line-height: 1.6;">
-      Sent with love via <a href="https://porizo.co" style="color: #B0763F; text-decoration: none;">${config.appName}</a>
+      ${safeSenderHtml} asked Porizo to send this one-time gift email. You have not been added to a marketing list. If you do not want messages about this gift, ignore this email or contact <a href="mailto:support@porizo.co" style="color: #B0763F; text-decoration: none;">support@porizo.co</a>.
     </p>
   </td></tr>
 
@@ -838,14 +843,76 @@ Claim PIN: ${claimPin}
 Open your gift: ${giftCtaUrl}
 
 You'll need the PIN to unlock your gift in the ${config.appName} app.
+
+${safeSender} asked Porizo to send this one-time gift email. You have not been subscribed to marketing. If you do not want messages about this gift, ignore this email or contact support@porizo.co.
     `.trim(),
-  });
+  }, idempotencyKey ? { idempotencyKey } : undefined);
 
   if (error) {
     throw new Error(`Failed to send gift email: ${error.message}`);
   }
 
   return { messageId: data.id };
+}
+
+async function sendGiftBuyerCompletionEmail({
+  to,
+  recipientName,
+  shareUrl,
+  orderId,
+  idempotencyKey,
+}) {
+  const safeRecipient =
+    typeof recipientName === "string" && recipientName.trim()
+      ? recipientName.trim()
+      : "Your recipient";
+  const safeUrl = escapeHtml(shareUrl);
+  const safeOrderId = escapeHtml(orderId || "");
+  const managementUrl = `${config.publicBaseUrl}/create/success?order_id=${encodeURIComponent(orderId || "")}`;
+  const { data, error } = await sendLifecyclePayload(to, {
+    from: config.fromEmail,
+    to,
+    subject: `${safeRecipient}'s song is ready`,
+    html: `<h1>${escapeHtml(safeRecipient)}'s song is ready.</h1>
+<p>Your recipient has not been contacted unless you explicitly configured delivery.</p>
+<p><a href="${escapeHtml(managementUrl)}">Manage delivery for this order</a></p>
+<p><a href="${safeUrl}">Open the gift link to share it yourself</a></p>
+<p style="color:#666;font-size:12px">Order reference: ${safeOrderId}</p>`,
+    text: `${safeRecipient}'s song is ready.\n\nYour recipient has not been contacted unless you explicitly configured delivery.\n\nManage delivery: ${managementUrl}\n\nShare the gift yourself: ${shareUrl}\n\nOrder reference: ${orderId || ""}`,
+    tags: [{ name: "type", value: "web_gift_buyer_completion" }],
+  }, { idempotencyKey });
+  if (error) {
+    throw new Error(`Failed to send buyer completion email: ${error.message}`);
+  }
+  return { messageId: data?.id || null };
+}
+
+async function sendGiftBuyerDeliveryFailureEmail({
+  to,
+  recipientName,
+  shareUrl,
+  orderId,
+  idempotencyKey,
+}) {
+  const safeRecipient =
+    typeof recipientName === "string" && recipientName.trim()
+      ? recipientName.trim()
+      : "your recipient";
+  const { data, error } = await sendLifecyclePayload(to, {
+    from: config.fromEmail,
+    to,
+    subject: `We couldn't deliver ${safeRecipient}'s gift automatically`,
+    html: `<h1>Your gift is still ready.</h1>
+<p>Automatic delivery did not complete, but the song and gift link still work. Please send the link yourself.</p>
+<p><a href="${escapeHtml(shareUrl)}">Open the gift link</a></p>
+<p style="color:#666;font-size:12px">Order reference: ${escapeHtml(orderId || "")}</p>`,
+    text: `Your gift is still ready.\n\nAutomatic delivery did not complete, but the song and gift link still work. Please send it yourself: ${shareUrl}\n\nOrder reference: ${orderId || ""}`,
+    tags: [{ name: "type", value: "web_gift_delivery_failure" }],
+  }, { idempotencyKey });
+  if (error) {
+    throw new Error(`Failed to send buyer delivery failure email: ${error.message}`);
+  }
+  return { messageId: data?.id || null };
 }
 
 /**
@@ -991,5 +1058,7 @@ module.exports = {
   sendWelcomeEmail,
   sendSecurityAlertEmail,
   sendGiftDeliveryEmail,
+  sendGiftBuyerCompletionEmail,
+  sendGiftBuyerDeliveryFailureEmail,
   sendShareFollowupEmail,
 };

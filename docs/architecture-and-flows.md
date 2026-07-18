@@ -1205,6 +1205,25 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
 
 SwiftUI state boundary: create-flow presentations that depend on selected payloads use item-driven presentation (`.sheet(item:)`, `.fullScreenCover(item:)`, or typed `ActiveSheet` associated values). Boolean presentation flags are only acceptable for payload-free UI.
 
+### Fungible gift-credit and recipient-delivery flow
+
+Stripe and StoreKit purchases are immutable grant sources for one `gift_wallet`.
+Neither source creates a platform-specific balance. Web and iOS both reserve one
+credit in `gift_reservations`, bind generated content with
+`funding_source = gift_wallet`, skip a second render spend, and finalize through
+the ordinary `gift_orders` and `gift_delivery_outbox` lifecycle.
+
+Manual delivery is the default and creates a stable ready-to-share gift with no
+provider outbox rows. Explicit SMS/email delivery may be immediate or scheduled
+and uses the same share. Stopping an unsent provider channel never revokes the
+share or refunds the credit. Full cancellation may return a credit only before
+provider acceptance and before recipient access/claim. Provider exhaustion is a
+notification failure: the playable gift remains available and the wallet is not
+mutated.
+
+Operational and rollout procedures are documented in
+`docs/operations/web-gift-delivery.md`.
+
 **MVP Decision:** No self-hosted GPU infrastructure. All GPU tasks (voice embedding, voice conversion) use cloud APIs (Replicate). Upgrade path: Kits AI for higher quality, or self-hosted RVC post-MVP.
 
 ---

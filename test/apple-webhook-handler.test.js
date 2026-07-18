@@ -426,6 +426,41 @@ describe("Apple Webhook Handler", async () => {
   });
 
   describe("REFUND notifications", () => {
+    it("routes a consumable refund through the fungible gift-wallet reversal", async () => {
+      const calls = [];
+      const consumableHandler = createAppleWebhookHandler(db, {
+        subscriptionManager,
+        appleValidator: {
+          decodeJWS: (jws) =>
+            JSON.parse(
+              Buffer.from(jws.split(".")[1], "base64url").toString("utf8"),
+            ),
+        },
+        giftPurchaseReversal: async (args) => {
+          calls.push(args);
+          return { transactionId: "gift_reversal_1" };
+        },
+      });
+      const transactionId = `gift_consumable_refund_${Date.now()}`;
+      const notification = createMockNotification({
+        notificationType: NOTIFICATION_TYPES.REFUND,
+        transactionInfo: {
+          transactionId,
+          originalTransactionId: transactionId,
+          productId: "com.porizo.gift.bundle",
+          expiresDate: null,
+        },
+      });
+
+      const result = await consumableHandler.processNotification(
+        createMockJWS(notification),
+      );
+
+      assert.equal(result.success, true);
+      assert.equal(result.result.action, "gift_purchase_refunded");
+      assert.deepEqual(calls, [{ transactionId, reversed: false }]);
+    });
+
     it("revokes subscription and removes songs", async () => {
       // Create initial subscription
       const originalTxId = `otx_refund_${Date.now()}`;

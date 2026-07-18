@@ -13,8 +13,8 @@ function createGiftReservationRepository(db) {
       .get(reservationId);
   }
 
-  async function findByIdempotencyKey({ userId, idempotencyKey }) {
-    return db
+  async function findByIdempotencyKey({ userId, idempotencyKey, query = null }) {
+    return runner(query)
       .prepare(
         "SELECT * FROM gift_reservations WHERE user_id = ? AND idempotency_key = ? LIMIT 1",
       )
@@ -28,6 +28,7 @@ function createGiftReservationRepository(db) {
          FROM gift_reservations
          WHERE user_id = ?
            AND status IN ('reserved', 'content_ready')
+           AND COALESCE(purpose, 'interactive_draft') = 'interactive_draft'
          ORDER BY created_at DESC
          LIMIT 1`,
       )
@@ -49,10 +50,18 @@ function createGiftReservationRepository(db) {
     return db
       .prepare(
         `SELECT *
-         FROM gift_reservations
-         WHERE status IN ('reserved', 'content_ready')
-           AND expires_at <= ?
-         ORDER BY expires_at ASC
+         FROM gift_reservations gr
+         WHERE gr.status IN ('reserved', 'content_ready')
+           AND gr.expires_at <= ?
+           AND NOT (
+             COALESCE(gr.purpose, 'interactive_draft') = 'paid_web_order'
+             AND EXISTS (
+               SELECT 1 FROM web_orders wo
+               WHERE wo.id = gr.origin_web_order_id
+                 AND wo.status IN ('paid', 'rendering')
+             )
+           )
+         ORDER BY gr.expires_at ASC
          LIMIT ?`,
       )
       .all(now, Math.max(1, Number(limit) || 50));
@@ -65,14 +74,18 @@ function createGiftReservationRepository(db) {
     idempotencyKey = null,
     expiresAt,
     createdAt,
+    purpose = "interactive_draft",
+    originWebOrderId = null,
+    query = null,
   }) {
-    await db
+    await runner(query)
       .prepare(
         `INSERT INTO gift_reservations (
           id, user_id, status, content_type, content_id, version_num,
           token_transaction_id, refund_transaction_id, gift_order_id,
-          idempotency_key, expires_at, cancel_reason, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          idempotency_key, expires_at, cancel_reason, created_at, updated_at,
+          purpose, origin_web_order_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -89,7 +102,15 @@ function createGiftReservationRepository(db) {
         null,
         createdAt,
         createdAt,
+        purpose,
+        originWebOrderId,
       );
+  }
+
+  async function findByOriginWebOrderId(originWebOrderId, query = null) {
+    return runner(query).prepare(
+      "SELECT * FROM gift_reservations WHERE origin_web_order_id = ? LIMIT 1",
+    ).get(originWebOrderId);
   }
 
   async function markRefunded({
@@ -98,17 +119,28 @@ function createGiftReservationRepository(db) {
     refundTransactionId,
     cancelReason,
     updatedAt,
+    query = null,
   }) {
-    await db
+    return runner(query)
       .prepare(
         `UPDATE gift_reservations
          SET status = ?,
              refund_transaction_id = COALESCE(?, refund_transaction_id),
              cancel_reason = ?,
              updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ? AND status = 'refunding'`,
       )
       .run(status, refundTransactionId, cancelReason, updatedAt, reservationId);
+  }
+
+  async function claimForRefund({ reservationId, updatedAt, query = null }) {
+    return runner(query)
+      .prepare(
+        `UPDATE gift_reservations
+         SET status = 'refunding', updated_at = ?
+         WHERE id = ? AND status IN ('reserved', 'content_ready')`,
+      )
+      .run(updatedAt, reservationId);
   }
 
   async function attachContent({
@@ -117,8 +149,9 @@ function createGiftReservationRepository(db) {
     contentId,
     versionNum,
     updatedAt,
+    query = null,
   }) {
-    await db
+    return runner(query)
       .prepare(
         `UPDATE gift_reservations
          SET status = 'content_ready',
@@ -126,9 +159,18 @@ function createGiftReservationRepository(db) {
              content_id = ?,
              version_num = ?,
              updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ?
+           AND status IN ('reserved', 'content_ready')
+           AND (content_id IS NULL OR content_id = ?)`,
       )
-      .run(contentType, contentId, versionNum, updatedAt, reservationId);
+      .run(
+        contentType,
+        contentId,
+        versionNum,
+        updatedAt,
+        reservationId,
+        contentId,
+      );
   }
 
   async function markFinalized({
@@ -137,26 +179,39 @@ function createGiftReservationRepository(db) {
     updatedAt,
     query = null,
   }) {
-    await runner(query)
+    return runner(query)
       .prepare(
         `UPDATE gift_reservations
          SET status = 'finalized',
              gift_order_id = ?,
              updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ? AND status = 'finalizing' AND gift_order_id IS NULL`,
       )
       .run(giftOrderId, updatedAt, reservationId);
+  }
+
+  async function claimForFinalization({ reservationId, updatedAt, query = null }) {
+    return runner(query)
+      .prepare(
+        `UPDATE gift_reservations
+         SET status = 'finalizing', updated_at = ?
+         WHERE id = ? AND status = 'content_ready' AND gift_order_id IS NULL`,
+      )
+      .run(updatedAt, reservationId);
   }
 
   return {
     getById,
     findByIdempotencyKey,
     findActiveForUser,
+    findByOriginWebOrderId,
     getActiveForTrack,
     listExpiredActive,
     createReservation,
+    claimForRefund,
     markRefunded,
     attachContent,
+    claimForFinalization,
     markFinalized,
   };
 }

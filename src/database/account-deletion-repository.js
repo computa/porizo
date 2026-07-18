@@ -19,6 +19,7 @@ const ACCOUNT_DELETION_LOCK_TABLES = [
   "gift_delivery_outbox",
   "gift_dispatch_attempts",
   "gift_delivery_incidents",
+  "gift_delivery_preferences",
   "gift_reservations",
   "gift_wallet_transactions",
   "gift_wallet",
@@ -217,6 +218,12 @@ function createAccountDeletionRepository(db) {
   }
 
   async function deleteGiftRowsForUser(userId) {
+    await db
+      .prepare(
+        `DELETE FROM gift_delivery_preferences WHERE gift_reservation_id IN
+         (SELECT id FROM gift_reservations WHERE user_id = ?)`,
+      )
+      .run(userId);
     await db
       .prepare(
         `DELETE FROM gift_delivery_incidents WHERE gift_order_id IN

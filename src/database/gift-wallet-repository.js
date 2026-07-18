@@ -47,7 +47,8 @@ function createGiftWalletRepository(db) {
 
     return {
       userId: wallet?.user_id || userId,
-      balance: Number(wallet?.balance || 0),
+      balance: Math.max(0, Number(wallet?.balance || 0)),
+      netBalance: Number(wallet?.balance || 0),
       updatedAt: wallet?.updated_at || now,
     };
   }
@@ -57,13 +58,103 @@ function createGiftWalletRepository(db) {
       const result = await query("SELECT balance FROM gift_wallet WHERE user_id = ?", [
         userId,
       ]);
-      return Number(firstRow(result)?.balance || 0);
+      return Math.max(0, Number(firstRow(result)?.balance || 0));
     }
 
     const wallet = await db
       .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
       .get(userId);
+    return Math.max(0, Number(wallet?.balance || 0));
+  }
+
+  async function getNetBalance(userId, { query = null } = {}) {
+    if (query) {
+      const result = await query("SELECT balance FROM gift_wallet WHERE user_id = ?", [userId]);
+      return Number(firstRow(result)?.balance || 0);
+    }
+    const wallet = await db.prepare("SELECT balance FROM gift_wallet WHERE user_id = ?").get(userId);
     return Number(wallet?.balance || 0);
+  }
+
+  async function findTransactionById(transactionId, { query = null } = {}) {
+    const sql = "SELECT * FROM gift_wallet_transactions WHERE id = ?";
+    if (query) return firstRow(await query(sql, [transactionId]));
+    return db.prepare(sql).get(transactionId);
+  }
+
+  async function applyPurchaseReversal({
+    userId, purchaseTransactionId, amount, type = "purchase_reversal",
+    source, referenceType, referenceId, metadata = null, idempotencyKey,
+    externalQuery = null,
+  }) {
+    const numAmount = Number(amount);
+    if (!Number.isInteger(numAmount) || numAmount === 0) {
+      throw new Error("INVALID_GIFT_PURCHASE_REVERSAL_AMOUNT");
+    }
+    const timestamp = nowIso();
+    const execute = async (query) => {
+      await query(
+        `INSERT INTO gift_wallet (user_id, balance, updated_at) VALUES (?, 0, ?)
+         ON CONFLICT(user_id) DO NOTHING`,
+        [userId, timestamp],
+      );
+      const existing = firstRow(await query(
+        `SELECT id, balance_after FROM gift_wallet_transactions
+         WHERE user_id = ? AND idempotency_key = ? LIMIT 1`,
+        [userId, idempotencyKey],
+      ));
+      if (existing) return { transactionId: existing.id, balanceAfter: Number(existing.balance_after), idempotent: true };
+
+      const original = firstRow(await query(
+        `SELECT id, amount FROM gift_wallet_transactions
+         WHERE id = ? AND user_id = ? AND amount > 0 LIMIT 1${db.isPostgres ? " FOR UPDATE" : ""}`,
+        [purchaseTransactionId, userId],
+      ));
+      if (!original || Math.abs(numAmount) > Number(original.amount)) {
+        const err = new Error("GIFT_PURCHASE_GRANT_NOT_FOUND");
+        err.code = "GIFT_PURCHASE_GRANT_NOT_FOUND";
+        throw err;
+      }
+
+      const aggregate = firstRow(await query(
+        `SELECT COALESCE(SUM(amount), 0) AS reversed_amount
+         FROM gift_wallet_transactions
+         WHERE user_id = ? AND reference_type = 'purchase_transaction' AND reference_id = ?
+           AND type IN ('purchase_reversal', 'purchase_reversal_reversed')`,
+        [userId, purchaseTransactionId],
+      ));
+      const reversalAfter = Number(aggregate?.reversed_amount || 0) + numAmount;
+      if (reversalAfter < -Number(original.amount) || reversalAfter > 0) {
+        const err = new Error("GIFT_PURCHASE_REVERSAL_EXCEEDS_GRANT");
+        err.code = "GIFT_PURCHASE_REVERSAL_EXCEEDS_GRANT";
+        throw err;
+      }
+
+      const wallet = firstRow(await query(
+        `SELECT balance FROM gift_wallet WHERE user_id = ?${db.isPostgres ? " FOR UPDATE" : ""}`,
+        [userId],
+      ));
+      const before = Number(wallet?.balance || 0);
+      const after = before + numAmount;
+      if (after > MAX_WALLET_BALANCE) throw insufficientGiftTokensError();
+      await query(
+        "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ?",
+        [numAmount, timestamp, userId],
+      );
+      const transactionId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
+      await query(
+        `INSERT INTO gift_wallet_transactions (
+          id, user_id, type, amount, balance_before, balance_after, source,
+          reference_type, reference_id, description, metadata_json, idempotency_key, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [transactionId, userId, type, numAmount, before, after, source,
+          referenceType, referenceId, "Gift purchase grant reversal",
+          toJson({ ...(metadata || {}), purchase_transaction_id: purchaseTransactionId }),
+          idempotencyKey, timestamp],
+      );
+      return { transactionId, balanceAfter: after, idempotent: false };
+    };
+    return externalQuery ? execute(externalQuery) : db.transaction(execute);
   }
 
   async function hasReceiptCredit({ userId, receiptId }) {
@@ -103,6 +194,17 @@ function createGiftWalletRepository(db) {
         [userId, timestamp],
       );
 
+      // PostgreSQL aborts the whole transaction after a unique-key conflict,
+      // so serialize same-wallet mutations before checking the idempotency key.
+      // The waiter observes the winning ledger row and returns it without ever
+      // attempting a duplicate insert.
+      if (db.isPostgres) {
+        await query(
+          "SELECT user_id FROM gift_wallet WHERE user_id = ? FOR UPDATE",
+          [userId],
+        );
+      }
+
       if (idempotencyKey) {
         const existingResult = await query(
           `SELECT id, balance_after
@@ -127,11 +229,17 @@ function createGiftWalletRepository(db) {
 
       if (db.isPostgres) {
         const updatedResult = await query(
-          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ? RETURNING balance",
+          `UPDATE gift_wallet
+           SET balance = balance + ?, updated_at = ?
+           WHERE user_id = ?
+             AND (? > 0 OR (balance + ?) >= 0)
+             AND (balance + ?) <= ?
+           RETURNING balance`,
           [
             numAmount,
             timestamp,
             userId,
+            numAmount,
             numAmount,
             numAmount,
             MAX_WALLET_BALANCE,
@@ -145,11 +253,16 @@ function createGiftWalletRepository(db) {
         balanceBefore = balanceAfter - numAmount;
       } else {
         const updatedResult = await query(
-          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ?",
+          `UPDATE gift_wallet
+           SET balance = balance + ?, updated_at = ?
+           WHERE user_id = ?
+             AND (? > 0 OR (balance + ?) >= 0)
+             AND (balance + ?) <= ?`,
           [
             numAmount,
             timestamp,
             userId,
+            numAmount,
             numAmount,
             numAmount,
             MAX_WALLET_BALANCE,
@@ -192,8 +305,8 @@ function createGiftWalletRepository(db) {
       } catch (err) {
         if (idempotencyKey && isUniqueConstraintError(err)) {
           const revertResult = await query(
-            "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ? AND balance >= ?",
-            [numAmount, timestamp, userId, numAmount],
+            "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ?",
+            [numAmount, timestamp, userId],
           );
           if (affectedRows(revertResult) === 0) {
             console.warn("[GiftWallet] Revert skipped after idempotency race", {
@@ -290,7 +403,8 @@ function createGiftWalletRepository(db) {
       .all(userId, Math.max(1, Math.min(Number(limit) || 20, 100)));
 
     return {
-      balance: wallet.balance,
+      balance: Math.max(0, wallet.balance),
+      net_balance: wallet.netBalance,
       updated_at: wallet.updatedAt,
       transactions: rows.map((row) => ({
         id: row.id,
@@ -311,6 +425,9 @@ function createGiftWalletRepository(db) {
   return {
     ensureRow,
     getBalance,
+    getNetBalance,
+    findTransactionById,
+    applyPurchaseReversal,
     hasReceiptCredit,
     applyTransaction,
     spendSongTokenInTransaction,

@@ -614,8 +614,9 @@ function giftDeliveryPlugin(app, options) {
     );
     const exhaustedRows = outboxRows.filter(
       (row) =>
-        row.status === "failed" &&
-        (Number(row.attempt_count || 0) >= maxAttempts || !row.next_retry_at),
+        row.status === "uncertain" ||
+        (row.status === "failed" &&
+          (Number(row.attempt_count || 0) >= maxAttempts || !row.next_retry_at)),
     );
     const nextRetryAt =
       retryableRows
@@ -728,14 +729,6 @@ function giftDeliveryPlugin(app, options) {
     });
   }
 
-  async function revokeGiftDeliveryShare(gift) {
-    await shareTokenRepository.revokeGiftDeliveryShare({
-      contentType: gift.content_type,
-      shareTokenId: gift.share_token_id,
-      giftOrderId: gift.id,
-    });
-  }
-
   async function sendGiftSmsViaTwilio({ to, body, giftId, outboxId }) {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -799,7 +792,7 @@ function giftDeliveryPlugin(app, options) {
     const note = safeMsgText
       ? `"${safeMsgText.length > 100 ? safeMsgText.slice(0, 97) + "..." : safeMsgText}"\n`
       : "";
-    return `${greeting}${sender} sent you a ${noun} on Porizo.\n${note}${verb}: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}`;
+    return `${greeting}${sender} sent you a ${noun} on Porizo.\n${note}${verb}: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}\nOne-time gift message. Help or opt out: support@porizo.co`;
   }
 
   function getGiftShareUrlDeliveryError(shareUrl) {
@@ -966,6 +959,7 @@ function giftDeliveryPlugin(app, options) {
                   { name: "gift_order_id", value: gift.id },
                   { name: "gift_outbox_id", value: delivery.id },
                 ],
+                idempotencyKey: `gift-delivery-${delivery.id}`,
               });
               providerMessageId = sent.messageId || providerMessageId;
             } else if (process.env.NODE_ENV === "production") {
@@ -1122,28 +1116,7 @@ function giftDeliveryPlugin(app, options) {
         exhaustedRows.length > 0;
       const partialComplete = partiallyDelivered && retryableRows.length === 0;
 
-      let refundTxId = null;
       if (exhausted) {
-        try {
-          const refund = await applyGiftWalletTransaction({
-            userId: gift.sender_user_id,
-            type: "gift_refund",
-            amount: 1,
-            source: "dispatch_failure",
-            referenceType: "gift_order",
-            referenceId: gift.id,
-            description: "Auto-refund: gift delivery failed after max attempts",
-            idempotencyKey: `gift_refund_dispatch_${gift.id}`,
-          });
-          refundTxId = refund.transactionId;
-        } catch (refundErr) {
-          app.log.error(
-            { giftId: gift.id, err: refundErr },
-            "Failed to auto-refund gift token",
-          );
-        }
-
-        await revokeGiftDeliveryShare(gift);
         await createGiftIncident({
           incidentKey: `gift_delivery_exhausted:${gift.id}`,
           incidentType: "gift_delivery_exhausted",
@@ -1182,9 +1155,40 @@ function giftDeliveryPlugin(app, options) {
         clearOverdue: partiallyDelivered || exhausted,
         markDispatched: partialComplete,
         dispatchedAt: partialComplete ? nowIso() : null,
-        refundTransactionId: refundTxId,
+        // Delivery failure does not undo the purchased gift. The share remains
+        // valid so the sender can copy it or correct the recipient details.
+        refundTransactionId: null,
         updatedAt: nowIso(),
       });
+
+      if (
+        exhausted &&
+        gift.origin_web_order_id &&
+        emailService.isConfigured()
+      ) {
+        try {
+          const buyer = await db
+            .prepare(
+              "SELECT email FROM web_orders WHERE id = ? AND email IS NOT NULL",
+            )
+            .get(gift.origin_web_order_id);
+          const snapshot = parseJson(gift.content_snapshot_json, {});
+          if (buyer?.email) {
+            await emailService.sendGiftBuyerDeliveryFailureEmail({
+              to: buyer.email,
+              recipientName: snapshot?.recipient_name || gift.recipient_name,
+              shareUrl: gift.share_url,
+              orderId: gift.origin_web_order_id,
+              idempotencyKey: `web-gift-delivery-failure-${gift.id}`,
+            });
+          }
+        } catch (buyerNoticeError) {
+          app.log.error(
+            { err: buyerNoticeError, giftId: gift.id },
+            "Buyer delivery-failure notice failed",
+          );
+        }
+      }
 
       await updateGiftAggregateObservability(gift.id, {
         outboxRows,
@@ -1207,7 +1211,7 @@ function giftDeliveryPlugin(app, options) {
         metadata: {
           errors,
           attempts: nextAttempts,
-          refund_tx_id: refundTxId,
+          refund_tx_id: null,
           sent_channels: sentRows.map((row) => row.channel),
           pending_channels: retryableRows.map((row) => row.channel),
         },

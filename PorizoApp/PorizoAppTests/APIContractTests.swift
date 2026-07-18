@@ -433,4 +433,167 @@ final class APIContractTests: XCTestCase {
         let e = try decoder.decode(BillingEntitlements.self, from: json)
         XCTAssertTrue(e.canMakeSong) // max(0, 5) > 0 — not locked out
     }
+
+    // MARK: - Cross-platform gift delivery
+
+    func testGiftOrder_decodesWebManualGiftAsReadyToShare() throws {
+        let json = Data(#"""
+        {
+          "id":"gift-web-1",
+          "sender_user_id":"user-1",
+          "content_type":"song",
+          "content_id":"track-1",
+          "content_title":"Always Sarah",
+          "recipient_name":"Sarah",
+          "sender_display_name":"Ambrose",
+          "status":"ready_to_share",
+          "dispatch_status":"not_requested",
+          "delivery_mode":"manual",
+          "send_at":"2026-07-18T10:00:00.000Z",
+          "sender_timezone":"Australia/Perth",
+          "channels":[],
+          "recipient_phone":null,
+          "recipient_email":null,
+          "message":"Made for you",
+          "share_token_id":"share-1",
+          "share_url":"https://porizo.co/s/share-1",
+          "claim_pin":null,
+          "claim_policy":"pinless",
+          "wallet_balance":2,
+          "can_edit":false,
+          "can_cancel":true,
+          "can_stop_any":false,
+          "delivery_channels":[]
+        }
+        """#.utf8)
+
+        let gift = try decoder.decode(GiftOrder.self, from: json)
+
+        XCTAssertEqual(gift.deliveryMode, GiftDeliveryMode.manual.rawValue)
+        XCTAssertTrue(gift.isManualReadyToShare)
+        XCTAssertTrue(gift.shouldAppearInGiftManagement)
+        XCTAssertEqual(gift.managementStatusLabel, "Ready to share")
+        XCTAssertFalse(gift.canStopAny ?? true)
+        XCTAssertEqual(gift.stoppableDeliveryChannels, [])
+    }
+
+    func testGiftOrder_decodesPerChannelStopCapabilities() throws {
+        let json = Data(#"""
+        {
+          "id":"gift-scheduled-1",
+          "sender_user_id":"user-1",
+          "content_type":"song",
+          "content_id":"track-1",
+          "content_title":"Always Sarah",
+          "recipient_name":"Sarah",
+          "sender_display_name":"Ambrose",
+          "status":"scheduled",
+          "dispatch_status":"pending",
+          "delivery_mode":"scheduled",
+          "send_at":"2026-07-19T10:00:00.000Z",
+          "sender_timezone":"Australia/Perth",
+          "channels":["sms","email"],
+          "recipient_phone":"+61400000000",
+          "recipient_email":"sarah@example.com",
+          "message":null,
+          "share_token_id":"share-1",
+          "share_url":"https://porizo.co/s/share-1",
+          "claim_pin":null,
+          "claim_policy":"pinless",
+          "wallet_balance":1,
+          "can_edit":false,
+          "can_cancel":false,
+          "can_stop_any":true,
+          "delivery_channels":[
+            {"channel":"sms","status":"accepted","can_stop":false},
+            {"channel":"email","status":"pending","can_stop":true}
+          ]
+        }
+        """#.utf8)
+
+        let gift = try decoder.decode(GiftOrder.self, from: json)
+
+        XCTAssertEqual(gift.channels, ["sms", "email"])
+        XCTAssertTrue(gift.shouldAppearInGiftManagement)
+        XCTAssertEqual(gift.stoppableDeliveryChannels, [.email])
+        XCTAssertEqual(gift.deliveryChannels?.first?.status, "accepted")
+    }
+
+    func testGiftOrder_oldScheduledShapeRemainsBackwardCompatible() throws {
+        let json = Data(#"""
+        {
+          "id":"gift-old-1",
+          "sender_user_id":"user-1",
+          "content_type":"song",
+          "content_id":"track-1",
+          "content_title":null,
+          "recipient_name":"Sarah",
+          "sender_display_name":null,
+          "status":"scheduled",
+          "dispatch_status":"pending",
+          "delivery_mode":"scheduled",
+          "send_at":"2026-07-19T10:00:00Z",
+          "sender_timezone":"UTC",
+          "channels":["email"],
+          "recipient_phone":null,
+          "recipient_email":"sarah@example.com",
+          "message":null,
+          "share_token_id":"share-1",
+          "share_url":"https://porizo.co/s/share-1",
+          "claim_pin":null,
+          "claim_policy":"pinless",
+          "wallet_balance":1,
+          "can_edit":true,
+          "can_cancel":true
+        }
+        """#.utf8)
+
+        let gift = try decoder.decode(GiftOrder.self, from: json)
+
+        XCTAssertNil(gift.canStopAny)
+        XCTAssertNil(gift.deliveryChannels)
+        XCTAssertEqual(gift.managementStatusLabel, "Scheduled")
+        XCTAssertTrue(gift.shouldAppearInGiftManagement)
+    }
+
+    func testStopGiftDeliveryResponse_hasNoWalletMutationContract() throws {
+        let json = Data(#"""
+        {
+          "gift":{
+            "id":"gift-scheduled-1",
+            "sender_user_id":"user-1",
+            "content_type":"song",
+            "content_id":"track-1",
+            "content_title":"Always Sarah",
+            "recipient_name":"Sarah",
+            "sender_display_name":"Ambrose",
+            "status":"scheduled",
+            "dispatch_status":"partial_cancelled",
+            "delivery_mode":"scheduled",
+            "send_at":"2026-07-19T10:00:00Z",
+            "sender_timezone":"UTC",
+            "channels":["sms","email"],
+            "recipient_phone":"+61400000000",
+            "recipient_email":"sarah@example.com",
+            "message":null,
+            "share_token_id":"share-1",
+            "share_url":"https://porizo.co/s/share-1",
+            "claim_pin":null,
+            "claim_policy":"pinless",
+            "wallet_balance":1,
+            "can_edit":false,
+            "can_cancel":false,
+            "can_stop_any":false,
+            "delivery_channels":[]
+          },
+          "stopped_channels":["email"]
+        }
+        """#.utf8)
+
+        let response = try decoder.decode(StopGiftDeliveryResponse.self, from: json)
+
+        XCTAssertEqual(response.stoppedChannels, ["email"])
+        XCTAssertEqual(response.gift.shareUrl, "https://porizo.co/s/share-1")
+        XCTAssertEqual(response.gift.walletBalance, 1)
+    }
 }

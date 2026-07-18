@@ -35,6 +35,7 @@ const DEFAULTS = {
   gift_prepay_enforced: false,
   gift_sms_enabled: true,
   gift_email_enabled: true,
+  web_automated_gift_delivery: false,
   gift_require_app_claim: true,
   // Seed-VC voice conversion flags
   // cfgRate: Lower = natural singing, higher = voice similarity
@@ -504,6 +505,13 @@ const FLAG_METADATA = {
     category: "developer",
     label: "Gift Email Delivery Enabled",
     description: "Allows email channel dispatch for gift delivery.",
+    type: "boolean",
+  },
+  web_automated_gift_delivery: {
+    category: "developer",
+    label: "Web Automated Gift Delivery",
+    description:
+      "Allows web buyers to configure recipient SMS/email delivery; manual sharing remains available.",
     type: "boolean",
   },
   gift_require_app_claim: {

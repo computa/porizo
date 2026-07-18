@@ -44,7 +44,7 @@ struct GiftSendFlowView: View {
     @State private var composerResumePolicy: ComposerResumePolicy = .automatic
 
     @State private var walletBalance = 0
-    @State private var scheduledGifts: [GiftOrder] = []
+    @State private var managedGifts: [GiftOrder] = []
     @State private var createdGift: GiftOrder?
 
     @State private var isSubmitting = false
@@ -57,7 +57,7 @@ struct GiftSendFlowView: View {
     @State private var showCloseConfirmation = false
     @State private var showCountryPicker = false
     @State private var showSchedulePicker = false
-    @State private var showScheduledGiftList = false
+    @State private var showManagedGiftList = false
     @State private var managingGift: GiftOrder?
     @State private var contactPickerRequest: GiftContactPickerRequest?
     @Environment(\.scenePhase) private var scenePhase
@@ -166,8 +166,8 @@ struct GiftSendFlowView: View {
         .sheet(isPresented: $showSchedulePicker) {
             schedulePickerSheet
         }
-        .sheet(isPresented: $showScheduledGiftList) {
-            ScheduledGiftListSheet(gifts: scheduledGifts) { gift in
+        .sheet(isPresented: $showManagedGiftList) {
+            ManagedGiftListSheet(gifts: managedGifts) { gift in
                 managingGift = gift
             }
         }
@@ -178,10 +178,10 @@ struct GiftSendFlowView: View {
                 apiClient: apiClient,
                 gift: gift,
                 onGiftUpdated: { updated in
-                    scheduledGifts = upsertScheduledGift(updated, into: scheduledGifts)
+                    managedGifts = upsertManagedGift(updated, into: managedGifts)
                 },
                 onGiftCancelled: { cancelled, walletBalance in
-                    scheduledGifts = upsertScheduledGift(cancelled, into: scheduledGifts)
+                    managedGifts = upsertManagedGift(cancelled, into: managedGifts)
                     if let walletBalance {
                         self.walletBalance = walletBalance
                     }
@@ -321,7 +321,7 @@ struct GiftSendFlowView: View {
                     )
                 }
 
-                scheduledGiftsCard
+                managedGiftsCard
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
@@ -382,20 +382,20 @@ struct GiftSendFlowView: View {
         .clipShape(.rect(cornerRadius: 12))
     }
 
-    private var scheduledGiftsCard: some View {
+    private var managedGiftsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Scheduled")
+            Text("Your gifts")
                 .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
                 .foregroundStyle(DesignTokens.gold)
 
-            if scheduledGifts.isEmpty {
-                Text("Your upcoming gifts will appear here until they are delivered.")
+            if managedGifts.isEmpty {
+                Text("Scheduled and ready-to-share gifts will appear here.")
                     .font(DesignTokens.bodyFont(size: 13))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
             } else {
                 VStack(spacing: 10) {
-                    ForEach(Array(scheduledGifts.prefix(3))) { gift in
+                    ForEach(Array(managedGifts.prefix(3))) { gift in
                         Button {
                             managingGift = gift
                         } label: {
@@ -405,9 +405,9 @@ struct GiftSendFlowView: View {
                         .accessibilityLabel("Manage \(gift.displayTitle)")
                     }
 
-                    if scheduledGifts.count > 3 {
-                        Button("View all scheduled gifts") {
-                            showScheduledGiftList = true
+                    if managedGifts.count > 3 {
+                        Button("View all gifts") {
+                            showManagedGiftList = true
                         }
                         .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
                         .foregroundStyle(DesignTokens.gold)
@@ -481,8 +481,13 @@ struct GiftSendFlowView: View {
             }
 
             VStack(spacing: 10) {
-                if let gift = createdGift, gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue {
-                    flowButton("Manage scheduled gift", disabled: false) {
+                if let gift = createdGift, gift.shouldAppearInGiftManagement {
+                    flowButton(
+                        gift.isManualReadyToShare
+                            ? String(localized: "Share gift")
+                            : String(localized: "Manage scheduled gift"),
+                        disabled: false
+                    ) {
                         managingGift = gift
                     }
                     .padding(.horizontal, 20)
@@ -810,9 +815,15 @@ struct GiftSendFlowView: View {
                 }
             }
 
-            Text("Delivery: \(gift.sendAtLabel)")
-                .font(DesignTokens.bodyFont(size: 12))
-                .foregroundStyle(DesignTokens.textSecondary)
+            if gift.isManualReadyToShare {
+                Label("Share manually", systemImage: "square.and.arrow.up")
+                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                    .foregroundStyle(DesignTokens.gold)
+            } else {
+                Text("Delivery: \(gift.sendAtLabel)")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1351,7 +1362,7 @@ struct GiftSendFlowView: View {
         #if DEBUG
         if SimulatorFixtures.has("--fixture-gift-flow") {
             reservation = nil
-            scheduledGifts = []
+            managedGifts = []
             if screen == .composer && createdGift == nil {
                 screen = .content
             }
@@ -1362,12 +1373,17 @@ struct GiftSendFlowView: View {
         do {
             async let reservationTask = apiClient.getActiveGiftReservation()
             async let giftsTask = apiClient.getGifts(limit: 20)
+            async let walletTask = try? apiClient.getGiftWallet(limit: 10)
 
             let reservationData = try await reservationTask
             let giftsData = try await giftsTask
+            let walletData = await walletTask
 
             reservation = reservationData.reservation
-            scheduledGifts = visibleScheduledGifts(from: giftsData.gifts)
+            managedGifts = visibleManagedGifts(from: giftsData.gifts)
+            if let walletData {
+                walletBalance = walletData.balance
+            }
 
             if let reservation {
                 await hydrateSelectionFromReservation(reservation)
@@ -1512,30 +1528,24 @@ struct GiftSendFlowView: View {
             createdGift = response.gift
             walletBalance = response.walletBalance
             reservationFinalized = true
-            scheduledGifts = upsertScheduledGift(response.gift, into: scheduledGifts)
+            managedGifts = upsertManagedGift(response.gift, into: managedGifts)
             screen = .success
         } catch {
             errorMessage = mapError(error)
         }
     }
 
-    private func visibleScheduledGifts(from gifts: [GiftOrder]) -> [GiftOrder] {
+    private func visibleManagedGifts(from gifts: [GiftOrder]) -> [GiftOrder] {
         gifts
-            .filter { gift in
-                gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue
-                    && ["scheduled", "dispatch_retry", "dispatching"].contains(gift.status.lowercased())
-            }
+            .filter(\.shouldAppearInGiftManagement)
             .sorted { left, right in
                 parseGiftDate(left.sendAt) < parseGiftDate(right.sendAt)
             }
     }
 
-    private func upsertScheduledGift(_ gift: GiftOrder, into gifts: [GiftOrder]) -> [GiftOrder] {
-        guard gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue else {
-            return gifts
-        }
+    private func upsertManagedGift(_ gift: GiftOrder, into gifts: [GiftOrder]) -> [GiftOrder] {
         var next = gifts.filter { $0.id != gift.id }
-        if ["scheduled", "dispatch_retry", "dispatching"].contains(gift.status.lowercased()) {
+        if gift.shouldAppearInGiftManagement {
             next.append(gift)
         }
         return next.sorted { parseGiftDate($0.sendAt) < parseGiftDate($1.sendAt) }
@@ -1577,6 +1587,9 @@ struct GiftSendFlowView: View {
         guard let gift = createdGift else {
             return "Gift is ready"
         }
+        if gift.isManualReadyToShare {
+            return String(localized: "Gift is ready to share")
+        }
         return gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue
             ? "Gift scheduled"
             : "Gift sent"
@@ -1593,6 +1606,12 @@ struct GiftSendFlowView: View {
                 : gift.recipientSummary)
             : recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
         let when = gift.sendAtLabel
+        if gift.isManualReadyToShare {
+            return String(
+                format: String(localized: "Share this gift with %@ when you’re ready."),
+                recipient
+            )
+        }
         if gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue {
             return "We’ll deliver this to \(recipient) on \(when)."
         }

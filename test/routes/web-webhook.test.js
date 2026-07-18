@@ -75,6 +75,28 @@ async function seedPendingOrder(
 ) {
   await db
     .prepare(
+      `INSERT INTO tracks (
+         id, user_id, status, title, occasion, recipient_name, style,
+         voice_mode, message, created_at, updated_at
+       ) VALUES (
+         'trk_1', ?, 'complete', 'Sarah''s Song', 'i_love_you', 'Sarah',
+         'acoustic', 'ai_voice', 'For you', ?, ?
+       )`,
+    )
+    .run(userId, NOW, NOW);
+  await db
+    .prepare(
+      `INSERT INTO track_versions (
+         id, track_id, version_num, status, render_type, params_hash,
+         lyrics_status, created_at
+       ) VALUES (
+         'trk_1_v1', 'trk_1', 1, 'preview_ready', 'full',
+         'trk_1_hash', 'approved', ?
+       )`,
+    )
+    .run(NOW);
+  await db
+    .prepare(
       `INSERT INTO web_orders (
          id, checkout_session_id, user_id, track_id, track_version_id,
          price_key, amount_cents, currency, status, render_attempts, created_at, updated_at
@@ -158,7 +180,25 @@ describe("Stripe webhook", () => {
     let wallet = await db.query(
       "SELECT balance FROM gift_wallet WHERE user_id = 'guest_1'",
     );
-    assert.equal(Number(wallet.rows[0].balance), 1);
+    assert.equal(
+      Number(wallet.rows[0].balance),
+      0,
+      "the purchased token is immediately reserved for this paid order",
+    );
+    let ledger = await db.query(
+      `SELECT type, COUNT(*) AS count
+       FROM gift_wallet_transactions
+       WHERE user_id = 'guest_1'
+       GROUP BY type
+       ORDER BY type`,
+    );
+    assert.deepEqual(
+      ledger.rows.map((row) => [row.type, Number(row.count)]),
+      [
+        ["gift_reserve", 1],
+        ["purchase", 1],
+      ],
+    );
 
     // Replay the identical webhook.
     const replay = await signedRequest(app, completedEvent(sessionId));
@@ -168,8 +208,22 @@ describe("Stripe webhook", () => {
     );
     assert.equal(
       Number(wallet.rows[0].balance),
-      1,
-      "replay must not double-grant",
+      0,
+      "replay must not double-grant or reserve again",
+    );
+    ledger = await db.query(
+      `SELECT type, COUNT(*) AS count
+       FROM gift_wallet_transactions
+       WHERE user_id = 'guest_1'
+       GROUP BY type
+       ORDER BY type`,
+    );
+    assert.deepEqual(
+      ledger.rows.map((row) => [row.type, Number(row.count)]),
+      [
+        ["gift_reserve", 1],
+        ["purchase", 1],
+      ],
     );
     assert.equal(tickCalls.length, 1, "orchestrator tick fires once");
   });
