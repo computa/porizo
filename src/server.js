@@ -3084,18 +3084,26 @@ async function start() {
     logger: console,
   });
   const cleanupTimer = setInterval(async () => {
-    const now = nowIso();
-    await db
-      .prepare(
-        "UPDATE enrollment_sessions SET status = 'expired' WHERE status NOT IN ('completed','failed_quality','failed_verification') AND expires_at < ?",
-      )
-      .run(now);
-    await db
-      .prepare(
-        "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?",
-      )
-      .run(now);
-    await cleanupExpiredWebFunnelState(db, { now });
+    // A background maintenance tick must never crash the server. setInterval does
+    // not await this callback, so any rejection becomes an unhandledRejection and
+    // (Node 20 default policy) terminates the process — one bad row would boot-loop
+    // prod. Catch, log, and let the next tick retry.
+    try {
+      const now = nowIso();
+      await db
+        .prepare(
+          "UPDATE enrollment_sessions SET status = 'expired' WHERE status NOT IN ('completed','failed_quality','failed_verification') AND expires_at < ?",
+        )
+        .run(now);
+      await db
+        .prepare(
+          "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?",
+        )
+        .run(now);
+      await cleanupExpiredWebFunnelState(db, { now });
+    } catch (err) {
+      app.log.error({ err }, "Periodic cleanup tick failed (non-fatal)");
+    }
   }, config.CLEANUP_INTERVAL_MS);
 
   const startupEventsService = createEventsService(db);
