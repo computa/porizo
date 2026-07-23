@@ -98,13 +98,13 @@ function createEtsyRedemptionService({ db, giftWalletRepository }) {
   // sqlite runs PRAGMA foreign_keys ON), so calling this with a not-yet-
   // provisioned guest throws a raw FK error instead of a domain error. Routes
   // must resolve/provision the (guest) user BEFORE calling redeem.
-  async function redeem({ code: rawCode, userId }) {
+  async function redeem({ code: rawCode, userId, externalQuery = null }) {
     const code = normalizeCode(rawCode);
     if (!userId) throw redemptionError("USER_REQUIRED", "userId is required.");
     if (!CODE_FORMAT.test(code)) {
       throw redemptionError("CODE_NOT_FOUND", "That code isn't recognised.");
     }
-    return db.transaction(async (query) => {
+    const execute = async (query) => {
       const now = nowIso();
       const claim = await query(
         `UPDATE etsy_redemption_codes
@@ -149,11 +149,255 @@ function createEtsyRedemptionService({ db, giftWalletRepository }) {
         idempotencyKey: `etsy_code:${code}`,
         externalQuery: query,
       });
+      await query(
+        `UPDATE etsy_redemption_codes
+         SET grant_transaction_id = ?
+         WHERE code = ? AND grant_transaction_id IS NULL`,
+        [grant.transactionId, code],
+      );
+      await query(
+        `UPDATE etsy_code_assignments
+         SET state = 'redeemed', updated_at = ?
+         WHERE code = ? AND state IN ('assigned', 'delivered')`,
+        [now, code],
+      );
       return {
         redeemed: true,
         idempotent: idempotentRetry || grant.idempotent === true,
         code,
         balance_after: grant.balanceAfter,
+      };
+    };
+    return externalQuery ? execute(externalQuery) : db.transaction(execute);
+  }
+
+  async function issueForReceipt({
+    receiptId,
+    listingId = null,
+    batchLabel,
+    adminId,
+  }) {
+    const receipt = String(receiptId || "").trim();
+    const label = String(batchLabel || "").trim();
+    const operator = String(adminId || "").trim();
+    if (!receipt) {
+      throw redemptionError("RECEIPT_ID_REQUIRED", "receiptId is required.");
+    }
+    if (!label) {
+      throw redemptionError("BATCH_LABEL_REQUIRED", "batchLabel is required.");
+    }
+    if (!operator) {
+      throw redemptionError("ADMIN_ID_REQUIRED", "adminId is required.");
+    }
+
+    const existing = await db
+      .prepare(
+        `SELECT c.code, a.state
+         FROM etsy_code_assignments a
+         JOIN etsy_redemption_codes c ON c.code = a.code
+         WHERE a.receipt_id = ?`,
+      )
+      .get(receipt);
+    if (existing) {
+      throw redemptionError(
+        "RECEIPT_ALREADY_ASSIGNED",
+        "That Etsy receipt already has an assigned code.",
+      );
+    }
+
+    const now = nowIso();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const code = generateCode();
+      try {
+        await db.transaction(async (query) => {
+          await query(
+            `INSERT INTO etsy_redemption_codes
+              (code, batch_label, status, created_at)
+             VALUES (?, ?, 'unredeemed', ?)`,
+            [code, label, now],
+          );
+          await query(
+            `INSERT INTO etsy_code_assignments (
+              code, receipt_id, listing_id, state, assigned_by_admin_id,
+              assigned_at, updated_at
+            ) VALUES (?, ?, ?, 'assigned', ?, ?, ?)`,
+            [
+              code,
+              receipt,
+              listingId ? String(listingId).trim() : null,
+              operator,
+              now,
+              now,
+            ],
+          );
+        });
+        return { code, receiptId: receipt, state: "assigned" };
+      } catch (error) {
+        const message = String(error?.message || "");
+        if (/receipt_id/i.test(message)) {
+          throw redemptionError(
+            "RECEIPT_ALREADY_ASSIGNED",
+            "That Etsy receipt already has an assigned code.",
+          );
+        }
+        if (!/unique|duplicate/i.test(message)) throw error;
+      }
+    }
+    throw redemptionError("CODE_MINT_FAILED", "Could not issue a unique code.");
+  }
+
+  async function markDelivered({ receiptId, deliveryReference }) {
+    const receipt = String(receiptId || "").trim();
+    const reference = String(deliveryReference || "").trim();
+    if (!receipt) {
+      throw redemptionError("RECEIPT_ID_REQUIRED", "receiptId is required.");
+    }
+    if (!reference) {
+      throw redemptionError(
+        "DELIVERY_REFERENCE_REQUIRED",
+        "deliveryReference is required.",
+      );
+    }
+    const now = nowIso();
+    const result = await db
+      .prepare(
+        `UPDATE etsy_code_assignments
+         SET state = CASE WHEN state = 'assigned' THEN 'delivered' ELSE state END,
+             delivery_reference = ?, delivered_at = COALESCE(delivered_at, ?),
+             updated_at = ?
+         WHERE receipt_id = ? AND state IN ('assigned', 'delivered')`,
+      )
+      .run(reference, now, now, receipt);
+    if (!affectedRows(result)) {
+      throw redemptionError(
+        "ASSIGNMENT_NOT_DELIVERABLE",
+        "No deliverable code assignment was found for that receipt.",
+      );
+    }
+    return { receiptId: receipt, state: "delivered" };
+  }
+
+  async function revealAssignedCode({ receiptId }) {
+    const receipt = String(receiptId || "").trim();
+    if (!receipt) {
+      throw redemptionError("RECEIPT_ID_REQUIRED", "receiptId is required.");
+    }
+    const row = await db
+      .prepare(
+        `SELECT code, state
+         FROM etsy_code_assignments
+         WHERE receipt_id = ?`,
+      )
+      .get(receipt);
+    if (!row || row.state !== "assigned") {
+      throw redemptionError(
+        "ASSIGNMENT_NOT_REVEALABLE",
+        "Only an undelivered assignment can be revealed.",
+      );
+    }
+    return { code: row.code, receiptId: receipt, state: row.state };
+  }
+
+  async function reverseAssignment({
+    receiptId,
+    refundEvidence,
+    reason = null,
+  }) {
+    const receipt = String(receiptId || "").trim();
+    const evidence = String(refundEvidence || "").trim();
+    if (!receipt) {
+      throw redemptionError("RECEIPT_ID_REQUIRED", "receiptId is required.");
+    }
+    if (!evidence) {
+      throw redemptionError(
+        "ETSY_REFUND_EVIDENCE_REQUIRED",
+        "refundEvidence is required.",
+      );
+    }
+    return db.transaction(async (query) => {
+      const result = await query(
+        `SELECT a.code, a.state, c.status, c.redeemed_by_user_id,
+                c.grant_transaction_id
+         FROM etsy_code_assignments a
+         JOIN etsy_redemption_codes c ON c.code = a.code
+         WHERE a.receipt_id = ?${db.isPostgres ? " FOR UPDATE" : ""}`,
+        [receipt],
+      );
+      const row = result?.rows?.[0] ?? result?.[0] ?? result;
+      if (!row?.code) {
+        throw redemptionError(
+          "ASSIGNMENT_NOT_FOUND",
+          "No code assignment was found for that receipt.",
+        );
+      }
+      if (row.state === "refunded") {
+        return {
+          receiptId: receipt,
+          state: "refunded",
+          entitlementReversed: true,
+          idempotent: true,
+        };
+      }
+
+      const now = nowIso();
+      let entitlementReversed = false;
+      let state = "refunded";
+      if (row.status === "unredeemed") {
+        await query(
+          `UPDATE etsy_redemption_codes
+           SET status = 'void', void_reason = ?
+           WHERE code = ? AND status = 'unredeemed'`,
+          [reason || "Etsy order refunded", row.code],
+        );
+        entitlementReversed = true;
+      } else if (
+        row.status === "redeemed" &&
+        row.redeemed_by_user_id &&
+        row.grant_transaction_id
+      ) {
+        const balanceResult = await query(
+          "SELECT balance FROM gift_wallet WHERE user_id = ?",
+          [row.redeemed_by_user_id],
+        );
+        const wallet =
+          balanceResult?.rows?.[0] ?? balanceResult?.[0] ?? balanceResult;
+        if (Number(wallet?.balance || 0) >= 1) {
+          await giftWalletRepository.applyPurchaseReversal({
+            userId: row.redeemed_by_user_id,
+            purchaseTransactionId: row.grant_transaction_id,
+            amount: -1,
+            type: "purchase_reversal",
+            source: "etsy",
+            referenceType: "purchase_transaction",
+            referenceId: row.grant_transaction_id,
+            metadata: { receipt_id: receipt, reason },
+            idempotencyKey: `etsy_code_refund:${receipt}:${evidence}`,
+            externalQuery: query,
+          });
+          entitlementReversed = true;
+        } else {
+          state = "manual_review";
+        }
+      } else {
+        state = "manual_review";
+      }
+
+      await query(
+        `UPDATE etsy_code_assignments
+         SET state = ?, refund_evidence = ?,
+             refunded_at = CASE
+               WHEN ? = 'refunded' THEN COALESCE(refunded_at, ?)
+               ELSE refunded_at
+             END,
+             updated_at = ?
+         WHERE receipt_id = ?`,
+        [state, evidence, state, now, now, receipt],
+      );
+      return {
+        receiptId: receipt,
+        state,
+        entitlementReversed,
+        idempotent: false,
       };
     });
   }
@@ -184,10 +428,13 @@ function createEtsyRedemptionService({ db, giftWalletRepository }) {
     const safeOffset = Math.max(0, Number(offset) || 0);
     const rows = await db
       .prepare(
-        `SELECT code, batch_label, status, redeemed_at, created_at
-         FROM etsy_redemption_codes
+        `SELECT c.code, c.batch_label, c.status, c.redeemed_at, c.created_at,
+                a.receipt_id, a.listing_id, a.state AS delivery_state,
+                a.assigned_at, a.delivered_at
+         FROM etsy_redemption_codes c
+         LEFT JOIN etsy_code_assignments a ON a.code = c.code
          ${where}
-         ORDER BY created_at DESC, code ASC
+         ORDER BY c.created_at DESC, c.code ASC
          LIMIT ? OFFSET ?`,
       )
       .all(...params, cappedLimit, safeOffset);
@@ -241,10 +488,28 @@ function createEtsyRedemptionService({ db, giftWalletRepository }) {
         "Only an unredeemed code can be voided.",
       );
     }
+    await db
+      .prepare(
+        `UPDATE etsy_code_assignments
+         SET state = 'canceled', updated_at = ?
+         WHERE code = ? AND state IN ('assigned', 'delivered')`,
+      )
+      .run(nowIso(), code);
     return { voided: true, code };
   }
 
-  return { mintBatch, validate, redeem, voidCode, listCodes, countByStatus };
+  return {
+    mintBatch,
+    issueForReceipt,
+    markDelivered,
+    revealAssignedCode,
+    reverseAssignment,
+    validate,
+    redeem,
+    voidCode,
+    listCodes,
+    countByStatus,
+  };
 }
 
-module.exports = { createEtsyRedemptionService };
+module.exports = { createEtsyRedemptionService, normalizeCode };

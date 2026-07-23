@@ -103,6 +103,19 @@ function createMagicLoginRepository(db) {
     return result.changes === 1;
   }
 
+  async function claimPendingByLink({ id, platform, linkSecretHash, consumedAt }) {
+    const result = await dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET status = 'consumed', consumed_at = ?
+        WHERE id = ? AND platform = ? AND status = 'pending'
+          AND expires_at > ? AND attempt_count < max_attempts
+          AND link_secret_hash = ?`,
+      [consumedAt, id, platform, consumedAt, linkSecretHash],
+    );
+    return result.changes === 1;
+  }
+
   async function approvePending({ id, platform, linkSecretHash, approvedAt }) {
     const result = await dbRun(
       db,
@@ -152,6 +165,16 @@ function createMagicLoginRepository(db) {
         WHERE id = ? AND platform = ? AND status = 'pending'
           AND expires_at > ?`,
       [id, platform, attemptedAt],
+    );
+  }
+
+  async function expirePendingById({ id, expiredAt }) {
+    return dbRun(
+      db,
+      `UPDATE magic_login_transactions
+          SET status = 'expired', expires_at = ?
+        WHERE id = ? AND status = 'pending'`,
+      [expiredAt, id],
     );
   }
 
@@ -309,10 +332,12 @@ function createMagicLoginRepository(db) {
     insert,
     findById,
     claimPending,
+    claimPendingByLink,
     approvePending,
     findByRequesterProof,
     claimApproved,
     recordFailedAttempt,
+    expirePendingById,
     storeRecoveryResult,
     claimRecovery,
     claimNativeRecovery,

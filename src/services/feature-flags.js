@@ -23,6 +23,8 @@ const DEFAULTS = {
   // Web storefront acquisition and provider-spend controls.
   web_funnel_enabled: false,
   web_funnel_daily_preview_budget: 100,
+  // One authority for the Etsy wedge and future provider automation.
+  etsy_fulfilment_mode: "off",
   // Web player redesign rollout. Keep default off; /play QA can opt in with
   // ?letterbox=1 without changing the production rollout flag.
   web_player_letterbox_enabled: false,

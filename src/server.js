@@ -81,6 +81,16 @@ const {
   createGiftPurchaseReversalService,
 } = require("./services/gift-purchase-reversal");
 const { createEtsyOrderService } = require("./services/etsy-order-service");
+const {
+  createEtsyRedemptionService,
+} = require("./services/etsy-redemption-service");
+const {
+  createEtsyCodeClaimService,
+} = require("./services/etsy-code-claim-service");
+const {
+  getEtsyFulfilmentMode,
+  runEtsyFulfilmentSweep,
+} = require("./services/etsy-fulfilment-mode");
 const { createEtsyClient } = require("./services/etsy-client");
 const { encryptValue, decryptValue } = require("./services/etsy-secrets");
 const {
@@ -468,6 +478,11 @@ function buildServer({
   const cdnSignerInstance = cdnSigner;
 
   const giftWalletRepository = createGiftWalletRepository(db);
+  const etsyRedemptionService = createEtsyRedemptionService({
+    db,
+    giftWalletRepository,
+  });
+  const etsyCodeClaimService = createEtsyCodeClaimService({ db });
   const giftPurchaseReversalService = createGiftPurchaseReversalService({
     giftWalletRepository,
   });
@@ -520,27 +535,33 @@ function buildServer({
     },
   });
   app.decorate("etsyOrderService", etsyOrderService);
-  const etsyConnectionBootstrap =
-    process.env.ETSY_SHOP_ID &&
-    process.env.ETSY_ACCESS_TOKEN &&
-    process.env.ETSY_REFRESH_TOKEN
-      ? (() => {
-          return bootstrapEtsyConnection({
-            db,
-            shopId: process.env.ETSY_SHOP_ID,
-            accessToken: process.env.ETSY_ACCESS_TOKEN,
-            refreshToken: process.env.ETSY_REFRESH_TOKEN,
-            bootstrapGeneration: process.env.ETSY_TOKEN_GENERATION,
-          });
-        })()
-      : Promise.resolve();
+  let etsyConnectionBootstrap;
+  async function ensureEtsyConnectionBootstrap() {
+    if ((await getEtsyFulfilmentMode(db)) !== "api") return;
+    if (!etsyConnectionBootstrap) {
+      etsyConnectionBootstrap =
+        process.env.ETSY_SHOP_ID &&
+        process.env.ETSY_ACCESS_TOKEN &&
+        process.env.ETSY_REFRESH_TOKEN
+          ? bootstrapEtsyConnection({
+              db,
+              shopId: process.env.ETSY_SHOP_ID,
+              accessToken: process.env.ETSY_ACCESS_TOKEN,
+              refreshToken: process.env.ETSY_REFRESH_TOKEN,
+              bootstrapGeneration: process.env.ETSY_TOKEN_GENERATION,
+            })
+          : Promise.resolve();
+    }
+    await etsyConnectionBootstrap;
+  }
   const etsyOAuthCoordinator = createEtsyOAuthCoordinator({
     db,
     shopId: process.env.ETSY_SHOP_ID,
   });
   const etsyClient = createEtsyClient({
     tokenProvider: async () => {
-      await etsyConnectionBootstrap;
+      if ((await getEtsyFulfilmentMode(db)) !== "api") return null;
+      await ensureEtsyConnectionBootstrap();
       const connection = await db
         .prepare(
           `SELECT access_token_encrypted, refresh_token_encrypted, token_version
@@ -612,38 +633,43 @@ function buildServer({
     if (etsyArtifactSweepInFlight) return;
     etsyArtifactSweepInFlight = true;
     try {
-      await etsyArtifactService.processDueArtifacts();
-      await etsyOrderService.processReadyUnits();
-      await etsyOrderService.processFulfilmentOutbox({
-        sendMp3ReadyEmail: async ({
-          to,
-          recipientName,
-          shareTokenId,
-          shareUrl,
-          orderId,
-          etsyUnitId,
-          idempotencyKey,
-        }) => {
-          if (!emailService.isConfigured()) {
-            throw Object.assign(new Error("EMAIL_PROVIDER_UNCONFIGURED"), {
-              code: "EMAIL_PROVIDER_UNCONFIGURED",
-            });
-          }
-          const finalShareUrl =
-            shareUrl ||
-            (shareTokenId ? buildGiftShareUrl(shareTokenId) : null);
-          if (!finalShareUrl) {
-            throw Object.assign(new Error("ETSY_SHARE_URL_PENDING"), {
-              code: "ETSY_SHARE_URL_PENDING",
-            });
-          }
-          return emailService.sendGiftBuyerCompletionEmail({
-            to,
-            recipientName,
-            shareUrl: finalShareUrl,
-            orderId,
-            etsyUnitId,
-            idempotencyKey,
+      await runEtsyFulfilmentSweep({
+        db,
+        processArtifacts: () => etsyArtifactService.processDueArtifacts(),
+        processApi: async () => {
+          await etsyOrderService.processReadyUnits();
+          await etsyOrderService.processFulfilmentOutbox({
+            sendMp3ReadyEmail: async ({
+              to,
+              recipientName,
+              shareTokenId,
+              shareUrl,
+              orderId,
+              etsyUnitId,
+              idempotencyKey,
+            }) => {
+              if (!emailService.isConfigured()) {
+                throw Object.assign(new Error("EMAIL_PROVIDER_UNCONFIGURED"), {
+                  code: "EMAIL_PROVIDER_UNCONFIGURED",
+                });
+              }
+              const finalShareUrl =
+                shareUrl ||
+                (shareTokenId ? buildGiftShareUrl(shareTokenId) : null);
+              if (!finalShareUrl) {
+                throw Object.assign(new Error("ETSY_SHARE_URL_PENDING"), {
+                  code: "ETSY_SHARE_URL_PENDING",
+                });
+              }
+              return emailService.sendGiftBuyerCompletionEmail({
+                to,
+                recipientName,
+                shareUrl: finalShareUrl,
+                orderId,
+                etsyUnitId,
+                idempotencyKey,
+              });
+            },
           });
         },
       });
@@ -759,6 +785,8 @@ function buildServer({
     subscriptionManager,
     storageProvider,
     appConfig,
+    etsyCodeClaimService,
+    etsyRedemptionService,
   });
 
   const schemas = validationSchemas;
@@ -990,6 +1018,7 @@ function buildServer({
     requireUserId,
     giftWalletRepository,
     etsyOrderService,
+    etsyRedemptionService,
     turnstileVerifier: webFunnelServices?.turnstileVerifier,
   });
   registerWebEtsyWebhookRoutes(app, {

@@ -46,11 +46,19 @@ export interface EtsyOrderCheck {
   claim_proof: string;
 }
 
+export type EtsyFulfilmentMode = "off" | "code" | "api";
+
+export interface EtsyCodeClaimRequest {
+  accepted: true;
+  transaction_id: string;
+  expires_at: string;
+}
+
 export function normalizeCode(raw: string | null | undefined): string {
   return (raw ?? "").trim().replace(/\s+/g, "").toUpperCase();
 }
 
-// Map the pre-check GET /web/etsy/code/:code response to a landing state. A
+// Map the POST /web/etsy/code/check response to a landing state. A
 // still-redeemable code is "ready"; anything else is a specific dead end so the
 // buyer sees the right message before we ever attempt a redeem.
 export function landingStateForCode(check: EtsyCodeCheck): EtsyLandingState {
@@ -102,8 +110,32 @@ export async function fetchEtsyCodeCheck(
   return client.post<EtsyCodeCheck>("/web/etsy/code/check", { code });
 }
 
-// Redeem a code for the current guest session. Idempotent server-side for the
-// same user, so a re-entered code by the same buyer still resolves to "ready".
+export async function fetchEtsyFulfilmentMode(
+  client: ApiClient,
+): Promise<EtsyFulfilmentMode> {
+  const response = await client.get<{ mode: EtsyFulfilmentMode }>(
+    "/web/etsy/mode",
+  );
+  return ["off", "code", "api"].includes(response.mode)
+    ? response.mode
+    : "off";
+}
+
+export async function requestEtsyCodeClaim(
+  client: ApiClient,
+  { code, email }: { code: string; email: string },
+): Promise<EtsyCodeClaimRequest> {
+  return client.post<EtsyCodeClaimRequest>("/auth/magic/request", {
+    email,
+    platform: "web",
+    purpose: "login",
+    return_to: "etsy_code",
+    etsy_code: code,
+  });
+}
+
+// Compatibility helper for an already authenticated, verified account. The
+// launch UI uses the email-bound claim flow above and never creates a guest.
 export async function redeemLandingState(
   client: ApiClient,
   code: string,

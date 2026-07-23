@@ -15,6 +15,7 @@ const {
 const {
   createEtsyRedemptionService,
 } = require("../src/services/etsy-redemption-service");
+const { clearCache: clearFeatureFlagCache } = require("../src/services/feature-flags");
 
 function buildTestApp(db) {
   return buildServer({
@@ -68,6 +69,14 @@ describe("admin etsy redemption-code routes", () => {
         "INSERT INTO users (id, created_at, account_status) VALUES (?, CURRENT_TIMESTAMP, 'guest')",
       )
       .run("etsy_buyer_route");
+    await db
+      .prepare(
+        `UPDATE feature_flags
+         SET value = '"code"', updated_at = CURRENT_TIMESTAMP
+         WHERE id = 'etsy_fulfilment_mode'`,
+      )
+      .run();
+    clearFeatureFlagCache();
   });
 
   afterEach(async () => {
@@ -114,6 +123,159 @@ describe("admin etsy redemption-code routes", () => {
     });
     assert.equal(response.statusCode, 401, response.body);
     assert.equal(response.json().error, "UNAUTHORIZED");
+  });
+
+  test("issues one audited code per receipt and marks its delivery", async () => {
+    const issued = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/issue",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "issue-receipt-445",
+      },
+      payload: {
+        receipt_id: "receipt-445",
+        listing_id: "listing_1",
+        batch_label: "manual-july",
+      },
+    });
+    assert.equal(issued.statusCode, 201, issued.body);
+    const code = issued.json().code;
+    assert.match(code, /^PZ-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/issue",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "issue-receipt-445-again",
+      },
+      payload: {
+        receipt_id: "receipt-445",
+        listing_id: "listing_1",
+        batch_label: "manual-july",
+      },
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+    assert.equal(duplicate.json().error, "RECEIPT_ALREADY_ASSIGNED");
+
+    const revealed = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/receipt-445/reveal",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "reveal-receipt-445",
+      },
+    });
+    assert.equal(revealed.statusCode, 200, revealed.body);
+    assert.equal(revealed.json().code, code);
+
+    const delivered = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/receipt-445/delivered",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "deliver-receipt-445",
+      },
+      payload: { delivery_reference: "etsy-message-884" },
+    });
+    assert.equal(delivered.statusCode, 200, delivered.body);
+    assert.equal(delivered.json().state, "delivered");
+
+    const revealAfterDelivery = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/receipt-445/reveal",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "reveal-receipt-445-after-delivery",
+      },
+    });
+    assert.equal(revealAfterDelivery.statusCode, 409, revealAfterDelivery.body);
+
+    const audits = await db
+      .prepare(
+        `SELECT action, metadata_json
+         FROM audit_logs
+         WHERE resource_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all("receipt-445");
+    assert.deepEqual(
+      audits.map((row) => row.action),
+      ["etsy_code_assigned", "etsy_code_revealed", "etsy_code_delivered"],
+    );
+    assert.ok(
+      audits.every((row) => !String(row.metadata_json).includes(code)),
+      "audit metadata must never contain the complete bearer code",
+    );
+  });
+
+  test("manual issuance fails closed outside code mode", async () => {
+    await db
+      .prepare(
+        `UPDATE feature_flags
+         SET value = '"api"', updated_at = CURRENT_TIMESTAMP
+         WHERE id = 'etsy_fulfilment_mode'`,
+      )
+      .run();
+    clearFeatureFlagCache();
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/issue",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "issue-api-mode",
+      },
+      payload: {
+        receipt_id: "receipt-api",
+        batch_label: "manual-july",
+      },
+    });
+    assert.equal(response.statusCode, 409, response.body);
+    assert.equal(response.json().error, "ETSY_CODE_MODE_REQUIRED");
+  });
+
+  test("reverses an assigned code only with Etsy refund evidence", async () => {
+    const issued = await legacyCodes.issueForReceipt({
+      receiptId: "receipt-refund-route",
+      batchLabel: "manual-july",
+      adminId: "admin-route",
+    });
+    const missingEvidence = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/receipt-refund-route/local-reversal",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "refund-receipt-route-missing",
+      },
+      payload: { reason: "buyer canceled" },
+    });
+    assert.equal(missingEvidence.statusCode, 400, missingEvidence.body);
+
+    const reversed = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/codes/receipt-refund-route/local-reversal",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "refund-receipt-route",
+      },
+      payload: {
+        reason: "buyer canceled",
+        etsy_refund_evidence: "etsy-case-991",
+      },
+    });
+    assert.equal(reversed.statusCode, 200, reversed.body);
+    assert.deepEqual(reversed.json(), {
+      receipt_id: "receipt-refund-route",
+      state: "refunded",
+      entitlement_reversed: true,
+      manual_review: false,
+      money_refunded: false,
+    });
+    assert.deepEqual(await legacyCodes.validate(issued.code), {
+      valid: false,
+      status: "void",
+    });
   });
 
   // ---- list ----
@@ -362,6 +524,20 @@ describe("admin etsy redemption-code routes", () => {
     assert.equal(
       reconcileWithoutKey.json().error,
       "IDEMPOTENCY_KEY_REQUIRED",
+    );
+
+    const reconcileInCodeMode = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/reconcile",
+      headers: {
+        ...adminHeaders,
+        "idempotency-key": "reconcile-code-mode",
+      },
+    });
+    assert.equal(reconcileInCodeMode.statusCode, 409, reconcileInCodeMode.body);
+    assert.equal(
+      reconcileInCodeMode.json().error,
+      "ETSY_API_MODE_REQUIRED",
     );
   });
 });

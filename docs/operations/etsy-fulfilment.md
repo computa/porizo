@@ -2,8 +2,31 @@
 
 ## Launch state
 
-Keep `etsy_automation_enabled`, `etsy_entry_enabled`, and the Etsy listing off
-until all of these are proven:
+`etsy_fulfilment_mode` is the only runtime authority:
+
+- `off`: no Etsy buyer entry, code claim, provider webhook, OAuth bootstrap,
+  receipt reconciliation, or provider fulfilment worker.
+- `code`: manual, receipt-assigned codes at `/etsy/code`; provider automation
+  remains dark.
+- `api`: receipt entry and provider automation; `/etsy/code` remains available
+  so previously issued codes never strand.
+
+Invalid or unreadable values fail closed to `off`. The migration-137 Etsy
+booleans are inert compatibility data and must not be used as operational
+controls.
+
+Launch the wedge in `code` only after:
+
+- The listing is made-to-order and states the manual delivery SLA.
+- The generic instruction file points to `/etsy/code` and contains no code.
+- An operator has tested issue, reveal, delivery marking, verified-email claim,
+  cross-device sign-in, MP3 download, cancellation, and audit.
+- Each paid Etsy receipt is assigned exactly one code through the audited
+  superadmin endpoint. Generic bearer-code batches remain retired.
+- The listing price, currency, active state, digital format, SLA, revision
+  promise, and refund promise match the approved listing manifest.
+
+Do not switch to `api` until all of these are proven:
 
 - A real Seller App receipt includes `buyer_email`.
 - Etsy has confirmed that the generic instruction file plus transaction-only
@@ -15,10 +38,6 @@ until all of these are proven:
   `ETSY_DATA_ENCRYPTION_KEYRING` are configured.
 - Webhook signature, duplicate delivery, reconciliation, claim on a second
   device, MP3 download, cancellation, and audit have passed with a real order.
-- The Etsy listing price, currency, active state, digital format, SLA, revision
-  promise, and refund promise match the approved listing manifest.
-- `etsy_legacy_code_redemption_enabled=false`; no unassigned live legacy code
-  remains.
 
 An event is acknowledged only after its verified webhook ID and body digest are
 durably inserted. Processing failures stay retryable. Never fetch a webhook's
@@ -62,11 +81,36 @@ railway run npm run etsy:key:scan
 Do not remove a previous key until the final scan reports
 `old_envelope_count: 0`.
 
-Pausing `etsy_automation_enabled` pauses processing, not ingestion. The webhook
-continues to verify and durably record paid/canceled events while paused so a
-rollback does not discard paid orders. The periodic pending-event sweep must
-also remain paused until the flag is restored. Webhook requests larger than
-256 KiB are rejected before JSON parsing.
+Outside `api`, the Etsy provider webhook returns 404 before ingestion and no
+provider worker runs. Switching away from `api` is therefore an emergency stop,
+not a lossless pause: reconcile the disabled interval from Etsy before declaring
+the system current. Webhook requests larger than 256 KiB are rejected before
+JSON parsing.
+
+## Manual code mode
+
+1. Verify the Etsy receipt is paid and not canceled.
+2. Issue one code with
+   `POST /admin/dashboard/etsy/codes/issue`, including `receipt_id`,
+   `listing_id`, `batch_label`, and a fresh `Idempotency-Key`. The endpoint is
+   superadmin-only, returns the bearer code once, and creates an assignment
+   record.
+3. Send the code through the buyer's Etsy order messages. If the response was
+   lost before delivery, a superadmin may use the audited one-time operational
+   reveal endpoint while the assignment is still `assigned`.
+4. Mark delivery with
+   `POST /admin/dashboard/etsy/codes/:receiptId/delivered`, a delivery evidence
+   reference, and a fresh `Idempotency-Key`. Delivered codes cannot be revealed
+   through the admin API.
+5. The buyer opens `/etsy/code`, types the code separately, and verifies an
+   email. The server holds the pending code claim; the email link contains no
+   code and may be opened on another device.
+6. Verification atomically resolves the canonical account, burns the code, and
+   grants one shared gift-wallet credit. That credit is fungible across web and
+   the app.
+
+Never send `/etsy?code=...`, store a code in browser storage, or paste one into
+the generic Etsy file. Never issue an unassigned batch for live orders.
 
 ## Automated mode
 
@@ -84,24 +128,6 @@ also remain paused until the flag is restored. Webhook requests larger than
 Do not advertise instant song completion. Publish only a claim-link and final
 song SLA measured by production-like dry runs.
 
-## Manual made-to-order fallback
-
-The manual and automated listing modes are mutually exclusive. If buyer email
-or policy approval is unavailable, remove the instant-download listing and use
-Etsy's made-to-order digital listing:
-
-1. Operator claims the receipt in the manual queue and verifies paid,
-   non-canceled state, listing, quantity, and personalization.
-2. A second operator verifies receipt-to-song mapping before delivery.
-3. In Etsy Shop Manager open the order, choose **Complete order**, upload the
-   buyer's MP3/instruction file, then choose **Complete order**.
-4. Record the completion timestamp and Etsy evidence in the order audit.
-5. Overdue work pages at the published human SLA. Do not silently change it to
-   automated mode.
-6. If canceled before delivery, stop work and reconcile units. If already
-   claimed/spent, use the audited refund operation; never delete delivered
-   content silently.
-
 ## Refunds and cancellation
 
 `order.canceled` triggers an authoritative receipt/payment refetch. Deduplicate
@@ -115,6 +141,10 @@ first. The retired `/refund` admin route returns `410`; after Etsy confirms the
 refund or cancellation, a superadmin may call the audited `local-reversal`
 operation with a reason and Etsy evidence reference. Its response explicitly
 reports `money_refunded: false`.
+
+In code mode, void an unredeemed assignment before marking the Etsy refund
+complete. A redeemed assignment retains its receipt, owner, grant transaction,
+and delivery state for support and accounting; never delete or reassign it.
 
 ## MP3 incidents
 

@@ -40,6 +40,9 @@ const {
 } = require("../database/magic-login-repository");
 const { createMagicLoginService } = require("../services/magic-login-service");
 const {
+  getEtsyFulfilmentMode,
+} = require("../services/etsy-fulfilment-mode");
+const {
   createContactDeliveryService,
 } = require("../services/contact-delivery-service");
 const {
@@ -383,7 +386,13 @@ async function requireAuth(request, reply) {
  */
 function registerAuthRoutes(
   app,
-  { db, subscriptionManager, appConfig = {} } = {},
+  {
+    db,
+    subscriptionManager,
+    appConfig = {},
+    etsyCodeClaimService = null,
+    etsyRedemptionService = null,
+  } = {},
 ) {
   authRouteSessionRepository = createAuthSessionRepository(db);
   const canonicalWebOrigin = String(
@@ -473,6 +482,18 @@ function registerAuthRoutes(
     }
 
     const txDb = transactionRepository.db;
+    const transactionQuery = (sql, params) => dbQuery(txDb, sql, params);
+    const etsyCodeClaim = etsyCodeClaimService
+      ? await etsyCodeClaimService.findPendingForTransaction(transaction.id, {
+          query: transactionQuery,
+        })
+      : null;
+    if (
+      etsyCodeClaim &&
+      etsyCodeClaim.email_normalized !== transaction.emailNormalized
+    ) {
+      throw new Error("ETSY_CODE_CLAIM_EMAIL_MISMATCH");
+    }
     const txIdentityRepository = createIdentityRepository(txDb);
     let owner = await txIdentityRepository.findActiveUserByVerifiedContact(
       "email",
@@ -593,6 +614,23 @@ function registerAuthRoutes(
           .update(webSessionToken, "utf8")
           .digest("hex"),
       });
+      if (etsyCodeClaim) {
+        if (!etsyRedemptionService) {
+          throw new Error("ETSY_CODE_REDEMPTION_SERVICE_REQUIRED");
+        }
+        await etsyRedemptionService.redeem({
+          code: etsyCodeClaim.code,
+          userId: owner.id,
+          externalQuery: transactionQuery,
+        });
+        await etsyCodeClaimService.markConsumed(
+          {
+            claimId: etsyCodeClaim.id,
+            ownerUserId: owner.id,
+          },
+          { query: transactionQuery },
+        );
+      }
       return {
         userId: owner.id,
         sessionId,
@@ -639,8 +677,15 @@ function registerAuthRoutes(
       .toLowerCase();
     const platform = String(request.body?.platform || "").toLowerCase();
     const purpose = String(request.body?.purpose || "login").toLowerCase();
+    const requestedReturnTo = String(request.body?.return_to || "");
+    const isEtsyCodeClaim =
+      platform === "web" &&
+      requestedReturnTo === "etsy_code" &&
+      Boolean(request.body?.etsy_code);
     const returnTo =
-      platform === "web" && request.body?.return_to === "etsy" ? "etsy" : null;
+      platform === "web" && ["etsy", "etsy_code"].includes(requestedReturnTo)
+        ? requestedReturnTo
+        : null;
     let requesterKey = String(request.body?.requester_key || "");
     const clientIp = getClientIp(request);
     const enabled = process.env.MAGIC_LOGIN_ENABLED !== "false";
@@ -652,6 +697,34 @@ function registerAuthRoutes(
         "MAGIC_LOGIN_DISABLED",
         "Email sign-in is temporarily unavailable.",
       );
+    }
+    if (isEtsyCodeClaim) {
+      if (
+        !etsyCodeClaimService ||
+        !["code", "api"].includes(await getEtsyFulfilmentMode(db))
+      ) {
+        return sendError(reply, 404, "ETSY_ENTRY_DISABLED", "Not found.");
+      }
+      try {
+        await etsyCodeClaimService.assertRedeemable(request.body.etsy_code);
+      } catch (error) {
+        const statusByCode = {
+          CODE_NOT_FOUND: 404,
+          CODE_ALREADY_REDEEMED: 409,
+          CODE_VOID: 410,
+        };
+        const status = statusByCode[error?.code];
+        if (status) return sendError(reply, status, error.code, error.message);
+        throw error;
+      }
+      if (!emailService.isConfigured() && process.env.NODE_ENV !== "test") {
+        return sendError(
+          reply,
+          503,
+          "MAGIC_LOGIN_DELIVERY_UNAVAILABLE",
+          "We can't send the verification email right now. Please try again shortly.",
+        );
+      }
     }
     if (
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
@@ -725,25 +798,80 @@ function registerAuthRoutes(
       requesterKey,
       ipAddress: clientIp,
     });
-    if (emailService.isConfigured()) {
-      emailService
-        .sendMagicLoginEmail(email, {
-          webOrigin: canonicalWebOrigin,
-          transactionId: created.transactionId,
-          platform,
-          linkSecret: created.linkSecret,
+    if (isEtsyCodeClaim) {
+      try {
+        await etsyCodeClaimService.createPending({
+          code: request.body.etsy_code,
+          email,
+          magicTransactionId: created.transactionId,
           expiresAt: created.expiresAt,
-        })
-        .catch((error) =>
+        });
+      } catch (error) {
+        await magicLoginRepository.expirePendingById({
+          id: created.transactionId,
+          expiredAt: new Date().toISOString(),
+        });
+        const status = error?.code === "CODE_CLAIM_PENDING" ? 409 : 400;
+        return sendError(
+          reply,
+          status,
+          error?.code || "ETSY_CODE_CLAIM_FAILED",
+          error?.message || "We couldn't protect this code.",
+        );
+      }
+    }
+    if (emailService.isConfigured()) {
+      const delivery = emailService.sendMagicLoginEmail(email, {
+        webOrigin: canonicalWebOrigin,
+        transactionId: created.transactionId,
+        platform,
+        linkSecret: created.linkSecret,
+        expiresAt: created.expiresAt,
+      });
+      if (isEtsyCodeClaim) {
+        try {
+          await delivery;
+        } catch (error) {
+          const expiredAt = new Date().toISOString();
+          await Promise.all([
+            magicLoginRepository.expirePendingById({
+              id: created.transactionId,
+              expiredAt,
+            }),
+            etsyCodeClaimService.expirePendingForTransaction(
+              created.transactionId,
+            ),
+          ]);
+          app.log.error(
+            { err: error, transactionId: created.transactionId, platform },
+            "Etsy code verification email failed",
+          );
+          return sendError(
+            reply,
+            503,
+            "MAGIC_LOGIN_DELIVERY_FAILED",
+            "We couldn't send the verification email. Please try again.",
+          );
+        }
+      } else {
+        delivery.catch((error) =>
           app.log.error(
             { err: error, transactionId: created.transactionId, platform },
             "Magic login email failed",
           ),
         );
+      }
     }
 
     reply.header("Cache-Control", "no-store");
     if (platform === "web") {
+      if (isEtsyCodeClaim) {
+        return reply.code(202).send({
+          accepted: true,
+          transaction_id: created.transactionId,
+          expires_at: created.expiresAt,
+        });
+      }
       reply.header("Set-Cookie", [
         `__Host-porizo_preauth=${encodePreauthCookie({ transactionId: created.transactionId, requestSecret: created.requestSecret, returnTo })}; Max-Age=900; Path=/; Secure; HttpOnly; SameSite=Lax`,
         `__Host-porizo_csrf=${encodeURIComponent(requesterKey)}; Max-Age=900; Path=/; Secure; SameSite=Lax`,
@@ -870,6 +998,49 @@ function registerAuthRoutes(
       const cookies = parseCookieHeader(request.headers.cookie);
       const preauth = decodePreauthCookie(cookies["__Host-porizo_preauth"]);
       const transactionId = String(request.query?.transaction_id || "");
+      const etsyCodeClaim = etsyCodeClaimService
+        ? await etsyCodeClaimService.findPendingForTransaction(transactionId)
+        : null;
+      if (etsyCodeClaim) {
+        const nonce = crypto.randomBytes(16).toString("base64");
+        reply.header(
+          "Content-Security-Policy",
+          `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'`,
+        );
+        return reply.type("text/html; charset=utf-8").send(`<!doctype html>
+<html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Protecting your Etsy song</title>
+<style>body{font:17px system-ui;margin:0;padding:32px;color:#211d1a;background:#fffaf6}main{max-width:560px;margin:10vh auto}button{display:block;width:100%;margin:20px 0;padding:16px;border:0;border-radius:12px;background:#e7784d;color:#211d1a;font:inherit;font-weight:700}</style>
+<body><main><h1>Protect your paid song</h1>
+<p id="status" role="status" aria-live="polite">Confirm this email to add the song credit to your Porizo account.</p>
+<button id="confirm" type="button">Confirm and continue</button></main>
+<script nonce="${nonce}">
+(function () {
+  const status = document.getElementById('status');
+  const confirm = document.getElementById('confirm');
+  const transactionId = new URL(location.href).searchParams.get('transaction_id');
+  const secret = new URLSearchParams(location.hash.slice(1)).get('secret');
+  history.replaceState(null, '', location.pathname + (transactionId ? '?transaction_id=' + encodeURIComponent(transactionId) : ''));
+  if (!transactionId || !secret) { confirm.disabled = true; status.textContent = 'This verification link is invalid.'; return; }
+  confirm.addEventListener('click', async function (event) {
+    if (!event.isTrusted) return;
+    confirm.disabled = true; status.textContent = 'Protecting your song…';
+    try {
+      const response = await fetch('/auth/magic/etsy-code/exchange', {
+        method: 'POST', credentials: 'same-origin', headers: {'content-type':'application/json'},
+        body: JSON.stringify({transaction_id: transactionId, link_secret: secret})
+      });
+      if (!response.ok) throw new Error('exchange failed');
+      status.textContent = 'Your song credit is ready. Redirecting…';
+      sessionStorage.setItem('porizo.etsy-fulfilment', crypto.randomUUID());
+      localStorage.removeItem('porizo.web-funnel.order-recovery.v1');
+      localStorage.removeItem('porizo.web-funnel.v1');
+      location.replace('/create');
+    } catch (_) { confirm.disabled = false; status.textContent = 'This link is invalid or expired. Return to the code page and try again.'; }
+  });
+})();
+</script></body></html>`);
+      }
       const returnPath =
         preauth?.transactionId === transactionId && preauth?.returnTo === "etsy"
           ? "/etsy"
@@ -985,6 +1156,88 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
       );
     }
     return reply.send({ status: "approved" });
+  });
+
+  app.post("/auth/magic/etsy-code/exchange", async (request, reply) => {
+    if (!hasAllowedWebOrigin(request)) {
+      return sendError(reply, 403, "INVALID_MAGIC_LOGIN_ORIGIN", "Invalid request.");
+    }
+    const transactionId = String(request.body?.transaction_id || "");
+    try {
+      const exchanged = await magicLoginService.exchangeAuthorizedClaim({
+        transactionId,
+        platform: "web",
+        linkSecret: String(request.body?.link_secret || ""),
+        authorize: async (transaction, transactionRepository) => {
+          const claim = await etsyCodeClaimService?.findPendingForTransaction(
+            transaction.id,
+            {
+              query: (sql, params) =>
+                dbQuery(transactionRepository.db, sql, params),
+            },
+          );
+          return (
+            claim?.email_normalized === transaction.emailNormalized &&
+            ["code", "api"].includes(await getEtsyFulfilmentMode(db))
+          );
+        },
+        consume: (transaction, transactionRepository) =>
+          consumeMagicTransaction(
+            transaction,
+            transactionRepository,
+            "web",
+            request,
+          ),
+      });
+      if (exchanged.status !== "consumed") {
+        return sendError(
+          reply,
+          400,
+          "INVALID_MAGIC_LOGIN",
+          "Invalid or expired verification link.",
+        );
+      }
+      if (exchanged.result.isNewUser) {
+        try {
+          await subscriptionManager.createFreeEntitlements(
+            exchanged.result.userId,
+            {
+              identity: {
+                provider: "email",
+                subject: exchanged.result.identitySubject,
+              },
+            },
+          );
+        } catch (error) {
+          app.log.error(
+            { err: error, userId: exchanged.result.userId },
+            "Free entitlements were not initialized after Etsy claim",
+          );
+        }
+      }
+      const webCsrf = crypto.randomBytes(24).toString("base64url");
+      reply.header("Cache-Control", "no-store");
+      reply.header("Set-Cookie", [
+        `__Host-porizo_session=${encodeURIComponent(exchanged.result.webSessionToken)}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Strict`,
+        `__Host-porizo_web_csrf=${encodeURIComponent(webCsrf)}; Max-Age=31536000; Path=/; Secure; SameSite=Strict`,
+      ]);
+      return reply.send({
+        authenticated: true,
+        user_id: exchanged.result.userId,
+        etsy_code_redeemed: true,
+      });
+    } catch (error) {
+      app.log.warn(
+        { transactionId, code: error?.code || error?.message },
+        "Etsy code verification rejected",
+      );
+      return sendError(
+        reply,
+        400,
+        "INVALID_MAGIC_LOGIN",
+        "Invalid or expired verification link.",
+      );
+    }
   });
 
   app.post("/auth/magic/native/status", async (request, reply) => {

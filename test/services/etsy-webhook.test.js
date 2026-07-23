@@ -108,11 +108,12 @@ describe("Etsy webhook verification", () => {
     });
   });
 
-  it("records a verified event while automation processing is paused", async () => {
+  it("does not accept or record provider webhooks outside api mode", async () => {
     let route;
     let closeHook;
     let recorded;
     let processed = 0;
+    let mode = "code";
     const app = {
       addHook(name, hook) {
         if (name === "onClose") closeHook = hook;
@@ -136,7 +137,7 @@ describe("Etsy webhook verification", () => {
           processed += 1;
         },
       },
-      isAutomationEnabled: async () => false,
+      getFulfilmentMode: async () => mode,
       logger: { error: () => {} },
     });
 
@@ -157,6 +158,15 @@ describe("Etsy webhook verification", () => {
       },
     };
     try {
+      await route.options.onRequest({}, reply);
+      assert.equal(reply.statusCode, 404);
+      assert.equal(recorded, undefined);
+      assert.equal(processed, 0);
+
+      reply.statusCode = 200;
+      reply.payload = undefined;
+      mode = "api";
+      await route.options.onRequest({}, reply);
       await route.handler(
         {
           rawBody: Buffer.from(rawBody),
@@ -171,7 +181,7 @@ describe("Etsy webhook verification", () => {
         reply,
       );
       assert.equal(reply.statusCode, 200);
-      assert.equal(reply.payload.processing_paused, true);
+      assert.equal(reply.payload.processing_paused, false);
       assert.equal(recorded.webhookId, webhookId);
       assert.equal(recorded.eventType, "order.paid");
       assert.equal(recorded.shopId, "shop_123");

@@ -18,6 +18,16 @@ const {
 const {
   createMagicLoginService,
 } = require("../src/services/magic-login-service");
+const {
+  createGiftWalletRepository,
+} = require("../src/database/gift-wallet-repository");
+const {
+  createEtsyRedemptionService,
+} = require("../src/services/etsy-redemption-service");
+const {
+  createEtsyCodeClaimService,
+} = require("../src/services/etsy-code-claim-service");
+const { setFeatureFlag } = require("../src/services/feature-flags");
 
 describe("platform-bound magic login API", () => {
   let app;
@@ -93,6 +103,116 @@ describe("platform-bound magic login API", () => {
     assert.equal(response.statusCode, 200);
     assert.ok(response.body.includes('location.replace("/etsy")'));
     assert.doesNotMatch(response.body, /etsy-return@example\.com/);
+  });
+
+  it("redeems a server-side Etsy code claim from a different browser into the verified account", async () => {
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "code", "test");
+    const wallet = createGiftWalletRepository(db);
+    const redemption = createEtsyRedemptionService({
+      db,
+      giftWalletRepository: wallet,
+    });
+    const claims = createEtsyCodeClaimService({ db });
+    const [code] = await redemption.mintBatch({
+      batchLabel: "magic-cross-browser",
+      count: 1,
+    });
+    const email = "etsy-cross-browser@example.com";
+    const magic = createMagicLoginService({
+      repository: createMagicLoginRepository(db),
+    });
+    const created = await magic.createTransaction({
+      email,
+      platform: "web",
+      purpose: "login",
+      requesterKey: "etsy-cross-browser-requester",
+    });
+    await claims.createPending({
+      code,
+      email,
+      magicTransactionId: created.transactionId,
+      expiresAt: created.expiresAt,
+    });
+
+    const guidance = await app.inject({
+      method: "GET",
+      url: `/auth/magic/web?transaction_id=${created.transactionId}`,
+    });
+    assert.equal(guidance.statusCode, 200, guidance.body);
+    assert.match(guidance.body, /Protect your paid song/);
+    assert.doesNotMatch(guidance.body, new RegExp(code));
+
+    const exchanged = await app.inject({
+      method: "POST",
+      url: "/auth/magic/etsy-code/exchange",
+      headers: { origin: "https://porizo.co" },
+      payload: {
+        transaction_id: created.transactionId,
+        link_secret: created.linkSecret,
+      },
+    });
+    assert.equal(exchanged.statusCode, 200, exchanged.body);
+    assert.equal(exchanged.json().etsy_code_redeemed, true);
+    assert.match(String(exchanged.headers["set-cookie"]), /porizo_session/);
+    const owner = await db
+      .prepare(
+        "SELECT redeemed_by_user_id FROM etsy_redemption_codes WHERE code = ?",
+      )
+      .get(code);
+    assert.ok(owner?.redeemed_by_user_id);
+    assert.equal(await wallet.getBalance(owner.redeemed_by_user_id), 1);
+    const contact = await db
+      .prepare(
+        `SELECT verified_at FROM user_contacts
+          WHERE user_id = ? AND type = 'email' AND value_normalized = ?`,
+      )
+      .get(owner.redeemed_by_user_id, email);
+    assert.ok(contact?.verified_at);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/auth/magic/etsy-code/exchange",
+      headers: { origin: "https://porizo.co" },
+      payload: {
+        transaction_id: created.transactionId,
+        link_secret: created.linkSecret,
+      },
+    });
+    assert.equal(replay.statusCode, 400, replay.body);
+    assert.equal(await wallet.getBalance(owner.redeemed_by_user_id), 1);
+  });
+
+  it("creates an opaque Etsy code claim request without returning or linking the code", async () => {
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "code", "test");
+    const redemption = createEtsyRedemptionService({
+      db,
+      giftWalletRepository: createGiftWalletRepository(db),
+    });
+    const [code] = await redemption.mintBatch({
+      batchLabel: "magic-request-opaque",
+      count: 1,
+    });
+    const requested = await app.inject({
+      method: "POST",
+      url: "/auth/magic/request",
+      headers: { origin: "https://porizo.co" },
+      payload: {
+        email: "etsy-opaque@example.com",
+        platform: "web",
+        purpose: "login",
+        return_to: "etsy_code",
+        etsy_code: code,
+      },
+    });
+    assert.equal(requested.statusCode, 202, requested.body);
+    assert.doesNotMatch(requested.body, new RegExp(code));
+    assert.equal(requested.headers["set-cookie"], undefined);
+    const claim = await db
+      .prepare(
+        "SELECT code FROM etsy_code_claims WHERE magic_transaction_id = ?",
+      )
+      .get(requested.json().transaction_id);
+    assert.equal(claim.code, code);
   });
 
   it("does not offer a broken browser approval action while approval is disabled", async () => {

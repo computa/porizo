@@ -90,7 +90,8 @@ async function assertWebFunnelContract({ enableDebugRoutes }) {
     // The Etsy fulfilment landing shares the funnel SPA shell.
     "/etsy",
     "/etsy/",
-    "/etsy?code=PZ-ABCD-2345",
+    "/etsy/code",
+    "/etsy/code/",
   ]) {
     const response = await app.inject({ method: "GET", url });
     assert.equal(response.statusCode, 200, url);

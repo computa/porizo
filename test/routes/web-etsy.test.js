@@ -31,12 +31,19 @@ function storageStub() {
   };
 }
 
-async function seedGuestWithToken(db, userId) {
+async function seedVerifiedBuyerWithToken(db, userId) {
   await db
     .prepare(
-      "INSERT INTO users (id, created_at, risk_level, account_status) VALUES (?, CURRENT_TIMESTAMP, 'low', 'guest')",
+      "INSERT INTO users (id, created_at, risk_level, account_status) VALUES (?, CURRENT_TIMESTAMP, 'low', 'active')",
     )
     .run(userId);
+  await db
+    .prepare(
+      `INSERT INTO user_auth_providers
+        (id, user_id, provider, provider_user_id, status, verified_at)
+       VALUES (?, ?, 'email', ?, 'active', CURRENT_TIMESTAMP)`,
+    )
+    .run(`provider_${userId}`, userId, `${userId}@example.com`);
   const session = await authService.createSession(userId, {
     platform: "web",
     authMethod: "web_guest",
@@ -57,12 +64,7 @@ describe("Etsy redemption routes", () => {
     clearCache();
     db = await initDb();
     await setFeatureFlag(db, "web_funnel_enabled", true, "test");
-    await setFeatureFlag(
-      db,
-      "etsy_legacy_code_redemption_enabled",
-      true,
-      "test",
-    );
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "code", "test");
     wallet = createGiftWalletRepository(db);
     etsy = createEtsyRedemptionService({ db, giftWalletRepository: wallet });
     turnstileTokens = [];
@@ -89,8 +91,8 @@ describe("Etsy redemption routes", () => {
     delete process.env.TRUST_CLOUDFLARE_CLIENT_IP;
   });
 
-  it("redeems a valid code for the current guest session and grants one credit", async () => {
-    const token = await seedGuestWithToken(db, "guest_a");
+  it("redeems a valid code for a verified account and grants one credit", async () => {
+    const token = await seedVerifiedBuyerWithToken(db, "guest_a");
     const [code] = await etsy.mintBatch({
       batchLabel: "route-happy",
       count: 1,
@@ -115,7 +117,7 @@ describe("Etsy redemption routes", () => {
   });
 
   it("requires Turnstile at receipt initiation without disclosing order existence", async () => {
-    await setFeatureFlag(db, "etsy_entry_enabled", true, "test");
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "api", "test");
     const rejected = await app.inject({
       method: "POST",
       url: "/web/etsy/order/check",
@@ -139,8 +141,8 @@ describe("Etsy redemption routes", () => {
   });
 
   it("rejects a direct claim that did not complete the Turnstile check", async () => {
-    await setFeatureFlag(db, "etsy_entry_enabled", true, "test");
-    const token = await seedGuestWithToken(db, "guest_claim_bypass");
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "api", "test");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_claim_bypass");
     const response = await app.inject({
       method: "POST",
       url: "/web/etsy/order/claim",
@@ -156,7 +158,7 @@ describe("Etsy redemption routes", () => {
   });
 
   it("binds a Turnstile claim proof to its receipt and client IP", async () => {
-    await setFeatureFlag(db, "etsy_entry_enabled", true, "test");
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "api", "test");
     const checked = await app.inject({
       method: "POST",
       url: "/web/etsy/order/check",
@@ -167,7 +169,7 @@ describe("Etsy redemption routes", () => {
       },
     });
     const claimProof = checked.json().claim_proof;
-    const token = await seedGuestWithToken(db, "guest_claim_binding");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_claim_binding");
     const response = await app.inject({
       method: "POST",
       url: "/web/etsy/order/claim",
@@ -183,7 +185,7 @@ describe("Etsy redemption routes", () => {
   });
 
   it("is idempotent for the same buyer re-submitting the same code", async () => {
-    const token = await seedGuestWithToken(db, "guest_a");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_a");
     const [code] = await etsy.mintBatch({ batchLabel: "route-idem", count: 1 });
     const headers = {
       authorization: `Bearer ${token}`,
@@ -224,8 +226,42 @@ describe("Etsy redemption routes", () => {
     assert.strictEqual(res.statusCode, 401, res.body);
   });
 
+  it("does not attach a paid code to an unverified browser account", async () => {
+    await db
+      .prepare(
+        "INSERT INTO users (id, created_at, risk_level, account_status) VALUES ('unverified_buyer', CURRENT_TIMESTAMP, 'low', 'guest')",
+      )
+      .run();
+    const session = await authService.createSession("unverified_buyer", {
+      platform: "web",
+      authMethod: "web_guest",
+    });
+    const token = authService.generateAccessToken("unverified_buyer", {
+      sessionId: session.id,
+    });
+    const [code] = await etsy.mintBatch({
+      batchLabel: "route-unverified",
+      count: 1,
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/web/etsy/redeem",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "cf-connecting-ip": "203.0.113.220",
+      },
+      payload: { code },
+    });
+    assert.equal(response.statusCode, 401, response.body);
+    assert.equal(response.json().error, "ETSY_VERIFIED_EMAIL_REQUIRED");
+    assert.deepEqual(await etsy.validate(code), {
+      valid: true,
+      status: "unredeemed",
+    });
+  });
+
   it("404s an unknown code", async () => {
-    const token = await seedGuestWithToken(db, "guest_a");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_a");
     const res = await app.inject({
       method: "POST",
       url: "/web/etsy/redeem",
@@ -240,8 +276,8 @@ describe("Etsy redemption routes", () => {
   });
 
   it("409s a code already redeemed by a different buyer", async () => {
-    const tokenA = await seedGuestWithToken(db, "guest_a");
-    const tokenB = await seedGuestWithToken(db, "guest_b");
+    const tokenA = await seedVerifiedBuyerWithToken(db, "guest_a");
+    const tokenB = await seedVerifiedBuyerWithToken(db, "guest_b");
     const [code] = await etsy.mintBatch({
       batchLabel: "route-taken",
       count: 1,
@@ -271,7 +307,7 @@ describe("Etsy redemption routes", () => {
   });
 
   it("410s a voided code", async () => {
-    const token = await seedGuestWithToken(db, "guest_a");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_a");
     const [code] = await etsy.mintBatch({ batchLabel: "route-void", count: 1 });
     await etsy.voidCode({ code, reason: "etsy order refunded" });
 
@@ -289,7 +325,7 @@ describe("Etsy redemption routes", () => {
   });
 
   it("429s brute-force attempts from one IP after the cap", async () => {
-    const token = await seedGuestWithToken(db, "guest_a");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_a");
     const headers = {
       authorization: `Bearer ${token}`,
       "cf-connecting-ip": "203.0.113.27",
@@ -309,7 +345,7 @@ describe("Etsy redemption routes", () => {
   });
 
   it("404s when the web funnel flag is off", async () => {
-    const token = await seedGuestWithToken(db, "guest_a");
+    const token = await seedVerifiedBuyerWithToken(db, "guest_a");
     await setFeatureFlag(db, "web_funnel_enabled", false, "test");
     const [code] = await etsy.mintBatch({ batchLabel: "route-flag", count: 1 });
     const res = await app.inject({
@@ -371,20 +407,25 @@ describe("Etsy redemption routes", () => {
     }
   });
 
-  it("retires legacy redemption by default behind a separate flag", async () => {
-    await setFeatureFlag(
-      db,
-      "etsy_legacy_code_redemption_enabled",
-      false,
-      "test",
-    );
+  it("fails closed when Etsy fulfilment mode is off", async () => {
+    await setFeatureFlag(db, "etsy_fulfilment_mode", "off", "test");
     const response = await app.inject({
       method: "POST",
       url: "/web/etsy/redeem",
       headers: { "cf-connecting-ip": "203.0.113.32" },
       payload: { code: "PZ-XXXX-XXXX" },
     });
-    assert.equal(response.statusCode, 410, response.body);
-    assert.equal(response.json().error, "ETSY_LEGACY_REDEMPTION_DISABLED");
+    assert.equal(response.statusCode, 404, response.body);
+    assert.equal(response.json().error, "ETSY_ENTRY_DISABLED");
+  });
+
+  it("reports the one authoritative fulfilment mode without caching it publicly", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/web/etsy/mode",
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json(), { mode: "code" });
+    assert.match(response.headers["cache-control"], /no-store/);
   });
 });

@@ -67,6 +67,8 @@ function registerWebFunnel(
     // routes on pathname to render the landing instead of the /create funnel.
     "/etsy",
     "/etsy/",
+    "/etsy/code",
+    "/etsy/code/",
   ]) {
     app.get(route, sendShell);
   }

@@ -53,6 +53,58 @@ describe("etsy redemption codes", () => {
     assert.equal(Number(stored.count), 25);
   });
 
+  it("issues exactly one auditable code per Etsy receipt", async () => {
+    const issued = await service.issueForReceipt({
+      receiptId: "receipt-1001",
+      listingId: "listing-19",
+      batchLabel: "manual-july",
+      adminId: "admin-1",
+    });
+    assert.match(issued.code, /^PZ-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    assert.equal(issued.state, "assigned");
+
+    await assert.rejects(
+      service.issueForReceipt({
+        receiptId: "receipt-1001",
+        listingId: "listing-19",
+        batchLabel: "manual-july",
+        adminId: "admin-1",
+      }),
+      (error) => error.code === "RECEIPT_ALREADY_ASSIGNED",
+    );
+
+    const assignment = await db
+      .prepare(
+        "SELECT receipt_id, listing_id, state FROM etsy_code_assignments WHERE code = ?",
+      )
+      .get(issued.code);
+    assert.deepEqual(assignment, {
+      receipt_id: "receipt-1001",
+      listing_id: "listing-19",
+      state: "assigned",
+    });
+  });
+
+  it("reveals only undelivered assignments and records delivery", async () => {
+    const issued = await service.issueForReceipt({
+      receiptId: "receipt-1002",
+      batchLabel: "manual-july",
+      adminId: "admin-1",
+    });
+    assert.equal(
+      (await service.revealAssignedCode({ receiptId: "receipt-1002" })).code,
+      issued.code,
+    );
+    await service.markDelivered({
+      receiptId: "receipt-1002",
+      deliveryReference: "etsy-message-55",
+    });
+    await assert.rejects(
+      service.revealAssignedCode({ receiptId: "receipt-1002" }),
+      (error) => error.code === "ASSIGNMENT_NOT_REVEALABLE",
+    );
+  });
+
   it("redeeming a valid code grants exactly one wallet credit and burns the code", async () => {
     const [code] = await service.mintBatch({ batchLabel: "b1", count: 1 });
     const result = await service.redeem({ code, userId: "buyer_a" });
@@ -61,11 +113,88 @@ describe("etsy redemption codes", () => {
     assert.equal(await wallet.getBalance("buyer_a"), 1);
     const row = await db
       .prepare(
-        "SELECT status, redeemed_by_user_id FROM etsy_redemption_codes WHERE code = ?",
+        "SELECT status, redeemed_by_user_id, grant_transaction_id FROM etsy_redemption_codes WHERE code = ?",
       )
       .get(code);
     assert.equal(row.status, "redeemed");
     assert.equal(row.redeemed_by_user_id, "buyer_a");
+    assert.ok(row.grant_transaction_id);
+  });
+
+  it("redemption converges manual delivery state to redeemed", async () => {
+    const issued = await service.issueForReceipt({
+      receiptId: "receipt-1003",
+      batchLabel: "manual-july",
+      adminId: "admin-1",
+    });
+    await service.markDelivered({
+      receiptId: "receipt-1003",
+      deliveryReference: "etsy-message-56",
+    });
+    await service.redeem({ code: issued.code, userId: "buyer_a" });
+    const assignment = await db
+      .prepare(
+        "SELECT state FROM etsy_code_assignments WHERE receipt_id = ?",
+      )
+      .get("receipt-1003");
+    assert.equal(assignment.state, "redeemed");
+  });
+
+  it("reverses an unredeemed assignment and prevents later claim", async () => {
+    const issued = await service.issueForReceipt({
+      receiptId: "receipt-refund-unclaimed",
+      batchLabel: "manual-july",
+      adminId: "admin-1",
+    });
+    const result = await service.reverseAssignment({
+      receiptId: "receipt-refund-unclaimed",
+      refundEvidence: "etsy-refund-1",
+      reason: "buyer canceled",
+    });
+    assert.equal(result.state, "refunded");
+    assert.equal(result.entitlementReversed, true);
+    await assert.rejects(
+      service.redeem({ code: issued.code, userId: "buyer_a" }),
+      /CODE_VOID/,
+    );
+  });
+
+  it("removes an unspent redeemed credit and flags a spent credit for manual review", async () => {
+    const unspent = await service.issueForReceipt({
+      receiptId: "receipt-refund-unspent",
+      batchLabel: "manual-july",
+      adminId: "admin-1",
+    });
+    await service.redeem({ code: unspent.code, userId: "buyer_a" });
+    const reversed = await service.reverseAssignment({
+      receiptId: "receipt-refund-unspent",
+      refundEvidence: "etsy-refund-2",
+      reason: "buyer refunded",
+    });
+    assert.equal(reversed.state, "refunded");
+    assert.equal(reversed.entitlementReversed, true);
+    assert.equal(await wallet.getBalance("buyer_a"), 0);
+
+    const spent = await service.issueForReceipt({
+      receiptId: "receipt-refund-spent",
+      batchLabel: "manual-july",
+      adminId: "admin-1",
+    });
+    await service.redeem({ code: spent.code, userId: "buyer_b" });
+    await wallet.applyTransaction({
+      userId: "buyer_b",
+      type: "gift_reservation",
+      amount: -1,
+      source: "test",
+      idempotencyKey: "spend-etsy-credit",
+    });
+    const review = await service.reverseAssignment({
+      receiptId: "receipt-refund-spent",
+      refundEvidence: "etsy-refund-3",
+      reason: "buyer refunded after spend",
+    });
+    assert.equal(review.state, "manual_review");
+    assert.equal(review.entitlementReversed, false);
   });
 
   it("redeem is case- and whitespace-forgiving (a buyer types it from a printout)", async () => {

@@ -2,6 +2,7 @@
 
 Patterns and rules to prevent repeated mistakes. Review at session start.
 
+- **A remediation finding does not authorize a product-strategy fork** — When a review identifies multiple viable architectures, preserve the settled launch strategy and surface the decision instead of silently choosing the most complete implementation. Ship architecture-neutral hardening independently, keep approval-gated integrations dark behind one authoritative mode, and require explicit product approval before replacing a wedge flow or its buyer instructions.
 - **External QA must be rebased onto current HEAD before implementation** — When a review cites an older commit, record that baseline and classify every finding as open, implemented-but-unproved, verified-behavior-needing-test, partial, or external with exact current evidence. Do not replay already-landed production fixes; add missing regression proof and change code only where the current behavior still fails.
 - **Payment origin is ledger provenance, not gift ownership** — Stripe and StoreKit grants must enter one fungible gift wallet. Reserve/finalize/cancel against the common reservation transaction; never infer which delivered gift to revoke from a purchase provider or refund notification.
 - **Notification failure is not content failure** — Exhausted SMS/email retries must preserve the generated gift, stable share, and wallet spend. Give the buyer an honest manual fallback and keep delivery stop separate from full gift cancellation.

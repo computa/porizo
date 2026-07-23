@@ -1,8 +1,26 @@
-# Etsy order-backed fulfilment launch readiness (2026-07-23) [CODE COMPLETE]
+# Etsy Option 2.5 corrective launch path (2026-07-23) [ACTIVE]
 
-The obsolete unassigned-code wedge below is retained as history only. It is not
-the launch contract. The current source of truth is
-`docs/plans/2026-07-23-001-fix-etsy-launch-readiness-plan.md`.
+Source of truth:
+`docs/plans/2026-07-23-002-fix-etsy-code-wedge-mode-plan.md`.
+
+- [x] U1 Add the authoritative `off|code|api` mode and fence every provider/API
+      surface and worker while keeping MP3 artifact durability active.
+- [x] U2 Require verified-email account ownership before a printed code is
+      redeemed, with an opaque server-side claim and cross-browser magic link.
+- [x] U3 Restore code entry at `/etsy` in code mode and permanently at
+      `/etsy/code`; keep receipt entry dark until API mode.
+- [x] U4 Update the operations/listing contract to made-to-order manual delivery
+      and document the safe future API transition.
+- [x] Run focused and affected suites, one consolidated adversarial review,
+      strict preflight, full backend tests, and frontend production build.
+
+---
+
+# Etsy order-backed fulfilment launch readiness (2026-07-23) [HARDENING COMPLETE; API MODE DARK]
+
+The order-backed implementation remains as the future `api` mode and is not the
+launch contract until Etsy Seller App approval and external evidence are
+complete. Architecture-neutral hardening remains active.
 
 ## Original adversarial findings
 
@@ -67,7 +85,11 @@ the launch contract. The current source of truth is
 
 ---
 
-# Etsy buyer landing (/etsy?code=) + offer-step branch (2026-07-23) [DONE — reviewed]
+# Etsy buyer landing (/etsy?code=) + offer-step branch (2026-07-23) [SUPERSEDED]
+
+Historical Option 2 work only. Option 2.5 replaces query-string/guest redemption
+with typed `/etsy/code` entry and verified-account ownership. Do not implement
+or operate from this section.
 
 **Final review (opus `etsy-final-review`): VERIFIED SAFE, no P0/P1.** App.tsx
 session-bootstrap extraction confirmed behavior-identical line-by-line (the P1 risk
@@ -128,7 +150,10 @@ A different user's redeemed code → warm "already used, contact via Etsy" state
 
 ---
 
-# Admin Etsy redemption-code endpoints — Gate A instrumentation (2026-07-23) [ACTIVE]
+# Admin Etsy redemption-code endpoints — Gate A instrumentation (2026-07-23) [SUPERSEDED]
+
+Historical generic-batch design. Live generic mint/export is retired; Option
+2.5 issues one audited code per paid Etsy receipt.
 
 TDD. Owned files only: src/routes/admin.js, src/routes/admin/etsy-codes.js (new),
 src/services/etsy-redemption-service.js (add list/stats), test/ (new). Do NOT commit.
@@ -150,7 +175,10 @@ src/services/etsy-redemption-service.js (add list/stats), test/ (new). Do NOT co
 
 ---
 
-# Etsy redemption codes — mint/validate/burn (2026-07-21) [ACTIVE]
+# Etsy redemption codes — mint/validate/burn (2026-07-21) [SUPERSEDED]
+
+Historical service groundwork. The current buyer contract is the account-bound
+Option 2.5 flow at the top of this file.
 
 **Why:** Option 2 decided (owner): Etsy buyer gets a one-time code → `/etsy?code=` →
 existing `/create` quiz → `gift_credit` order path. Codes are the ONLY new backend

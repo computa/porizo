@@ -2,7 +2,9 @@
 
 const { Readable } = require("node:stream");
 const { verifyEtsyWebhook } = require("../services/etsy-webhook");
-const { getFeatureFlag } = require("../services/feature-flags");
+const {
+  getEtsyFulfilmentMode,
+} = require("../services/etsy-fulfilment-mode");
 
 const MAX_ETSY_WEBHOOK_BYTES = 256 * 1024;
 
@@ -52,8 +54,7 @@ function registerWebEtsyWebhookRoutes(
     etsyOrderService,
     etsyClient,
     logger = console,
-    isAutomationEnabled = () =>
-      getFeatureFlag(db, "etsy_automation_enabled").catch(() => false),
+    getFulfilmentMode = () => getEtsyFulfilmentMode(db),
   },
 ) {
   let sweepInFlight = false;
@@ -62,8 +63,7 @@ function registerWebEtsyWebhookRoutes(
     if (sweepInFlight || !etsyClient?.configured?.()) return;
     sweepInFlight = true;
     try {
-      const automationEnabled = await isAutomationEnabled();
-      if (!automationEnabled) return;
+      if ((await getFulfilmentMode()) !== "api") return;
       await etsyOrderService.processPendingWebhooks(etsyClient);
       sweepCount += 1;
       if (
@@ -85,6 +85,11 @@ function registerWebEtsyWebhookRoutes(
   app.post(
     "/web/webhooks/etsy",
     {
+      onRequest: async (_request, reply) => {
+        if ((await getFulfilmentMode()) !== "api") {
+          return reply.code(404).send({ error: "NOT_FOUND" });
+        }
+      },
       preParsing: async (request, _reply, payload) => {
         request.rawBody = await readRawBody(payload);
         return Readable.from([request.rawBody]);
@@ -137,8 +142,7 @@ function registerWebEtsyWebhookRoutes(
         }
         throw error;
       }
-      const automationEnabled = await isAutomationEnabled();
-      if (recorded.inserted && automationEnabled) {
+      if (recorded.inserted) {
         setImmediate(() => {
           etsyOrderService
             .processWebhook(String(webhookId), etsyClient)
@@ -153,7 +157,7 @@ function registerWebEtsyWebhookRoutes(
       return reply.code(200).send({
         received: true,
         duplicate: !recorded.inserted,
-        processing_paused: !automationEnabled,
+        processing_paused: false,
       });
     },
   );

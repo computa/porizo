@@ -4,6 +4,9 @@ const crypto = require("node:crypto");
 const { getGuardClientIp } = require("../utils/client-ip");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
+  getEtsyFulfilmentMode,
+} = require("../services/etsy-fulfilment-mode");
+const {
   createEtsyRedemptionService,
 } = require("../services/etsy-redemption-service");
 const { normalizeReceiptId } = require("../services/etsy-order-service");
@@ -92,6 +95,7 @@ function registerWebEtsyRoutes(
     requireUserId,
     giftWalletRepository,
     etsyOrderService = null,
+    getFulfilmentMode = () => getEtsyFulfilmentMode(db),
     turnstileVerifier = createTurnstileVerifier({
       secretKey: process.env.TURNSTILE_SECRET_KEY,
       environment: process.env.NODE_ENV,
@@ -125,33 +129,13 @@ function registerWebEtsyRoutes(
     return true;
   }
 
-  async function etsyEntryEnabled(request, reply) {
-    let enabled;
-    try {
-      enabled = await getFeatureFlag(db, "etsy_entry_enabled", {
-        throwOnError: true,
-      });
-    } catch (error) {
-      request.log.error({ err: error }, "Etsy entry flag lookup failed");
-      sendError(
-        reply,
-        503,
-        "ETSY_CONFIG_UNAVAILABLE",
-        "Etsy fulfilment is temporarily unavailable.",
-      );
-      return false;
-    }
-    if (enabled !== true) {
+  async function modeAllows(request, reply, allowedModes) {
+    const mode = await getFulfilmentMode();
+    if (!allowedModes.includes(mode)) {
       sendError(reply, 404, "ETSY_ENTRY_DISABLED", "Not found.");
       return false;
     }
     return true;
-  }
-
-  async function legacyRedemptionEnabled() {
-    return getFeatureFlag(db, "etsy_legacy_code_redemption_enabled", {
-      throwOnError: true,
-    });
   }
 
   async function withinRedeemLimit(request, reply) {
@@ -192,20 +176,40 @@ function registerWebEtsyRoutes(
     return true;
   }
 
+  app.get("/web/etsy/mode", async (request, reply) => {
+    if (!(await funnelEnabled(request, reply))) return;
+    reply.header("Cache-Control", "no-store");
+    return reply.send({ mode: await getFulfilmentMode() });
+  });
+
   app.post("/web/etsy/redeem", async (request, reply) => {
     if (!(await funnelEnabled(request, reply))) return;
-    if (!(await legacyRedemptionEnabled())) {
-      return sendError(
-        reply,
-        410,
-        "ETSY_LEGACY_REDEMPTION_DISABLED",
-        "Printed redemption codes have been retired.",
-      );
-    }
+    if (!(await modeAllows(request, reply, ["code", "api"]))) return;
     if (!(await withinRedeemLimit(request, reply))) return;
 
     const userId = await requireUserId(request, reply);
     if (!userId) return;
+    const verifiedEmail = await db
+      .prepare(
+        `SELECT 1 AS verified
+           FROM user_auth_providers
+          WHERE user_id = ? AND provider = 'email' AND status = 'active'
+            AND verified_at IS NOT NULL
+         UNION
+         SELECT 1 AS verified
+           FROM user_contacts
+          WHERE user_id = ? AND type = 'email' AND verified_at IS NOT NULL
+          LIMIT 1`,
+      )
+      .get(userId, userId);
+    if (!verifiedEmail) {
+      return sendError(
+        reply,
+        401,
+        "ETSY_VERIFIED_EMAIL_REQUIRED",
+        "Verify your email before redeeming this code.",
+      );
+    }
 
     try {
       const result = await etsyRedemptionService.redeem({
@@ -238,14 +242,7 @@ function registerWebEtsyRoutes(
   // by default and must be removed after migration inventory is reconciled.
   app.post("/web/etsy/code/check", async (request, reply) => {
     if (!(await funnelEnabled(request, reply))) return;
-    if (!(await legacyRedemptionEnabled())) {
-      return sendError(
-        reply,
-        410,
-        "ETSY_LEGACY_REDEMPTION_DISABLED",
-        "Printed redemption codes have been retired.",
-      );
-    }
+    if (!(await modeAllows(request, reply, ["code", "api"]))) return;
 
     let result;
     try {
@@ -268,7 +265,7 @@ function registerWebEtsyRoutes(
   // normal verified-email session before claim.
   app.post("/web/etsy/order/check", async (request, reply) => {
     if (!(await funnelEnabled(request, reply))) return;
-    if (!(await etsyEntryEnabled(request, reply))) return;
+    if (!(await modeAllows(request, reply, ["api"]))) return;
     const clientIp = getGuardClientIp(request);
     let verification;
     try {
@@ -310,7 +307,7 @@ function registerWebEtsyRoutes(
 
   app.post("/web/etsy/order/claim", async (request, reply) => {
     if (!(await funnelEnabled(request, reply))) return;
-    if (!(await etsyEntryEnabled(request, reply))) return;
+    if (!(await modeAllows(request, reply, ["api"]))) return;
     const clientIp = getGuardClientIp(request);
     if (
       !verifyClaimProof(
@@ -404,6 +401,29 @@ function registerWebEtsyRoutes(
 
   app.get("/web/etsy/order/context", async (request, reply) => {
     if (!(await funnelEnabled(request, reply))) return;
+    const mode = await getFulfilmentMode();
+    if (mode === "off") {
+      return sendError(reply, 404, "ETSY_ENTRY_DISABLED", "Not found.");
+    }
+    if (mode === "code") {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
+      const code = await db
+        .prepare(
+          `SELECT code
+             FROM etsy_redemption_codes
+            WHERE redeemed_by_user_id = ? AND status = 'redeemed'
+            ORDER BY redeemed_at DESC
+            LIMIT 1`,
+        )
+        .get(userId);
+      reply.header("Cache-Control", "no-store");
+      return reply.send({
+        commerce_free: Boolean(code),
+        order_reference: code ? `etsy-code:${String(code.code).slice(-4)}` : undefined,
+        unit_count: code ? 1 : 0,
+      });
+    }
     if (!etsyOrderService) return reply.send({ commerce_free: false });
     const userId = await requireUserId(request, reply);
     if (!userId) return;
@@ -418,6 +438,7 @@ function registerWebEtsyRoutes(
   });
 
   app.get("/web/etsy/order/unit/:unitId", async (request, reply) => {
+    if (!(await modeAllows(request, reply, ["api"]))) return;
     const userId = await requireUserId(request, reply);
     if (!userId) return;
     const status = await etsyOrderService?.describeUnitForOwner(

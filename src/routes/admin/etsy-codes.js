@@ -6,10 +6,12 @@ const {
 const {
   createEtsyRedemptionService,
 } = require("../../services/etsy-redemption-service");
+const {
+  getEtsyFulfilmentMode,
+} = require("../../services/etsy-fulfilment-mode");
 
-// Gate A instrumentation for the Etsy wedge (plan 2026-07-21-001 §0.7.5): the
-// operator mints a batch, exports the codes into Etsy order inserts, then
-// watches issued/redeemed/unredeemed to see whether the listing converts.
+// Etsy fulfilment operations. Code mode assigns one audited bearer code to one
+// paid receipt; API mode owns provider reconciliation and automation.
 function registerAdminEtsyCodeRoutes(
   app,
   {
@@ -77,6 +79,243 @@ function registerAdminEtsyCodeRoutes(
       "Unassigned Etsy bearer-code minting has been retired.",
     );
   });
+
+  const requireCodeMode = async (reply) => {
+    const mode = await getEtsyFulfilmentMode(db);
+    if (mode !== "code") {
+      sendError(
+        reply,
+        409,
+        "ETSY_CODE_MODE_REQUIRED",
+        "Manual code issuance is available only in Etsy code mode.",
+      );
+      return false;
+    }
+    return true;
+  };
+  const requireApiMode = async (reply) => {
+    const mode = await getEtsyFulfilmentMode(db);
+    if (mode !== "api") {
+      sendError(
+        reply,
+        409,
+        "ETSY_API_MODE_REQUIRED",
+        "Etsy provider reconciliation is available only in API mode.",
+      );
+      return false;
+    }
+    return true;
+  };
+
+  app.post("/admin/dashboard/etsy/codes/issue", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
+    reply.header("Cache-Control", "no-store");
+    if (!(await requireCodeMode(reply))) return;
+    const operationKey = requireOperationKey(request, reply);
+    if (!operationKey) return;
+
+    const receiptId = String(request.body?.receipt_id || "").trim();
+    const batchLabel = String(request.body?.batch_label || "").trim();
+    const listingId = String(request.body?.listing_id || "").trim() || null;
+    if (!receiptId) {
+      return sendError(
+        reply,
+        400,
+        "RECEIPT_ID_REQUIRED",
+        "receipt_id is required.",
+      );
+    }
+    if (!batchLabel) {
+      return sendError(
+        reply,
+        400,
+        "BATCH_LABEL_REQUIRED",
+        "batch_label is required.",
+      );
+    }
+
+    try {
+      const result = await etsyRedemptionService.issueForReceipt({
+        receiptId,
+        listingId,
+        batchLabel,
+        adminId: admin.adminId,
+      });
+      await auditOnce(
+        `etsy-code-issue:${operationKey}`,
+        admin.adminId,
+        "etsy_code_assigned",
+        "etsy_receipt",
+        receiptId,
+        {
+          batch_label: batchLabel,
+          listing_id: listingId,
+          code_last4: result.code.slice(-4),
+        },
+      );
+      return reply.code(201).send({
+        receipt_id: receiptId,
+        code: result.code,
+        state: result.state,
+      });
+    } catch (error) {
+      if (error?.code === "RECEIPT_ALREADY_ASSIGNED") {
+        return sendError(
+          reply,
+          409,
+          error.code,
+          "That Etsy receipt already has an assigned code.",
+        );
+      }
+      throw error;
+    }
+  });
+
+  app.post(
+    "/admin/dashboard/etsy/codes/:receiptId/reveal",
+    async (request, reply) => {
+      const admin = await requireAdminRole(request, reply, ["superadmin"]);
+      if (!admin) return;
+      reply.header("Cache-Control", "no-store");
+      if (!(await requireCodeMode(reply))) return;
+      const operationKey = requireOperationKey(request, reply);
+      if (!operationKey) return;
+      try {
+        const result = await etsyRedemptionService.revealAssignedCode({
+          receiptId: request.params.receiptId,
+        });
+        await auditOnce(
+          `etsy-code-reveal:${operationKey}`,
+          admin.adminId,
+          "etsy_code_revealed",
+          "etsy_receipt",
+          result.receiptId,
+          { code_last4: result.code.slice(-4) },
+        );
+        return reply.send({
+          receipt_id: result.receiptId,
+          code: result.code,
+          state: result.state,
+        });
+      } catch (error) {
+        if (error?.code === "ASSIGNMENT_NOT_REVEALABLE") {
+          return sendError(reply, 409, error.code, error.message);
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post(
+    "/admin/dashboard/etsy/codes/:receiptId/delivered",
+    async (request, reply) => {
+      const admin = await requireAdminRole(request, reply, ["superadmin"]);
+      if (!admin) return;
+      reply.header("Cache-Control", "no-store");
+      if (!(await requireCodeMode(reply))) return;
+      const operationKey = requireOperationKey(request, reply);
+      if (!operationKey) return;
+      const deliveryReference = String(
+        request.body?.delivery_reference || "",
+      ).trim();
+      if (!deliveryReference) {
+        return sendError(
+          reply,
+          400,
+          "DELIVERY_REFERENCE_REQUIRED",
+          "delivery_reference is required.",
+        );
+      }
+      try {
+        const result = await etsyRedemptionService.markDelivered({
+          receiptId: request.params.receiptId,
+          deliveryReference,
+        });
+        await auditOnce(
+          `etsy-code-delivered:${operationKey}`,
+          admin.adminId,
+          "etsy_code_delivered",
+          "etsy_receipt",
+          result.receiptId,
+          { delivery_reference: deliveryReference },
+        );
+        return reply.send({
+          receipt_id: result.receiptId,
+          state: result.state,
+        });
+      } catch (error) {
+        if (error?.code === "ASSIGNMENT_NOT_DELIVERABLE") {
+          return sendError(reply, 409, error.code, error.message);
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post(
+    "/admin/dashboard/etsy/codes/:receiptId/local-reversal",
+    async (request, reply) => {
+      const admin = await requireAdminRole(request, reply, ["superadmin"]);
+      if (!admin) return;
+      reply.header("Cache-Control", "no-store");
+      const operationKey = requireOperationKey(request, reply);
+      if (!operationKey) return;
+      const reason = String(request.body?.reason || "").trim();
+      const refundEvidence = String(
+        request.body?.etsy_refund_evidence || "",
+      ).trim();
+      if (reason.length < 3) {
+        return sendError(
+          reply,
+          400,
+          "REASON_REQUIRED",
+          "A refund reason is required.",
+        );
+      }
+      if (refundEvidence.length < 3) {
+        return sendError(
+          reply,
+          400,
+          "ETSY_REFUND_EVIDENCE_REQUIRED",
+          "An Etsy refund or cancellation evidence reference is required.",
+        );
+      }
+      try {
+        const result = await etsyRedemptionService.reverseAssignment({
+          receiptId: request.params.receiptId,
+          refundEvidence,
+          reason,
+        });
+        await auditOnce(
+          `etsy-code-reversal:${operationKey}`,
+          admin.adminId,
+          "etsy_code_entitlement_reversal",
+          "etsy_receipt",
+          result.receiptId,
+          {
+            reason,
+            etsy_refund_evidence: refundEvidence,
+            entitlement_reversed: result.entitlementReversed,
+            assignment_state: result.state,
+            money_refunded: false,
+          },
+        );
+        return reply.send({
+          receipt_id: result.receiptId,
+          state: result.state,
+          entitlement_reversed: result.entitlementReversed,
+          manual_review: result.state === "manual_review",
+          money_refunded: false,
+        });
+      } catch (error) {
+        if (error?.code === "ASSIGNMENT_NOT_FOUND") {
+          return sendError(reply, 404, error.code, error.message);
+        }
+        throw error;
+      }
+    },
+  );
 
   app.get("/admin/dashboard/etsy/codes", async (request, reply) => {
     const admin = await requireAdminRole(request, reply, [
@@ -263,6 +502,7 @@ function registerAdminEtsyCodeRoutes(
     reply.header("Cache-Control", "no-store");
     const operationKey = requireOperationKey(request, reply);
     if (!operationKey) return;
+    if (!(await requireApiMode(reply))) return;
     if (!etsyClient?.configured?.()) {
       return sendError(
         reply,

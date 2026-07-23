@@ -9,6 +9,14 @@ status: ready-to-execute
 
 # Etsy Wedge Listing — Pre-Listing Work Plan
 
+> **Superseded fulfilment detail (2026-07-23):** the launch architecture is
+> Option 2.5 in
+> `docs/plans/2026-07-23-002-fix-etsy-code-wedge-mode-plan.md`. Launch uses a
+> made-to-order/manual SLA, one audited code per paid receipt, generic
+> `/etsy/code` entry, and verified-account ownership. References below to
+> instant delivery, guest redemption, generic batches, or `?code=` URLs are
+> retained as historical rationale and are not implementation instructions.
+
 Operationalizes **WS-A.1** of the web-first pivot: list "Personalized Song Gift" at
 **$19.99**, fulfil manually, and read a real willingness-to-pay signal before spending
 a dollar on paid traffic.

@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiError } from "./client";
+import { ApiError, type ApiClient } from "./client";
 import {
+  fetchEtsyCodeCheck,
+  fetchEtsyFulfilmentMode,
   landingStateForCode,
   landingStateForError,
   normalizeCode,
+  requestEtsyCodeClaim,
   redeemLandingState,
   type EtsyCodeStatus,
 } from "./etsy";
@@ -165,5 +168,65 @@ describe("redeemLandingState (client integration)", () => {
     );
     const result = await redeemLandingState(client(fetcher), "PZ-ABCD-2345");
     expect(result).toEqual({ state: "redeemed" });
+  });
+});
+
+describe("Option 2.5 transport contracts", () => {
+  it("sends code checks in a POST body, never in the URL", async () => {
+    const post = vi.fn(async (path: string, body?: unknown) => {
+      void path;
+      void body;
+      return { valid: true, status: "unredeemed" as const };
+    });
+    const client = {
+      get: vi.fn(),
+      post,
+      put: vi.fn(),
+    } as unknown as ApiClient;
+    await fetchEtsyCodeCheck(client, "PZ-ABCD-2345");
+    expect(post).toHaveBeenCalledWith("/web/etsy/code/check", {
+      code: "PZ-ABCD-2345",
+    });
+    expect(post.mock.calls[0]?.[0]).not.toContain("PZ-ABCD-2345");
+  });
+
+  it("binds the typed code to an email verification request body", async () => {
+    const post = vi.fn(async (path: string, body?: unknown) => {
+      void path;
+      void body;
+      return {
+        accepted: true as const,
+        transaction_id: "magic-1",
+        expires_at: "2026-07-23T12:00:00.000Z",
+      };
+    });
+    const client = {
+      get: vi.fn(),
+      post,
+      put: vi.fn(),
+    } as unknown as ApiClient;
+    await requestEtsyCodeClaim(client, {
+      code: "PZ-ABCD-2345",
+      email: "buyer@example.com",
+    });
+    expect(post).toHaveBeenCalledWith("/auth/magic/request", {
+      email: "buyer@example.com",
+      platform: "web",
+      purpose: "login",
+      return_to: "etsy_code",
+      etsy_code: "PZ-ABCD-2345",
+    });
+  });
+
+  it("fails closed on an unknown mode", async () => {
+    const client = {
+      get: vi.fn(async (path: string) => {
+        void path;
+        return { mode: "future" };
+      }),
+      post: vi.fn(),
+      put: vi.fn(),
+    } as unknown as ApiClient;
+    expect(await fetchEtsyFulfilmentMode(client)).toBe("off");
   });
 });

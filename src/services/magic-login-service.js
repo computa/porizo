@@ -227,6 +227,61 @@ function createMagicLoginService({
     });
   }
 
+  // A cross-browser Etsy code claim deliberately does not use the ordinary web
+  // preauth cookie. Callers must authorize the transaction against a live,
+  // server-side paid-code claim before this one-secret exchange can consume it.
+  async function exchangeAuthorizedClaim({
+    transactionId,
+    platform,
+    linkSecret,
+    authorize,
+    consume = async () => ({}),
+  }) {
+    if (
+      !validTransactionId(transactionId) ||
+      platform !== "web" ||
+      typeof authorize !== "function"
+    ) {
+      return { status: "invalid" };
+    }
+    const linkSecretHash = requireSecret(linkSecret);
+    if (!linkSecretHash) return { status: "invalid" };
+
+    return repository.withTransaction(async (transactionRepository) => {
+      const consumedAtDate = now();
+      const consumedAt = consumedAtDate.toISOString();
+      const transaction = await transactionRepository.findById(transactionId);
+      if (
+        !transaction ||
+        transaction.platform !== platform ||
+        transaction.purpose !== "login" ||
+        transaction.status !== "pending" ||
+        Date.parse(transaction.expiresAt) <= consumedAtDate.getTime() ||
+        !(await authorize(transaction, transactionRepository))
+      ) {
+        return { status: "invalid" };
+      }
+      const claimed = await transactionRepository.claimPendingByLink({
+        id: transactionId,
+        platform,
+        linkSecretHash,
+        consumedAt,
+      });
+      if (!claimed) {
+        await transactionRepository.recordFailedAttempt({
+          id: transactionId,
+          platform,
+          attemptedAt: consumedAt,
+        });
+        return { status: "invalid" };
+      }
+      return {
+        status: "consumed",
+        result: (await consume(transaction, transactionRepository)) || {},
+      };
+    });
+  }
+
   async function approve({ transactionId, platform, linkSecret }) {
     if (
       !validTransactionId(transactionId) ||
@@ -362,6 +417,7 @@ function createMagicLoginService({
   return {
     createTransaction,
     exchange,
+    exchangeAuthorizedClaim,
     approve,
     status,
     completeApproved,
