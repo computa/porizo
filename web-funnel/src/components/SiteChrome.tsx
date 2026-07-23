@@ -1,8 +1,26 @@
 import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { rememberOrderRecovery } from "../order-recovery";
 
-export function SiteNav() {
+// `commerceFree` renders the brand-only variant for an already-paid Etsy
+// fulfilment session: the Porizo wordmark stays, but every commerce/nav
+// affordance (links, Sign in) is dropped so the buyer is never invited to buy
+// elsewhere or hit a signup wall.
+export function SiteNav({ commerceFree = false }: { commerceFree?: boolean }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+
+  if (commerceFree) {
+    return (
+      <nav className="nav nav--static" aria-label="Primary navigation">
+        <div className="container">
+          <div className="nav__inner">
+            <span className="nav__logo" aria-label="Porizo">
+              <span className="nav__logo-text">Porizo</span>
+            </span>
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <>
@@ -13,9 +31,15 @@ export function SiteNav() {
               <span className="nav__logo-text">Porizo</span>
             </a>
             <div className="nav__links">
-              <a href="/#how" className="nav__link">How it works</a>
-              <a href="/pricing" className="nav__link">Pricing</a>
-              <a href="/blog" className="nav__link nav__link--secondary">Blog</a>
+              <a href="/#how" className="nav__link">
+                How it works
+              </a>
+              <a href="/pricing" className="nav__link">
+                Pricing
+              </a>
+              <a href="/blog" className="nav__link nav__link--secondary">
+                Blog
+              </a>
             </div>
             <button
               className="nav__cta nav__cta--quiet"
@@ -32,7 +56,11 @@ export function SiteNav() {
   );
 }
 
-function SignInDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | null> }) {
+function SignInDialog({
+  dialogRef,
+}: {
+  dialogRef: RefObject<HTMLDialogElement | null>;
+}) {
   return (
     <dialog className="sign-in-dialog" ref={dialogRef}>
       <SiteSignInForm onClose={() => dialogRef.current?.close()} />
@@ -62,8 +90,15 @@ export function SiteSignInForm({
       const response = await fetch("/auth/magic/request", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email: email.trim(), platform: "web", purpose: "login" }),
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          platform: "web",
+          purpose: "login",
+        }),
       });
       if (!response.ok) throw new Error("Sign-in request failed");
       if (recoverySessionId) {
@@ -81,12 +116,23 @@ export function SiteSignInForm({
     <>
       <div className="sign-in-dialog__top">
         <h2>{sent ? "Check your email" : "Sign in with email"}</h2>
-        {onClose && <button className="btn-quiet" type="button" onClick={onClose}>Close</button>}
+        {onClose && (
+          <button className="btn-quiet" type="button" onClick={onClose}>
+            Close
+          </button>
+        )}
       </div>
       {sent ? (
         <>
-          <p>Link sent to {email.trim()}. Open it in this browser to recover your purchase.</p>
-          <button className="btn-quiet" type="button" onClick={() => setSent(false)}>
+          <p>
+            Link sent to {email.trim()}. Open it in this browser to recover your
+            purchase.
+          </p>
+          <button
+            className="btn-quiet"
+            type="button"
+            onClick={() => setSent(false)}
+          >
             Wrong email? Change it
           </button>
         </>
@@ -102,8 +148,16 @@ export function SiteSignInForm({
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
-          {error && <p className="error-text" role="alert">{error}</p>}
-          <button className="btn-primary" type="submit" disabled={pending || !email.trim()}>
+          {error && (
+            <p className="error-text" role="alert">
+              {error}
+            </p>
+          )}
+          <button
+            className="btn-primary"
+            type="submit"
+            disabled={pending || !email.trim()}
+          >
             {pending ? "Sending link..." : "Email me a sign-in link"}
           </button>
         </form>
@@ -112,13 +166,48 @@ export function SiteSignInForm({
   );
 }
 
-export function SiteFooter() {
+// `commerceFree` keeps the brand and legal footing for an already-paid Etsy
+// fulfilment session while dropping the Product/Company/Song-gift columns —
+// every link there either sells another song or navigates back to the storefront.
+export function SiteFooter({
+  commerceFree = false,
+}: {
+  commerceFree?: boolean;
+}) {
+  if (commerceFree) {
+    return (
+      <footer className="footer funnel-footer">
+        <div className="container">
+          <div className="footer__inner">
+            <div className="footer__brand">
+              <span className="nav__logo">
+                <span className="nav__logo-text">Porizo</span>
+              </span>
+              <p className="footer__tagline">Your moment, in a song.</p>
+            </div>
+            <div className="footer__col">
+              <h4>Legal</h4>
+              <a href="/legal/privacy">Privacy</a>
+              <a href="/legal/terms">Terms</a>
+            </div>
+          </div>
+          <div className="footer__bottom">
+            <span>© 2026 Porizo. All rights reserved.</span>
+            <span>One song at a time.</span>
+          </div>
+        </div>
+      </footer>
+    );
+  }
+
   return (
     <footer className="footer funnel-footer">
       <div className="container">
         <div className="footer__inner">
           <div className="footer__brand">
-            <a href="/" className="nav__logo"><span className="nav__logo-text">Porizo</span></a>
+            <a href="/" className="nav__logo">
+              <span className="nav__logo-text">Porizo</span>
+            </a>
             <p className="footer__tagline">Your moment, in a song.</p>
           </div>
           <div className="footer__col">
@@ -157,5 +246,9 @@ export function SiteFooter() {
 }
 
 export function DimBrand() {
-  return <a className="dim-brand" href="/" aria-label="Porizo home">Porizo</a>;
+  return (
+    <a className="dim-brand" href="/" aria-label="Porizo home">
+      Porizo
+    </a>
+  );
 }

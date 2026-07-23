@@ -22,6 +22,7 @@ import {
 } from "./api/funnel";
 import { PencilIcon } from "./components/Icons";
 import { DimBrand, SiteFooter, SiteNav } from "./components/SiteChrome";
+import { isEtsyFulfilment } from "./etsy-fulfilment";
 import { LyricSheet } from "./steps/LyricSheet";
 import { Offer } from "./steps/Offer";
 import { Preview } from "./steps/Preview";
@@ -427,6 +428,10 @@ export default function App() {
   ]);
 
   const recipient = titleCaseForDisplay(state.answers.recipient || "Sarah");
+  // Read once on mount: an Etsy redemption handed off to /create with this flag,
+  // so the whole session renders stripped, commerce-free chrome (no buy-elsewhere
+  // or signup-wall links). Buyers arriving normally see the standard chrome.
+  const [commerceFree] = useState(isEtsyFulfilment);
   const isDim = state.activeStep === "preview";
   const showEntryFooter =
     state.activeStep === "recipient" && state.furthestStep === "recipient";
@@ -858,7 +863,7 @@ export default function App() {
     <div className={isDim ? "dim app-root" : "app-root"}>
       {!isDim && (
         <>
-          <SiteNav />
+          <SiteNav commerceFree={commerceFree} />
           <div className={showEntryFooter ? "shell shell-entry" : "shell"}>
             {QUIZ_STEPS.includes(state.activeStep as QuizStep) && !capacity && (
               <QuizFlow
@@ -970,7 +975,7 @@ export default function App() {
                 </div>
               )}
           </div>
-          {showEntryFooter && <SiteFooter />}
+          {showEntryFooter && <SiteFooter commerceFree={commerceFree} />}
         </>
       )}
       {state.activeStep === "preview" && (

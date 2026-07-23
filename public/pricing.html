@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Start free with Porizo. See plan options for creating personalized songs and poems.">
+  <meta name="description" content="A personalized song gift for $19.99. One original song built from your memory, previewed free and delivered the same day. One-time payment, no subscription.">
   <meta name="theme-color" content="#FBF7F2">
 
-  <title>Pricing - Porizo</title>
+  <title>Pricing - A $19.99 Personalized Song Gift | Porizo</title>
 
   <!-- Favicon -->
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -65,136 +65,41 @@
     .pricing-hero__sub {
       font-size: clamp(1rem, 2.5vw, 1.15rem);
       color: var(--text-secondary);
-      max-width: 480px;
+      max-width: 520px;
       opacity: 0;
       transform: translateY(20px);
       animation: fadeUp 0.5s var(--ease-out) 0.35s forwards;
     }
 
-    /* Billing Toggle Wrapper */
-    .billing-toggle-wrapper {
+    /* Single Gift Offer Card */
+    .gift-offer {
       display: flex;
-      align-items: center;
       justify-content: center;
-      gap: var(--s-4);
-      padding: var(--s-7) 0 var(--s-5);
-      flex-wrap: wrap;
+      padding: var(--space-lg) var(--space-lg) 0;
     }
 
-    .billing-toggle {
+    .gift-card {
       position: relative;
-      display: inline-flex;
-      padding: 4px;
-      background: var(--bg-2);
-      border: 1px solid var(--hairline);
-      border-radius: var(--r-pill);
-    }
-
-    .billing-toggle__option {
-      position: relative;
-      z-index: 1;
-      padding: 8px 20px;
-      font-size: var(--fs-sm);
-      font-weight: 500;
-      color: var(--ink-3);
-      cursor: pointer;
-      border-radius: var(--r-pill);
-      transition: color var(--t-fast);
-      user-select: none;
-    }
-
-    .billing-toggle__option input {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .billing-toggle__option.active { color: var(--ink); }
-
-    .billing-toggle__pill {
-      position: absolute;
-      top: 4px;
-      bottom: 4px;
-      left: 4px;
-      width: calc(50% - 4px);
-      background: var(--surface);
-      border-radius: var(--r-pill);
-      box-shadow: 0 1px 2px rgba(26, 20, 16, 0.06), 0 4px 12px rgba(26, 20, 16, 0.08);
-      transition: transform var(--t-med);
-    }
-
-    .billing-toggle.annual .billing-toggle__pill {
-      transform: translateX(100%);
-    }
-
-    .billing-toggle__option:has(input:focus-visible) {
-      outline: 2px solid var(--gold);
-      outline-offset: 3px;
-      border-radius: var(--r-pill);
-    }
-
-    .billing-save {
-      font-size: var(--fs-sm);
-      font-weight: 500;
-      color: var(--gold-deep);
-      transition: opacity var(--t-med);
-    }
-
-    .billing-save.dimmed { opacity: 0.35; }
-
-    /* Pricing Cards Grid */
-    .pricing-cards {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1.08fr;
-      gap: 24px;
-      max-width: 1080px;
-      margin: 0 auto;
-      padding: 0 var(--space-lg);
-      align-items: start;
-    }
-
-    /* Base Card */
-    .pricing-card {
-      background: var(--surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      padding: 40px 32px;
-      position: relative;
-      transition: all var(--transition-medium);
-      overflow: visible;
-    }
-
-    .pricing-card:hover {
-      border-color: rgba(44, 36, 32, 0.12);
-      transform: translateY(-2px);
-    }
-
-    /* Card: Free */
-    .pricing-card--free {
-      background: var(--surface);
-    }
-
-    /* Card: Featured (Pro) */
-    .pricing-card--featured {
+      width: 100%;
+      max-width: 460px;
       background: linear-gradient(180deg, rgba(224, 120, 80, 0.08) 0%, var(--surface-elevated) 40%);
       border: 1px solid var(--border-gold);
+      border-radius: var(--radius-lg);
       box-shadow: 0 0 60px rgba(224, 120, 80, 0.06), 0 8px 32px rgba(0, 0, 0, 0.06);
-      transform: translateY(-8px);
-      padding: 48px 36px;
+      padding: 48px 40px;
+      overflow: visible;
+      transition: all var(--transition-medium);
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeUp 0.6s var(--ease-out) 0.45s forwards;
     }
 
-    .pricing-card--featured:hover {
+    .gift-card:hover {
       box-shadow: 0 0 60px rgba(224, 120, 80, 0.12), 0 12px 40px rgba(0, 0, 0, 0.08);
-      transform: translateY(-12px);
       border-color: rgba(224, 120, 80, 0.35);
     }
 
-    /* Card: Plus */
-    .pricing-card--plus {
-      background: var(--surface-elevated);
-    }
-
-    /* Vinyl Grooves (Featured card decoration) */
+    /* Vinyl Grooves (card decoration) */
     .vinyl-grooves {
       position: absolute;
       top: 0;
@@ -220,13 +125,13 @@
     .vinyl-arc:nth-child(2) { width: 260px; height: 260px; }
     .vinyl-arc:nth-child(3) { width: 360px; height: 360px; }
 
-    .pricing-card--featured:hover .vinyl-arc {
+    .gift-card:hover .vinyl-arc {
       border-color: rgba(224, 120, 80, 0.12);
       transform: translate(-50%, -50%) scale(1.05);
     }
 
-    /* Most Popular Badge */
-    .popular-badge {
+    /* Gift Badge */
+    .gift-badge {
       position: absolute;
       top: -14px;
       left: 50%;
@@ -242,94 +147,58 @@
       z-index: 2;
     }
 
-    /* Plan Name */
-    .pricing-card__plan {
+    .gift-card__plan {
       font-family: var(--font-body);
       font-size: 14px;
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--muted);
-      margin-bottom: var(--space-lg);
-    }
-
-    .pricing-card--featured .pricing-card__plan {
       color: var(--gold);
+      margin-bottom: var(--space-md);
+      text-align: center;
+      position: relative;
+      z-index: 1;
     }
 
-    /* Price Display with Crossfade */
-    .price-block {
-      display: grid;
-      min-height: 80px;
+    .gift-price {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       margin-bottom: var(--space-lg);
+      position: relative;
+      z-index: 1;
     }
 
-    .price-block > div {
-      grid-area: 1 / 1;
-      transition: opacity 0.2s ease, transform 0.2s ease;
-    }
-
-    .price-block .price-hidden {
-      opacity: 0;
-      transform: translateY(-8px);
-      pointer-events: none;
-    }
-
-    .price-block .price-visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    .price-amount {
+    .gift-price__amount {
       display: flex;
       align-items: baseline;
-      gap: 4px;
+      gap: 6px;
     }
 
-    .price-value {
+    .gift-price__value {
       font-family: var(--font-display);
-      font-size: 48px;
+      font-size: 64px;
       font-weight: 500;
       color: var(--text);
       line-height: 1;
     }
 
-    .pricing-card--featured .price-value {
-      font-size: 56px;
-    }
-
-    .price-period {
-      font-size: 16px;
-      color: var(--muted);
-    }
-
-    .price-forever {
+    .gift-price__note {
       font-size: 14px;
       color: var(--muted);
-      margin-top: 4px;
-    }
-
-    .price-struck {
-      font-size: 16px;
-      color: var(--muted);
-      text-decoration: line-through;
-      margin-right: 4px;
-    }
-
-    .price-billed {
-      font-size: 13px;
-      color: var(--muted);
-      margin-top: 4px;
+      margin-top: 8px;
     }
 
     /* Feature List */
-    .pricing-features {
+    .gift-features {
       list-style: none;
       padding: 0;
       margin: 0 0 var(--space-xl);
+      position: relative;
+      z-index: 1;
     }
 
-    .pricing-features li {
+    .gift-features li {
       display: flex;
       align-items: flex-start;
       gap: var(--space-sm);
@@ -339,41 +208,39 @@
       line-height: 1.4;
     }
 
-    .pricing-features li .check {
+    .gift-features li .check {
       flex-shrink: 0;
       width: 18px;
       height: 18px;
       margin-top: 2px;
-      color: var(--gold-dark);
-    }
-
-    .pricing-card--featured .pricing-features li .check {
       color: var(--gold);
     }
 
-    .pricing-card--plus .pricing-features li .check {
-      color: var(--gold-dark);
-    }
-
-    .pricing-features li strong {
+    .gift-features li strong {
       color: var(--text);
       font-weight: 600;
     }
 
-    /* Card CTAs */
-    .pricing-card .btn {
+    .gift-card .btn {
       width: 100%;
       text-align: center;
       justify-content: center;
+      position: relative;
+      z-index: 1;
     }
 
-    .pricing-card--featured .btn--primary:hover {
+    .gift-card .btn--primary:hover {
       transform: scale(1.02);
       box-shadow: 0 8px 24px rgba(224, 120, 80, 0.25), 0 0 40px rgba(224, 120, 80, 0.1);
     }
 
-    .pricing-card--plus .btn--ghost {
-      border-color: var(--border-gold);
+    .gift-card__reassure {
+      margin-top: var(--space-md);
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      position: relative;
+      z-index: 1;
     }
 
     /* Trust Quote */
@@ -474,49 +341,24 @@
       margin-bottom: var(--space-xl);
     }
 
-    /* Responsive: Tablet */
-    @media (max-width: 1023px) {
-      .pricing-cards {
-        grid-template-columns: 1fr;
-        max-width: 480px;
-        gap: var(--space-lg);
-      }
-
-      .pricing-card--featured {
-        order: -1;
-        transform: none;
-      }
-
-      .pricing-card--featured:hover {
-        transform: translateY(-4px);
-      }
+    .cta-content .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
     /* Responsive: Mobile */
     @media (max-width: 640px) {
-      .pricing-card {
-        padding: 32px 24px;
+      .gift-card {
+        padding: 40px 24px;
       }
 
-      .pricing-card--featured {
-        padding: 36px 24px;
-      }
-
-      .pricing-card--featured .price-value {
-        font-size: clamp(40px, 10vw, 56px);
-      }
-
-      .price-value {
-        font-size: clamp(36px, 10vw, 48px);
+      .gift-price__value {
+        font-size: clamp(48px, 14vw, 64px);
       }
 
       .faq-grid {
         grid-template-columns: 1fr;
-      }
-
-      .billing-toggle__option {
-        padding: 10px 20px;
-        font-size: 13px;
       }
     }
   </style>
@@ -524,14 +366,14 @@
   <link rel="canonical" href="https://porizo.co/pricing">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Porizo">
-  <meta property="og:title" content="Porizo Pricing — Free, Plus, and Pro plans">
-  <meta property="og:description" content="Start free with Porizo. See plan options for creating personalized songs and poems built from a real memory, in the style you choose.">
+  <meta property="og:title" content="A $19.99 Personalized Song Gift | Porizo">
+  <meta property="og:description" content="One original song built from your memory, in the musical style you choose. Preview free, delivered the same day. One-time $19.99 — no subscription.">
   <meta property="og:url" content="https://porizo.co/pricing">
   <meta property="og:image" content="https://porizo.co/assets/og-song.png">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Porizo Pricing — Free, Plus, and Pro plans">
-  <meta name="twitter:description" content="Start free with Porizo. More songs and poems each month on Plus and Pro.">
+  <meta name="twitter:title" content="A $19.99 Personalized Song Gift | Porizo">
+  <meta name="twitter:description" content="One original song from your memory, delivered the same day for a one-time $19.99. Preview free before you pay.">
   <meta name="twitter:image" content="https://porizo.co/assets/og-song.png">
 
   <script type="application/ld+json">
@@ -539,46 +381,19 @@
     "@context": "https://schema.org",
     "@graph": [
       {
-        "@type": "Service",
-        "@id": "https://porizo.co/pricing#service",
-        "name": "Porizo",
-        "description": "Personalized song gifts — original songs from real memories, in the musical style you choose.",
-        "serviceType": "Personalized song gift creation",
-        "provider": { "@type": "Organization", "name": "Porizo" },
+        "@type": "Product",
+        "@id": "https://porizo.co/pricing#gift-song",
+        "name": "Personalized Song Gift",
+        "description": "An original, personalized song built from one real memory, performed in the musical style you choose. Preview free, then get the full song delivered the same day.",
+        "brand": { "@type": "Brand", "name": "Porizo" },
+        "category": "Personalized song gift",
         "offers": {
-          "@type": "AggregateOffer",
+          "@type": "Offer",
+          "price": "19.99",
           "priceCurrency": "USD",
-          "lowPrice": "0",
-          "highPrice": "149.99",
-          "offerCount": 3,
-          "offers": [
-            {
-              "@type": "Offer",
-              "name": "Free",
-              "price": "0",
-              "priceCurrency": "USD",
-              "description": "1 song (one-time gift), 1 poem (one-time gift), standard processing",
-              "availability": "https://schema.org/InStock"
-            },
-            {
-              "@type": "Offer",
-              "name": "Plus",
-              "price": "9.99",
-              "priceCurrency": "USD",
-              "billingDuration": "P1M",
-              "description": "4 songs/month, 10 poems/month, all occasions and styles",
-              "availability": "https://schema.org/InStock"
-            },
-            {
-              "@type": "Offer",
-              "name": "Pro",
-              "price": "14.99",
-              "priceCurrency": "USD",
-              "billingDuration": "P1M",
-              "description": "10 songs/month, 20 poems/month, priority processing, all occasions and styles, share with anyone",
-              "availability": "https://schema.org/InStock"
-            }
-          ]
+          "availability": "https://schema.org/InStock",
+          "url": "https://porizo.co/create",
+          "seller": { "@type": "Organization", "name": "Porizo" }
         }
       },
       {
@@ -607,7 +422,7 @@
           <a href="/blog" class="nav__link nav__link--secondary">Blog</a>
           <a href="/support" class="nav__link nav__link--secondary">Support</a>
         </div>
-        <a href="/download" class="nav__cta">Get the app</a>
+        <a href="/create" class="nav__cta">Make a song</a>
       </div>
     </div>
   </nav>
@@ -615,151 +430,51 @@
   <!-- Pricing Hero -->
   <section class="pricing-hero">
     <p class="pricing-hero__eyebrow">Pricing</p>
-    <h1>Every moment deserves <span class="accent">a song</span></h1>
-    <p class="pricing-hero__sub">Start free. Upgrade when your heart needs more.</p>
+    <h1>One song. One <span class="accent">unforgettable gift.</span></h1>
+    <p class="pricing-hero__sub">A personalized song, built from your memory, for a one-time $19.99. Preview it free before you pay — no subscription, ever.</p>
   </section>
 
-  <!-- Billing Toggle -->
-  <div class="billing-toggle-wrapper animate-on-scroll">
-    <div class="billing-toggle" role="radiogroup" aria-label="Billing period">
-      <label class="billing-toggle__option active">
-        <input type="radio" name="billing" value="monthly" checked>
-        <span>Monthly</span>
-      </label>
-      <label class="billing-toggle__option">
-        <input type="radio" name="billing" value="annual">
-        <span>Annual</span>
-      </label>
-      <span class="billing-toggle__pill" aria-hidden="true"></span>
-    </div>
-    <span class="billing-save dimmed">Save ~17%</span>
-  </div>
-
-  <!-- Pricing Cards -->
-  <section class="pricing-cards" data-billing="monthly" aria-live="polite">
-
-    <!-- Free -->
-    <div class="pricing-card pricing-card--free animate-on-scroll" style="transition-delay: 0.1s">
-      <p class="pricing-card__plan">Free</p>
-      <div class="price-block">
-        <div class="price-visible">
-          <div class="price-amount">
-            <span class="price-value">$0</span>
-          </div>
-          <p class="price-forever">forever</p>
-        </div>
-      </div>
-      <ul class="pricing-features">
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>1</strong> song (one-time gift)</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>1</strong> poem (one-time gift)</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Standard processing</span>
-        </li>
-      </ul>
-      <a href="/download" class="btn btn--ghost">Get Started</a>
-    </div>
-
-    <!-- Plus -->
-    <div class="pricing-card pricing-card--plus animate-on-scroll" style="transition-delay: 0.15s">
-      <p class="pricing-card__plan">Plus</p>
-      <div class="price-block">
-        <div class="price-monthly price-visible">
-          <div class="price-amount">
-            <span class="price-value">$9.99</span>
-            <span class="price-period">/month</span>
-          </div>
-        </div>
-        <div class="price-annual price-hidden">
-          <div class="price-amount">
-            <span class="price-struck">$9.99</span>
-            <span class="price-value">$8.33</span>
-            <span class="price-period">/month</span>
-          </div>
-          <p class="price-billed">billed $99.99/year</p>
-        </div>
-      </div>
-      <ul class="pricing-features">
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>4</strong> songs/month</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>10</strong> poems/month</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>All occasions & styles</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Shareable playable links</span>
-        </li>
-      </ul>
-      <a href="/download" class="btn btn--ghost">Start Plus</a>
-    </div>
-
-    <!-- Pro (Featured) -->
-    <div class="pricing-card pricing-card--featured animate-on-scroll" style="transition-delay: 0.25s">
-      <span class="popular-badge">Most Popular</span>
+  <!-- Gift Offer Card -->
+  <section class="gift-offer">
+    <div class="gift-card animate-on-scroll">
+      <span class="gift-badge">Same-day delivery</span>
       <div class="vinyl-grooves" aria-hidden="true">
         <div class="vinyl-arc"></div>
         <div class="vinyl-arc"></div>
         <div class="vinyl-arc"></div>
       </div>
-      <p class="pricing-card__plan">Pro</p>
-      <div class="price-block">
-        <div class="price-monthly price-visible">
-          <div class="price-amount">
-            <span class="price-value">$14.99</span>
-            <span class="price-period">/month</span>
-          </div>
+      <p class="gift-card__plan">Gift Song</p>
+      <div class="gift-price">
+        <div class="gift-price__amount">
+          <span class="gift-price__value">$19.99</span>
         </div>
-        <div class="price-annual price-hidden">
-          <div class="price-amount">
-            <span class="price-struck">$14.99</span>
-            <span class="price-value">$12.50</span>
-            <span class="price-period">/month</span>
-          </div>
-          <p class="price-billed">billed $149.99/year</p>
-        </div>
+        <p class="gift-price__note">one-time &middot; no subscription</p>
       </div>
-      <ul class="pricing-features">
+      <ul class="gift-features">
         <li>
           <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>10</strong> songs/month</span>
+          <span><strong>1 personalized song</strong> from your story, delivered same day</span>
         </li>
         <li>
           <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>20</strong> poems/month</span>
+          <span>Original lyrics written from <strong>one real memory</strong></span>
         </li>
         <li>
           <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Priority processing</span>
+          <span>Any occasion &middot; <strong>you choose the musical style</strong></span>
         </li>
         <li>
           <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>All occasions & styles</span>
+          <span>A shareable link they can play forever</span>
         </li>
         <li>
           <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Choose any musical style</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Share with anyone</span>
+          <span><strong>Preview free</strong> — you only pay if you love it</span>
         </li>
       </ul>
-      <a href="/download" class="btn btn--primary">Start Pro</a>
+      <a href="/create" class="btn btn--primary">Start your song</a>
+      <p class="gift-card__reassure">Hear a preview in about 90 seconds. No payment until you're ready.</p>
     </div>
-
   </section>
 
   <!-- Trust Quote -->
@@ -775,20 +490,20 @@
       <h2 class="animate-on-scroll">Questions?</h2>
       <div class="faq-grid">
         <div class="faq-item animate-on-scroll">
-          <div class="faq-q">Can I try Porizo before subscribing?</div>
-          <p class="faq-a">Absolutely. The free tier gives you 1 song and 1 poem — no credit card, no strings.</p>
+          <div class="faq-q">Is this a subscription?</div>
+          <p class="faq-a">No. A gift song is a one-time $19.99 — you pay once, for one song. There's nothing to cancel and no recurring charge.</p>
         </div>
         <div class="faq-item animate-on-scroll">
-          <div class="faq-q">What happens to my songs if I cancel?</div>
-          <p class="faq-a">Your songs are yours forever. Canceling stops future renewals but never takes away what you've already created.</p>
+          <div class="faq-q">Can I hear it before I pay?</div>
+          <p class="faq-a">Yes. You get a free preview in about 90 seconds. You only pay the $19.99 once you love how it sounds.</p>
         </div>
         <div class="faq-item animate-on-scroll">
-          <div class="faq-q">Can I switch plans anytime?</div>
-          <p class="faq-a">Yes. Upgrade or downgrade right in the app under Settings. Changes take effect at your next billing cycle.</p>
+          <div class="faq-q">How fast will it be ready?</div>
+          <p class="faq-a">Same day. The preview lands in about 90 seconds and the full song is ready in minutes — perfect for a last-minute gift.</p>
         </div>
         <div class="faq-item animate-on-scroll">
-          <div class="faq-q">How does annual billing work?</div>
-          <p class="faq-a">You pay once for the full year and save ~17% compared to monthly. The full amount is charged upfront.</p>
+          <div class="faq-q">Do they need the app to hear it?</div>
+          <p class="faq-a">No. You get a shareable link the recipient can play in any browser, and keep forever.</p>
         </div>
         <div class="faq-item animate-on-scroll" style="grid-column: 1 / -1; max-width: 480px; margin: 0 auto;">
           <div class="faq-q">Will it actually feel personal?</div>
@@ -800,10 +515,9 @@
 
   <!-- Legal Footnote -->
   <div class="pricing-legal">
-    <p>Subscriptions automatically renew unless canceled at least 24 hours before the end of the current period. Manage subscriptions in your Apple ID settings.</p>
-    <p>Prices shown in USD. Local pricing may vary.</p>
+    <p>A gift song is a one-time purchase. Prices shown in USD; local pricing may vary.</p>
     <p>
-      <a href="/legal/terms">Terms of Service</a> · <a href="/legal/privacy">Privacy Policy</a>
+      <a href="/legal/terms">Terms of Service</a> &middot; <a href="/legal/privacy">Privacy Policy</a>
     </p>
   </div>
 
@@ -812,21 +526,11 @@
     <div class="container">
       <div class="cta-content animate-on-scroll">
         <h2>Ready to create something unforgettable?</h2>
-        <p>Start free. No credit card required.</p>
-        <div class="download-badges">
-          <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
-            <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
-          </a>
-          <div class="coming-soon-badge" aria-label="Android coming soon">
-            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
-            </svg>
-            <div class="coming-soon-text">
-              <span class="coming-soon-label">Coming Soon</span>
-              <span class="coming-soon-store">Google Play</span>
-            </div>
-          </div>
-        </div>
+        <p>Preview your song free. Pay the one-time $19.99 only when you love it.</p>
+        <a href="/create" class="btn btn--hero">
+          <span>Start your song</span>
+          <span class="btn__arrow" aria-hidden="true">&rarr;</span>
+        </a>
       </div>
     </div>
   </section>
@@ -843,7 +547,7 @@
           <h4>Product</h4>
           <a href="/pricing">Pricing</a>
           <a href="/#how">How it works</a>
-          <a href="/download">Download</a>
+          <a href="/create">Make a song</a>
         </div>
         <div class="footer__col">
           <h4>Company</h4>
@@ -864,41 +568,12 @@
     </div>
   </footer>
 
-  <!-- Scroll Animations & Billing Toggle -->
+  <!-- Scroll Animations -->
   <script>
     // Nav scrolled state
     const nav = document.getElementById('nav');
     window.addEventListener('scroll', () => {
       nav.classList.toggle('scrolled', window.scrollY > 50);
-    });
-
-    // Billing toggle
-    const toggle = document.querySelector('.billing-toggle');
-    const options = toggle.querySelectorAll('.billing-toggle__option');
-    const saveBadge = document.querySelector('.billing-save');
-
-    options.forEach(opt => {
-      opt.querySelector('input').addEventListener('change', (e) => {
-        const isAnnual = e.target.value === 'annual';
-
-        // Update toggle UI
-        toggle.classList.toggle('annual', isAnnual);
-        options.forEach(o => o.classList.remove('active'));
-        opt.classList.add('active');
-
-        // Update save badge
-        saveBadge.classList.toggle('dimmed', !isAnnual);
-
-        // Crossfade prices
-        document.querySelectorAll('.price-monthly').forEach(el => {
-          el.classList.toggle('price-visible', !isAnnual);
-          el.classList.toggle('price-hidden', isAnnual);
-        });
-        document.querySelectorAll('.price-annual').forEach(el => {
-          el.classList.toggle('price-visible', isAnnual);
-          el.classList.toggle('price-hidden', !isAnnual);
-        });
-      });
     });
 
     // Animate elements on scroll

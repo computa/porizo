@@ -7,6 +7,7 @@ import {
   redeemLandingState,
 } from "./api/etsy";
 import { EtsyLanding } from "./steps/EtsyLanding";
+import { beginEtsyFulfilmentHandoff } from "./etsy-fulfilment";
 import { TOKEN_KEY, createGuestSession } from "./session-bootstrap";
 
 // Wires the real API client into the pure EtsyLanding component. Reads ?code=
@@ -38,7 +39,11 @@ export default function EtsyEntry() {
       }}
       redeem={(value) => redeemLandingState(client, value)}
       createSession={createGuestSession}
-      navigate={(path) => location.assign(path)}
+      navigate={(path) =>
+        // Flag this as an already-paid Etsy fulfilment session so /create renders
+        // stripped, commerce-free chrome — no "buy elsewhere" or signup-wall links.
+        beginEtsyFulfilmentHandoff(() => location.assign(path))
+      }
     />
   );
 }

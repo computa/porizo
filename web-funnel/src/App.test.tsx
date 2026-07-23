@@ -1,8 +1,21 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { createInitialState, funnelReducer, serializeState } from "./state/funnel";
-import { resolveInitialState, resolveResumeCandidate } from "./state/initial-state";
+import {
+  createInitialState,
+  funnelReducer,
+  serializeState,
+} from "./state/funnel";
+import {
+  resolveInitialState,
+  resolveResumeCandidate,
+} from "./state/initial-state";
 import { TurnstileError } from "./turnstile";
 import { actionErrorCopy, sessionStartErrorCopy } from "./session-errors";
 import { ApiError } from "./api/client";
@@ -33,7 +46,11 @@ describe("initial funnel route", () => {
   });
 
   it("supports a cold checkout success route without funnel state", () => {
-    const state = resolveInitialState(null, "?session_id=checkout-1", "/create/success");
+    const state = resolveInitialState(
+      null,
+      "?session_id=checkout-1",
+      "/create/success",
+    );
 
     expect(state.activeStep).toBe("success");
     expect(state.answers.recipient).toBe("");
@@ -53,7 +70,11 @@ describe("initial funnel route", () => {
       answers: { ...createInitialState().answers, occasion: "I Love You ❤️" },
     };
 
-    const state = resolveInitialState(serializeState(stored), "?occasion=Wedding", "/create");
+    const state = resolveInitialState(
+      serializeState(stored),
+      "?occasion=Wedding",
+      "/create",
+    );
 
     expect(state.activeStep).toBe("recipient");
     expect(state.answers.occasion).toBe("Wedding 💒");
@@ -75,7 +96,9 @@ describe("initial funnel route", () => {
     );
 
     expect(state.activeStep).toBe("recipient");
-    expect(resolveResumeCandidate(serializeState(stored), "", "/create/")).toBeNull();
+    expect(
+      resolveResumeCandidate(serializeState(stored), "", "/create/"),
+    ).toBeNull();
   });
 
   it("offers a fresh saved draft for seven days without overwriting route intent", () => {
@@ -88,17 +111,28 @@ describe("initial funnel route", () => {
       answers: { ...createInitialState().answers, recipient: "Sarah" },
     };
 
-    expect(resolveResumeCandidate(serializeState(stored), "", "/create", "", now)?.furthestStep)
-      .toBe("memory");
-    expect(resolveResumeCandidate(serializeState(stored), "", "/create", "#memory", now))
-      .toBeNull();
-    expect(resolveResumeCandidate(
-      serializeState(stored),
-      "",
-      "/create",
-      "",
-      now + 7 * 24 * 60 * 60 * 1000 + 1,
-    )).toBeNull();
+    expect(
+      resolveResumeCandidate(serializeState(stored), "", "/create", "", now)
+        ?.furthestStep,
+    ).toBe("memory");
+    expect(
+      resolveResumeCandidate(
+        serializeState(stored),
+        "",
+        "/create",
+        "#memory",
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      resolveResumeCandidate(
+        serializeState(stored),
+        "",
+        "/create",
+        "",
+        now + 7 * 24 * 60 * 60 * 1000 + 1,
+      ),
+    ).toBeNull();
   });
 
   it("restores a cancelled checkout to an offer when purchase artifacts exist", () => {
@@ -113,17 +147,40 @@ describe("initial funnel route", () => {
       },
     };
 
-    expect(resolveInitialState(
-      serializeState(stored),
-      "?cancelled=1",
-      "/create",
-    ).activeStep).toBe("offer");
+    expect(
+      resolveInitialState(serializeState(stored), "?cancelled=1", "/create")
+        .activeStep,
+    ).toBe("offer");
   });
 
   it("preselects Custom for the advertised seasonal entry point", () => {
     const state = resolveInitialState(null, "?occasion=Custom", "/create");
 
     expect(state.answers.occasion).toBe("Custom ✨");
+  });
+
+  it("renders the normal commerce chrome for a standard funnel entry", () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeVisible();
+    expect(
+      screen.getAllByRole("link", { name: "Pricing" }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("strips commerce chrome when the session came from an Etsy redemption", () => {
+    sessionStorage.setItem("porizo.etsy-fulfilment", "1");
+    const { container } = render(<App />);
+
+    expect(screen.getAllByText("Porizo").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: "Sign in" }),
+    ).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(
+      /pricing|sign in|download|gift ideas/i,
+    );
+
+    sessionStorage.clear();
   });
 
   it("shows the site footer only until the first answer commits", () => {
@@ -166,12 +223,16 @@ describe("initial funnel route", () => {
         expect.objectContaining({
           method: "POST",
           credentials: "same-origin",
-          headers: expect.objectContaining({ "X-CSRF-Token": "web-csrf-token" }),
+          headers: expect.objectContaining({
+            "X-CSRF-Token": "web-csrf-token",
+          }),
         }),
       ),
     );
     expect(fetcher).not.toHaveBeenCalledWith("/web/session", expect.anything());
-    expect(localStorage.getItem("porizo.web-funnel.token")).toBe("signed-in-token");
+    expect(localStorage.getItem("porizo.web-funnel.token")).toBe(
+      "signed-in-token",
+    );
   });
 
   it("confirms reset, preserves guest credentials, and removes stale route intent", () => {
@@ -191,11 +252,17 @@ describe("initial funnel route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
 
     expect(confirm).toHaveBeenCalledWith("Your song for Sarah will be lost.");
-    expect(localStorage.getItem("porizo.web-funnel.token")).toBe("access-token");
-    expect(localStorage.getItem("porizo.web-funnel.refresh-token")).toBe("refresh-token");
+    expect(localStorage.getItem("porizo.web-funnel.token")).toBe(
+      "access-token",
+    );
+    expect(localStorage.getItem("porizo.web-funnel.refresh-token")).toBe(
+      "refresh-token",
+    );
     expect(location.pathname).toBe("/create");
     expect(location.hash).toBe("#recipient");
-    expect(screen.getByRole("heading", { name: "Who's this song for?" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Who's this song for?" }),
+    ).toBeVisible();
     confirm.mockRestore();
   });
 
@@ -208,17 +275,26 @@ describe("initial funnel route", () => {
     };
     const serialized = serializeState(saved);
     localStorage.setItem("porizo.web-funnel.v1", serialized);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
 
     render(<App />);
     const startOver = screen.getByRole("button", { name: "Start over" });
     fireEvent.click(startOver);
     expect(localStorage.getItem("porizo.web-funnel.v1")).toBe(serialized);
-    expect(screen.getByText("Pick up Sarah's song where you left off")).toBeVisible();
+    expect(
+      screen.getByText("Pick up Sarah's song where you left off"),
+    ).toBeVisible();
 
     fireEvent.click(startOver);
-    expect(screen.queryByText("Pick up Sarah's song where you left off")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Who's this song for?" })).toBeVisible();
+    expect(
+      screen.queryByText("Pick up Sarah's song where you left off"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Who's this song for?" }),
+    ).toBeVisible();
     confirm.mockRestore();
   });
 
@@ -238,31 +314,42 @@ describe("initial funnel route", () => {
       },
     };
     localStorage.setItem("porizo.web-funnel.v1", serializeState(saved));
-    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const path = String(input);
-      if (path === "/jobs/job-1") {
-        return new Response(JSON.stringify({ status: "completed", progress: 100 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (path === "/tracks/track-1") {
-        return new Response(JSON.stringify({ versions: [{ version_num: 1, preview_url: "/preview.m4a" }] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`Unexpected fetch ${path}`);
-    });
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const path = String(input);
+        if (path === "/jobs/job-1") {
+          return new Response(
+            JSON.stringify({ status: "completed", progress: 100 }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (path === "/tracks/track-1") {
+          return new Response(
+            JSON.stringify({
+              versions: [{ version_num: 1, preview_url: "/preview.m4a" }],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        throw new Error(`Unexpected fetch ${path}`);
+      });
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Pick up the song" }));
 
-    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
-      "/jobs/job-1",
-      expect.any(Object),
-    ));
-    expect(await screen.findByRole("button", { name: "Play preview" })).toBeVisible();
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith("/jobs/job-1", expect.any(Object)),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Play preview" }),
+    ).toBeVisible();
     fetcher.mockRestore();
   });
 
@@ -299,16 +386,22 @@ describe("initial funnel route", () => {
       { job_id: "job-2" },
       { status: "failed", error: "still failed" },
     ];
-    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      new Response(JSON.stringify(responses.shift()), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify(responses.shift()), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
 
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Sounds right — hear it" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sounds right — hear it" }),
+    );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("That take didn't come together");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "That take didn't come together",
+    );
     expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
     expect(fetcher).toHaveBeenCalledTimes(5);
     fetcher.mockRestore();
@@ -333,49 +426,72 @@ describe("initial funnel route", () => {
     let checkoutSignal: AbortSignal | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (String(input) === "/web/products") {
-        return new Response(JSON.stringify({
-          products: [{ price_key: "gift-song-au", localized_price: "$19.99" }],
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            products: [
+              { price_key: "gift-song-au", localized_price: "$19.99" },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       checkoutSignal = init?.signal ?? undefined;
       return new Promise<Response>((_resolve, reject) => {
-        checkoutSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        checkoutSignal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        );
       });
     });
 
     render(<App />);
-    const checkout = await screen.findByRole("button", { name: "Unlock for $19.99" });
+    const checkout = await screen.findByRole("button", {
+      name: "Unlock for $19.99",
+    });
     document.documentElement.style.setProperty("--t-checkout-timeout", "5s");
     vi.useFakeTimers();
     fireEvent.click(checkout);
-    expect(screen.getByRole("button", { name: "Opening secure checkout…" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Opening secure checkout…" }),
+    ).toBeDisabled();
 
     await act(() => vi.advanceTimersByTimeAsync(4999));
-    expect(screen.queryByText("Secure checkout didn't open. Please try again.")).toBeNull();
+    expect(
+      screen.queryByText("Secure checkout didn't open. Please try again."),
+    ).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(checkoutSignal?.aborted).toBe(true);
-    expect(screen.getByText("Secure checkout didn't open. Your song is saved—please try again.")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Secure checkout didn't open. Your song is saved—please try again.",
+      ),
+    ).toBeVisible();
   });
 
   it("uses honest Turnstile failure copy", () => {
-    expect(sessionStartErrorCopy(new TurnstileError("configuration", "missing"))).toBe(
+    expect(
+      sessionStartErrorCopy(new TurnstileError("configuration", "missing")),
+    ).toBe(
       "This page isn't configured to start a song. Please try again later.",
     );
-    expect(sessionStartErrorCopy(new TurnstileError("network", "offline"))).toContain(
-      "security check",
-    );
-    expect(sessionStartErrorCopy(new TurnstileError("verification", "rejected"))).toBe(
-      "We couldn't verify this request. Please try again.",
-    );
-    expect(sessionStartErrorCopy(new ApiError("invalid", 400, "TURNSTILE_INVALID"))).toBe(
-      "We couldn't verify this request. Please try again.",
-    );
-    expect(sessionStartErrorCopy(new ApiError("offline", 503, "TURNSTILE_UNAVAILABLE"))).toContain(
-      "temporarily unavailable",
-    );
-    expect(sessionStartErrorCopy(new ApiError("limited", 429, "WEB_SESSION_LIMIT_REACHED"))).toContain(
-      "Too many song sessions",
-    );
+    expect(
+      sessionStartErrorCopy(new TurnstileError("network", "offline")),
+    ).toContain("security check");
+    expect(
+      sessionStartErrorCopy(new TurnstileError("verification", "rejected")),
+    ).toBe("We couldn't verify this request. Please try again.");
+    expect(
+      sessionStartErrorCopy(new ApiError("invalid", 400, "TURNSTILE_INVALID")),
+    ).toBe("We couldn't verify this request. Please try again.");
+    expect(
+      sessionStartErrorCopy(
+        new ApiError("offline", 503, "TURNSTILE_UNAVAILABLE"),
+      ),
+    ).toContain("temporarily unavailable");
+    expect(
+      sessionStartErrorCopy(
+        new ApiError("limited", 429, "WEB_SESSION_LIMIT_REACHED"),
+      ),
+    ).toContain("Too many song sessions");
   });
 
   it("maps deliberate action limits to honest forward paths", () => {
