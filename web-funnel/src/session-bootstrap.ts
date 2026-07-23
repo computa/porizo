@@ -7,6 +7,18 @@ import { acquireTurnstileToken } from "./turnstile";
 export const TOKEN_KEY = "porizo.web-funnel.token";
 export const REFRESH_TOKEN_KEY = "porizo.web-funnel.refresh-token";
 export const WEB_CSRF_COOKIE = "__Host-porizo_web_csrf";
+let refreshPromise: Promise<string | null> | null = null;
+
+function tokenIsExpired(token: string, nowSeconds = Date.now() / 1000) {
+  try {
+    const payload = JSON.parse(
+      atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+    ) as { exp?: number };
+    return typeof payload.exp === "number" && payload.exp <= nowSeconds + 15;
+  } catch {
+    return true;
+  }
+}
 
 export function readCookie(name: string): string | null {
   const prefix = `${name}=`;
@@ -58,7 +70,10 @@ export async function createGuestSession(): Promise<string> {
   const bridged = await exchangeWebSession();
   if (bridged) return bridged;
   const existing = localStorage.getItem(TOKEN_KEY);
-  if (existing) return existing;
+  if (existing && !tokenIsExpired(existing)) return existing;
+  if (existing) localStorage.removeItem(TOKEN_KEY);
+  const refreshed = await refreshExistingSession();
+  if (refreshed) return refreshed;
   const turnstileToken = await acquireTurnstileToken();
   const response = await fetch("/web/session", {
     method: "POST",
@@ -99,3 +114,47 @@ export async function createGuestSession(): Promise<string> {
   }
   return token;
 }
+
+async function performRefresh(): Promise<string | null> {
+  const bridged = await exchangeWebSession();
+  if (bridged) return bridged;
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return null;
+  const response = await fetch("/auth/refresh", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  if (!response.ok) {
+    if (response.status === 400 || response.status === 401) {
+      if (localStorage.getItem(REFRESH_TOKEN_KEY) === refreshToken) {
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+      } else {
+        return localStorage.getItem(TOKEN_KEY);
+      }
+    }
+    return null;
+  }
+  const body = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+  };
+  if (!body.access_token || !body.refresh_token) return null;
+  localStorage.setItem(TOKEN_KEY, body.access_token);
+  localStorage.setItem(REFRESH_TOKEN_KEY, body.refresh_token);
+  return body.access_token;
+}
+
+export function refreshExistingSession(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = performRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+export { tokenIsExpired };

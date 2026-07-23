@@ -59,4 +59,17 @@ describe("paid-order recovery reference", () => {
       readOrderRecovery(1_000 + 90 * 24 * 60 * 60 * 1000 + 1),
     ).toBeNull();
   });
+
+  it("keeps an Etsy unit from a cross-device completion link for ninety days", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    rememberOrderRecovery({ kind: "etsy_unit", value: "etsy_unit_42" });
+
+    expect(readOrderRecovery(1_000 + 30 * 24 * 60 * 60 * 1000)).toEqual({
+      kind: "etsy_unit",
+      value: "etsy_unit_42",
+    });
+    expect(
+      readOrderRecovery(1_000 + 90 * 24 * 60 * 60 * 1000 + 1),
+    ).toBeNull();
+  });
 });

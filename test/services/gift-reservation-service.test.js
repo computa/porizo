@@ -82,4 +82,54 @@ describe("GiftReservationService", () => {
       .get("gift_reserve:atomic_insert_failure");
     assert.equal(Number(ledger.count), 0);
   });
+
+  test("a native-style reservation attributes an Etsy credit at the shared boundary", async () => {
+    const now = new Date().toISOString();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO users
+          (id, created_at, account_status, risk_level)
+         VALUES (?, ?, 'active', 'low')`,
+      )
+      .run("etsy_native_owner", now);
+    await db
+      .prepare(
+        `INSERT INTO etsy_orders
+          (id, shop_id, receipt_id, is_paid, is_canceled, state,
+           owner_user_id, created_at, updated_at)
+         VALUES ('etsy_native_order', 'shop', '12345', 1, 0, 'claimed',
+                 'etsy_native_owner', ?, ?)`,
+      )
+      .run(now, now);
+    await db
+      .prepare(
+        `INSERT INTO etsy_order_units
+          (id, etsy_order_id, transaction_id, listing_id, ordinal, state,
+           owner_user_id, claimed_at, created_at, updated_at)
+         VALUES ('etsy_native_unit', 'etsy_native_order', 'txn', 'listing', 1,
+                 'claimed', 'etsy_native_owner', ?, ?, ?)`,
+      )
+      .run(now, now, now);
+    await wallet.applyTransaction({
+      userId: "etsy_native_owner",
+      type: "etsy_purchase_grant",
+      amount: 1,
+      source: "etsy",
+      idempotencyKey: "etsy_native_grant",
+    });
+
+    const reserved = await service.reserveGiftCredit({
+      userId: "etsy_native_owner",
+      idempotencyKey: "ios_reservation",
+      expiresAt: "2026-07-24T00:00:00.000Z",
+    });
+    const unit = await db
+      .prepare(
+        "SELECT state, gift_reservation_id, web_order_id FROM etsy_order_units WHERE id = ?",
+      )
+      .get("etsy_native_unit");
+    assert.equal(unit.state, "reserved");
+    assert.equal(unit.gift_reservation_id, reserved.reservation.id);
+    assert.equal(unit.web_order_id, null);
+  });
 });

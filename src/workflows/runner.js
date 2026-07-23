@@ -859,44 +859,156 @@ function trackMp3Key({ track, trackVersion, kind }) {
  * @returns {Promise<string|null>} the uploaded key, or null if skipped/failed
  */
 async function uploadTrackMasterMp3({
+  db = null,
   storageProvider,
   versionDir,
   track,
   trackVersion,
   kind,
+  expectedProcessingStartedAt = null,
 }) {
   const audioFileName = kind === "preview" ? "preview.m4a" : "full.m4a";
   const localAudioPath = path.join(versionDir, audioFileName);
   const mp3Key = trackMp3Key({ track, trackVersion, kind });
+  const artifactKind = kind === "preview" ? "preview_mp3" : "full_mp3";
+  const artifactId = `artifact_${trackVersion.id}_${artifactKind}`;
+  const persist = async ({ status, storageKey = null, sha256 = null, byteLength = null, error = null }) => {
+    if (!db) return true;
+    const now = nowIso();
+    if (expectedProcessingStartedAt) {
+      const fenced = await db
+        .prepare(
+          `UPDATE track_artifacts
+              SET status = ?, storage_key = ?, sha256 = ?, byte_length = ?,
+                  processing_started_at = NULL,
+                  attempt_count = attempt_count + 1,
+                  last_error = ?, updated_at = ?
+            WHERE track_version_id = ? AND kind = ?
+              AND status = 'processing' AND processing_started_at = ?`,
+        )
+        .run(
+          status,
+          storageKey,
+          sha256,
+          byteLength,
+          error ? String(error).slice(0, 500) : null,
+          now,
+          trackVersion.id,
+          artifactKind,
+          expectedProcessingStartedAt,
+        );
+      return (fenced?.rowCount ?? fenced?.changes ?? 0) === 1;
+    }
+    await db
+      .prepare(
+        `INSERT INTO track_artifacts
+          (id, track_version_id, kind, status, storage_key, sha256, byte_length,
+           attempt_count, last_error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+         ON CONFLICT(track_version_id, kind) DO UPDATE SET
+           status = excluded.status,
+           storage_key = excluded.storage_key,
+           sha256 = excluded.sha256,
+           byte_length = excluded.byte_length,
+           processing_started_at = NULL,
+           attempt_count = track_artifacts.attempt_count + 1,
+           last_error = excluded.last_error,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        artifactId,
+        trackVersion.id,
+        artifactKind,
+        status,
+        storageKey,
+        sha256,
+        byteLength,
+        error ? String(error).slice(0, 500) : null,
+        now,
+        now,
+      );
+    return true;
+  };
+  const requireCurrentLease = (persisted) => {
+    if (expectedProcessingStartedAt && !persisted) {
+      throw Object.assign(new Error("ETSY_ARTIFACT_STALE_LEASE"), {
+        code: "ETSY_ARTIFACT_STALE_LEASE",
+      });
+    }
+  };
 
   try {
     if (!fs.existsSync(localAudioPath)) {
-      return null;
-    }
-
-    if (
-      typeof storageProvider.objectExists === "function" &&
-      (await storageProvider.objectExists({ key: mp3Key }))
-    ) {
-      console.log(
-        `[JobRunner] MP3 already exists, skipping transcode (${kind}): ${mp3Key}`,
+      requireCurrentLease(
+        await persist({ status: "failed", error: "SOURCE_MASTER_MISSING" }),
       );
-      return mp3Key;
+      return null;
     }
 
     const localMp3Path = path.join(
       versionDir,
       kind === "preview" ? "preview.mp3" : "full.mp3",
     );
+    if (
+      typeof storageProvider.objectExists === "function" &&
+      (await storageProvider.objectExists({ key: mp3Key }))
+    ) {
+      if (typeof storageProvider.downloadToFile === "function") {
+        await storageProvider.downloadToFile({
+          key: mp3Key,
+          filePath: localMp3Path,
+        });
+        const existingBytes = fs.readFileSync(localMp3Path);
+        if (existingBytes.length >= 1024) {
+          requireCurrentLease(await persist({
+            status: "ready",
+            storageKey: mp3Key,
+            sha256: crypto
+              .createHash("sha256")
+              .update(existingBytes)
+              .digest("hex"),
+            byteLength: existingBytes.length,
+          }));
+          console.log(
+            `[JobRunner] Verified existing MP3 (${kind}): ${mp3Key}`,
+          );
+          return mp3Key;
+        }
+      }
+      console.warn(
+        `[JobRunner] Existing MP3 could not be integrity-verified; rebuilding (${kind}): ${mp3Key}`,
+      );
+    }
+
     await encodeToMp3(localAudioPath, localMp3Path);
     await storageProvider.putFile({
       key: mp3Key,
       filePath: localMp3Path,
       contentType: "audio/mpeg",
     });
+    const bytes = fs.readFileSync(localMp3Path);
+    if (bytes.length < 1024) throw new Error("MP3_ARTIFACT_TOO_SMALL");
+    const exists =
+      typeof storageProvider.objectExists !== "function" ||
+      (await storageProvider.objectExists({ key: mp3Key }));
+    if (!exists) throw new Error("MP3_ARTIFACT_NOT_DURABLE");
+    requireCurrentLease(await persist({
+      status: "ready",
+      storageKey: mp3Key,
+      sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      byteLength: bytes.length,
+    }));
     console.log(`[JobRunner] Uploaded ${kind} mp3 to S3: ${mp3Key}`);
     return mp3Key;
   } catch (mp3Err) {
+    if (mp3Err?.code === "ETSY_ARTIFACT_STALE_LEASE") throw mp3Err;
+    requireCurrentLease(
+      await persist({
+        status: "failed",
+        storageKey: mp3Key,
+        error: mp3Err.message,
+      }),
+    );
     console.error(
       `[JobRunner] MP3 transcode/upload failed (non-fatal, ${kind}): ${mp3Err.message}. ` +
         `M4A master is the primary artifact; mp3 (${mp3Key}) can be backfilled.`,
@@ -917,6 +1029,7 @@ async function uploadTrackMasterMp3({
  * @returns {Promise<Object>} S3 keys for uploaded files
  */
 async function uploadTrackOutputsToS3({
+  db = null,
   storageProvider,
   storageDir,
   track,
@@ -958,6 +1071,7 @@ async function uploadTrackOutputsToS3({
     // exact key the mp3 serving route reads. Non-fatal: the m4a above is the
     // primary artifact and the mp3 can be backfilled.
     const mp3Key = await uploadTrackMasterMp3({
+      db,
       storageProvider,
       versionDir,
       track,
@@ -3234,6 +3348,7 @@ async function startJobRunner({
       if (storageProvider && storageProvider.type === "s3") {
         try {
           await uploadTrackOutputsToS3({
+            db,
             storageProvider,
             storageDir,
             track: trackReady,

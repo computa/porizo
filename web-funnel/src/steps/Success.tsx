@@ -11,7 +11,7 @@ interface SuccessProps {
   onStartAnother: () => void;
   needsSignIn?: boolean;
   orderReference?: string;
-  orderReferenceKind?: "session" | "order";
+  orderReferenceKind?: "session" | "order" | "etsy_unit";
   timedOut?: boolean;
   onRetryOrder?: () => void;
   onCheckStatus?: () => void;
@@ -20,6 +20,8 @@ interface SuccessProps {
   onStopDeliveryChannel?: (channel: DeliveryChannelName) => Promise<void>;
   onCancelGift?: () => Promise<void>;
   error?: string;
+  commerceFree?: boolean;
+  onDownloadMp3?: () => Promise<void>;
 }
 
 export function Success({
@@ -37,6 +39,8 @@ export function Success({
   onStopDeliveryChannel,
   onCancelGift,
   error,
+  commerceFree = false,
+  onDownloadMp3,
 }: SuccessProps) {
   const [copied, setCopied] = useState(false);
   const recipient = order?.recipient_name ?? "Your";
@@ -61,13 +65,15 @@ export function Success({
             recoveryKind={orderReferenceKind}
           />
           <SupportDetails orderReference={orderReference} />
-          <button
-            className="btn-quiet success-reset"
-            type="button"
-            onClick={onStartAnother}
-          >
-            Make another song
-          </button>
+          {!commerceFree && (
+            <button
+              className="btn-quiet success-reset"
+              type="button"
+              onClick={onStartAnother}
+            >
+              Make another song
+            </button>
+          )}
         </section>
       </main>
     );
@@ -133,7 +139,7 @@ export function Success({
       <StatusScreen
         title="We couldn't finish the song."
         body="We're arranging your refund now. If it doesn't update, support can help — your details are saved."
-        onStartAnother={onStartAnother}
+        onStartAnother={commerceFree ? undefined : onStartAnother}
         supportUrl={order.support_url}
         orderReference={order.order_reference ?? orderReference}
       />
@@ -145,7 +151,7 @@ export function Success({
       <StatusScreen
         title="We couldn't finish the song."
         body="We've refunded you in full. Your details are saved if you'd like to try again."
-        onStartAnother={onStartAnother}
+        onStartAnother={commerceFree ? undefined : onStartAnother}
         supportUrl={order.support_url}
         orderReference={order.order_reference ?? orderReference}
       />
@@ -184,6 +190,15 @@ export function Success({
           {copied ? "Copied ✓" : "Copy"}
         </button>
       </section>
+      {commerceFree && onDownloadMp3 && (
+        <button
+          className="btn-primary"
+          type="button"
+          onClick={() => void onDownloadMp3()}
+        >
+          Download MP3
+        </button>
+      )}
       <div className="share-chips" aria-label="Share the song">
         <a className="chip" href={`sms:&body=${encodeURIComponent(shareText)}`}>Send in Messages</a>
         <a className="chip" href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}>WhatsApp</a>
@@ -201,7 +216,9 @@ export function Success({
         <h2>The best part is watching their face.</h2>
         <p>Play it in person if you can — and film it. Reactions like theirs are why this exists.</p>
       </section>
-      <p className="account-note">Your songs live in your Porizo account. Sign in with the same email whenever you need them.</p>
+      {!commerceFree && (
+        <p className="account-note">Your songs live in your Porizo account. Sign in with the same email whenever you need them.</p>
+      )}
       {onCheckStatus && (
         <button className="btn-quiet" type="button" onClick={onCheckStatus}>
           Check delivery status
@@ -224,9 +241,11 @@ export function Success({
           Cancel gift and return credit
         </button>
       )}
-      <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
-        Make another song
-      </button>
+      {!commerceFree && (
+        <button className="btn-quiet success-reset" type="button" onClick={onStartAnother}>
+          Make another song
+        </button>
+      )}
     </main>
   );
 }

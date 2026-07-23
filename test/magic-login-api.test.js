@@ -68,6 +68,33 @@ describe("platform-bound magic login API", () => {
     );
   });
 
+  it("keeps an Etsy return intent in the requester cookie and redirects back to /etsy", async () => {
+    const requested = await app.inject({
+      method: "POST",
+      url: "/auth/magic/request",
+      headers: { origin: "https://porizo.co" },
+      payload: {
+        email: "etsy-return@example.com",
+        platform: "web",
+        purpose: "login",
+        return_to: "etsy",
+      },
+    });
+    assert.equal(requested.statusCode, 202, requested.body);
+    const setCookies = Array.isArray(requested.headers["set-cookie"])
+      ? requested.headers["set-cookie"]
+      : [requested.headers["set-cookie"]];
+    const cookieHeader = setCookies.map((value) => value.split(";")[0]).join("; ");
+    const response = await app.inject({
+      method: "GET",
+      url: `/auth/magic/web?transaction_id=${requested.json().transaction_id}`,
+      headers: { cookie: cookieHeader },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.ok(response.body.includes('location.replace("/etsy")'));
+    assert.doesNotMatch(response.body, /etsy-return@example\.com/);
+  });
+
   it("does not offer a broken browser approval action while approval is disabled", async () => {
     const previous = process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED;
     process.env.MAGIC_LOGIN_BROWSER_APPROVAL_ENABLED = "false";

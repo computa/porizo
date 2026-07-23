@@ -14,6 +14,17 @@ const EXPORT_SECTIONS = {
   voice_profiles: "SELECT * FROM voice_profiles WHERE user_id = ?",
   enrollment_sessions: "SELECT * FROM enrollment_sessions WHERE user_id = ?",
   story_sessions: "SELECT * FROM story_sessions WHERE user_id = ?",
+  etsy_orders:
+    `SELECT id, shop_id, receipt_id, currency, amount_minor, provider_status,
+            state, paid_at, claimed_at, fulfilled_at, canceled_at, created_at,
+            updated_at
+       FROM etsy_orders WHERE owner_user_id = ?`,
+  etsy_order_units:
+    `SELECT id, etsy_order_id, transaction_id, listing_id, ordinal, state,
+            gift_reservation_id, web_order_id, gift_order_id, track_id,
+            track_version_id, claimed_at, delivered_at, refunded_at, created_at,
+            updated_at
+       FROM etsy_order_units WHERE owner_user_id = ?`,
 };
 
 function createGdprDataExportRepository(db) {

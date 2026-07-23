@@ -860,6 +860,7 @@ async function sendGiftBuyerCompletionEmail({
   recipientName,
   shareUrl,
   orderId,
+  etsyUnitId,
   idempotencyKey,
 }) {
   const safeRecipient =
@@ -868,7 +869,9 @@ async function sendGiftBuyerCompletionEmail({
       : "Your recipient";
   const safeUrl = escapeHtml(shareUrl);
   const safeOrderId = escapeHtml(orderId || "");
-  const managementUrl = `${config.publicBaseUrl}/create/success?order_id=${encodeURIComponent(orderId || "")}`;
+  const managementUrl = etsyUnitId
+    ? `${config.publicBaseUrl}/create/success?etsy_unit_id=${encodeURIComponent(etsyUnitId)}`
+    : `${config.publicBaseUrl}/create/success?order_id=${encodeURIComponent(orderId || "")}`;
   const { data, error } = await sendLifecyclePayload(to, {
     from: config.fromEmail,
     to,

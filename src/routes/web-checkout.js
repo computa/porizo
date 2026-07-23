@@ -35,6 +35,7 @@ function registerWebCheckoutRoutes(
     requireUserId,
     stripeService,
     giftWalletRepository,
+    etsyOrderService,
     orchestrator,
     publicBaseUrl,
   },
@@ -58,6 +59,12 @@ function registerWebCheckoutRoutes(
       appConfig.STREAM_BASE_URL ||
       "https://porizo.co"
     );
+  }
+
+  async function describeOrder(order) {
+    const status = await orchestrator.describeOrderForStatus(order);
+    const etsyUnit = await etsyOrderService?.findUnitForWebOrder(order.id);
+    return { ...status, commerce_free: Boolean(etsyUnit) };
   }
 
   // Apply the paid transition idempotently: pending -> paid, grant the product
@@ -216,7 +223,6 @@ function registerWebCheckoutRoutes(
   app.post("/web/checkout", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
-
     if (appConfig.PREVIEW_ONLY) {
       return sendError(
         reply,
@@ -250,6 +256,15 @@ function registerWebCheckoutRoutes(
       .get(trackId, trackVersionId);
     if (!track || track.user_id !== userId) {
       return sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+    }
+    const activeEtsy = await etsyOrderService?.findActiveForOwner(userId);
+    if (activeEtsy) {
+      return sendError(
+        reply,
+        409,
+        "ETSY_COMMERCE_FREE",
+        "This Etsy purchase already includes a gift song.",
+      );
     }
 
     const product = await orders.findProductByPriceKey(priceKey);
@@ -378,6 +393,7 @@ function registerWebCheckoutRoutes(
       track_id: trackId,
       track_version_id: trackVersionId,
       payment_method: paymentMethod,
+      etsy_journey_id: etsyJourneyId,
     } = request.body || {};
     if (
       !trackId ||
@@ -470,6 +486,9 @@ function registerWebCheckoutRoutes(
           ).toISOString(),
           purpose: "paid_web_order",
           originWebOrderId: orderId,
+          preferredEtsyUnitId: etsyJourneyId
+            ? String(etsyJourneyId)
+            : null,
           externalQuery: query,
         });
         await giftReservationService.adoptTrack({
@@ -575,7 +594,7 @@ function registerWebCheckoutRoutes(
       return sendError(reply, 404, "ORDER_NOT_FOUND", "Order not found.");
     }
 
-    const status = await orchestrator.describeOrderForStatus(order);
+    const status = await describeOrder(order);
     reply.header("Cache-Control", "no-store");
     return reply.send({
       ...status,
@@ -597,7 +616,7 @@ function registerWebCheckoutRoutes(
       return sendError(reply, 404, "ORDER_NOT_FOUND", "Order not found.");
     }
 
-    const status = await orchestrator.describeOrderForStatus(order);
+    const status = await describeOrder(order);
     reply.header("Cache-Control", "no-store");
     return reply.send({
       ...status,
@@ -644,7 +663,7 @@ function registerWebCheckoutRoutes(
       }
     }
 
-    const status = await orchestrator.describeOrderForStatus(order);
+    const status = await describeOrder(order);
     reply.header("Cache-Control", "no-store");
     return reply.send({
       ...status,

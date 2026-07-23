@@ -184,7 +184,7 @@ function createEtsyRedemptionService({ db, giftWalletRepository }) {
     const safeOffset = Math.max(0, Number(offset) || 0);
     const rows = await db
       .prepare(
-        `SELECT code, batch_label, status, redeemed_by_user_id, redeemed_at, created_at
+        `SELECT code, batch_label, status, redeemed_at, created_at
          FROM etsy_redemption_codes
          ${where}
          ORDER BY created_at DESC, code ASC
@@ -192,7 +192,10 @@ function createEtsyRedemptionService({ db, giftWalletRepository }) {
       )
       .all(...params, cappedLimit, safeOffset);
     return {
-      codes: rows,
+      codes: rows.map(({ code, ...row }) => ({
+        ...row,
+        code_last4: String(code || "").slice(-4),
+      })),
       limit: cappedLimit,
       offset: safeOffset,
     };

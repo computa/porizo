@@ -520,7 +520,18 @@ describe("Link headers on legal pages", () => {
 
   before(async () => {
     app = fastify({ logger: false });
-    registerLegalRoutes(app, { db: { prepare: () => ({ all: () => [] }) } });
+    registerLegalRoutes(app, {
+      db: {
+        prepare: () => ({
+          all: () => [],
+          get: () => ({
+            display_price: "A$31.00",
+            currency: "AUD",
+            active: 1,
+          }),
+        }),
+      },
+    });
     await app.listen({ port: 0, host: "127.0.0.1" });
     req = buildHttp(app.server.address().port);
   });
@@ -541,4 +552,12 @@ describe("Link headers on legal pages", () => {
       assert.match(r.link, /agent-skills/);
     });
   }
+
+  it("/pricing renders the configured runtime gift price", async () => {
+    const r = await req("GET", "/pricing");
+    assert.strictEqual(r.status, 200);
+    assert.match(r.body, /A\$31\.00/);
+    assert.match(r.body, /Prices shown in AUD/);
+    assert.doesNotMatch(r.body, /\$19\.99/);
+  });
 });

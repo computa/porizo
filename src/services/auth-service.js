@@ -1069,6 +1069,7 @@ async function deleteUserAccount(
     await accountDeletionTx.softDeleteUser({ userId, deletedAt: now });
     await accountDeletionTx.anonymizeAuditLogsForUser(userId);
 
+    await accountDeletionTx.scrubEtsyRowsForUser(userId);
     await accountDeletionTx.deleteStoryRowsForUser(userId);
     await accountDeletionTx.deleteShareRowsForUser(userId);
     await accountDeletionTx.deleteTrackRowsForUser(userId);

@@ -205,6 +205,17 @@ describe("paid lifecycle", () => {
     });
   });
 
+  it("binds an Etsy wallet order to its server-issued fulfilment journey", () => {
+    expect(
+      buildWalletOrderRequest("track-1", "version-1", "etsy-unit-1"),
+    ).toEqual({
+      track_id: "track-1",
+      track_version_id: "version-1",
+      payment_method: "gift_credit",
+      etsy_journey_id: "etsy-unit-1",
+    });
+  });
+
   it("keeps content readiness separate from recipient delivery", () => {
     expect(
       isOrderPollingComplete({

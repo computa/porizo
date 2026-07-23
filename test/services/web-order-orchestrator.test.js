@@ -188,6 +188,37 @@ describe("web order orchestrator", () => {
     assert.equal(order.rows[0].share_token_id, "sh_1");
   });
 
+  it("does not mark an Etsy order delivered before its durable MP3 is ready", async () => {
+    await seedOrder(db, { status: "rendering" });
+    let artifactReady = false;
+    let fulfilmentDelivered = 0;
+    const { deps, calls } = makeDeps({
+      getVersionRenderState: async () => ({ ready: true, failed: false }),
+      extra: {
+        ensureRequiredArtifact: async () => ({
+          required: true,
+          ready: artifactReady,
+        }),
+        markFulfilmentDelivered: async () => {
+          fulfilmentDelivered += 1;
+        },
+      },
+    });
+    const orch = createWebOrderOrchestrator({ db, ...deps });
+
+    const pending = await orch.tick("worder_1");
+    assert.equal(pending.status, "rendering");
+    assert.equal(pending.artifactPending, true);
+    assert.equal(calls.share, 0);
+    assert.equal(fulfilmentDelivered, 0);
+
+    artifactReady = true;
+    const delivered = await orch.tick("worder_1");
+    assert.equal(delivered.status, "delivered");
+    assert.equal(calls.share, 1);
+    assert.equal(fulfilmentDelivered, 1);
+  });
+
   it("finalizes the common gift reservation without buyer-email delivery", async () => {
     await seedOrder(db, { status: "rendering" });
     await db

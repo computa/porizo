@@ -280,6 +280,34 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+async function renderRuntimePricingPage(db) {
+  if (!db) return publicPages.pricing;
+  const product = await db
+    .prepare(
+      `SELECT display_price, currency, active
+         FROM web_products
+        WHERE price_key = 'gift_song'
+        LIMIT 1`,
+    )
+    .get();
+  if (!product || !(product.active === true || Number(product.active) === 1)) {
+    return publicPages.pricing
+      .replaceAll("https://schema.org/InStock", "https://schema.org/OutOfStock")
+      .replaceAll('href="/create"', 'href="/support"')
+      .replaceAll("Start your song", "Contact support");
+  }
+  const displayPrice = escapeHtml(product.display_price);
+  const currency = escapeHtml(product.currency || "USD");
+  const numericPrice =
+    String(product.display_price || "").match(/[0-9]+(?:\.[0-9]+)?/)?.[0] ||
+    "";
+  return publicPages.pricing
+    .replaceAll("$19.99", displayPrice)
+    .replaceAll('"price": "19.99"', `"price": "${numericPrice}"`)
+    .replaceAll('"priceCurrency": "USD"', `"priceCurrency": "${currency}"`)
+    .replaceAll("Prices shown in USD", `Prices shown in ${currency}`);
+}
+
 function formatSitemapLastmod(value) {
   if (!value) {
     return null;
@@ -753,7 +781,7 @@ function registerLegalRoutes(app, { db } = {}) {
 
   // Pricing page
   app.get("/pricing", async (_request, reply) =>
-    respondMarketingHtml(reply, publicPages.pricing),
+    respondMarketingHtml(reply, await renderRuntimePricingPage(db)),
   );
 
   // High-intent occasion landing pages for App Store + web acquisition.

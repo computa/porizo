@@ -21,8 +21,9 @@ const { nowIso } = require("../utils/common");
  *   6. gift_wallet balance — add guest balance to target, zero the guest
  *   7. gift_reservations.user_id + gift_orders.sender_user_id
  *   8. web_orders.user_id
- *   9. jobs — no user_id column, references track_version_id (no change)
- *  10. billing_holds — retired in both engines (pg 095, sqlite 123); no-op
+ *   9. Etsy order/unit/redemption ownership
+ *  10. jobs — no user_id column, references track_version_id (no change)
+ *  11. billing_holds — retired in both engines (pg 095, sqlite 123); no-op
  * Then the guest user row is soft-deleted (deleted_at set) so it disappears
  * from every `deleted_at IS NULL` query without breaking FK references.
  *
@@ -123,6 +124,22 @@ async function mergeGuestIntoUser(query, { guestUserId, targetUserId }) {
   await query(
     "UPDATE web_orders SET user_id = ?, updated_at = ? WHERE user_id = ?",
     [targetUserId, now, guestUserId],
+  );
+
+  // 9. Etsy entitlement ownership must converge with the wallet ledger. If
+  // these rows stayed on the soft-deleted guest, same-buyer recovery would
+  // reject the now-correct account as a different owner.
+  await query(
+    "UPDATE etsy_orders SET owner_user_id = ?, updated_at = ? WHERE owner_user_id = ?",
+    [targetUserId, now, guestUserId],
+  );
+  await query(
+    "UPDATE etsy_order_units SET owner_user_id = ?, updated_at = ? WHERE owner_user_id = ?",
+    [targetUserId, now, guestUserId],
+  );
+  await query(
+    "UPDATE etsy_redemption_codes SET redeemed_by_user_id = ? WHERE redeemed_by_user_id = ?",
+    [targetUserId, guestUserId],
   );
 
   // billing_holds was retired in both engines (pg migration 095, sqlite 123);

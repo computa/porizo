@@ -2,6 +2,8 @@
 
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-jwt-secret-web-checkout-route-32bytes";
+process.env.ETSY_SHOP_ID = "shop_checkout";
+process.env.ETSY_LISTING_IDS = "listing_checkout";
 
 const { afterEach, beforeEach, describe, it } = require("node:test");
 const assert = require("node:assert/strict");
@@ -153,6 +155,20 @@ describe("Web checkout + orders", () => {
     });
   });
 
+  it("renders the public pricing page from the same active product contract", async () => {
+    await activateProduct(db);
+    await db
+      .prepare(
+        "UPDATE web_products SET display_price = ?, currency = ? WHERE price_key = 'gift_song'",
+      )
+      .run("$27.50", "aud");
+    const response = await app.inject({ method: "GET", url: "/pricing" });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.match(response.body, /\$27\.50/);
+    assert.match(response.body, /"price": "27\.50"/);
+    assert.doesNotMatch(response.body, /\$19\.99/);
+  });
+
   it("creates a checkout session and a pending order for the track owner", async () => {
     await activateProduct(db);
     const { token, userId } = await seedActiveUserWithSession(db);
@@ -272,6 +288,78 @@ describe("Web checkout + orders", () => {
     });
     assert.equal(conflict.statusCode, 409, conflict.body);
     assert.equal(conflict.json().error, "IDEMPOTENCY_CONFLICT");
+  });
+
+  it("atomically binds an Etsy unit while blocking duplicate Stripe commerce", async () => {
+    await activateProduct(db);
+    const { token, userId } = await seedActiveUserWithSession(
+      db,
+      "buyer_etsy_order",
+    );
+    const { trackId, versionId } = await seedTrackVersion(db, {
+      userId,
+      trackId: "trk_etsy_order",
+      versionId: "trk_etsy_order_v1",
+    });
+    await app.etsyOrderService.ingestPaidReceipt({
+      shop_id: "shop_checkout",
+      receipt_id: "998877",
+      buyer_email: "etsy-buyer@example.com",
+      is_paid: true,
+      is_canceled: false,
+      status: "paid",
+      transactions: [
+        {
+          transaction_id: "txn_checkout",
+          listing_id: "listing_checkout",
+          quantity: 1,
+        },
+      ],
+    });
+    await app.etsyOrderService.claimByVerifiedEmail({
+      receiptId: "998877",
+      email: "etsy-buyer@example.com",
+      userId,
+    });
+    const context = await app.etsyOrderService.findActiveForOwner(userId);
+    assert.ok(context.journey_id);
+
+    const stripe = await app.inject({
+      method: "POST",
+      url: "/web/checkout",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        track_id: trackId,
+        track_version_id: versionId,
+        price_key: "gift_song",
+      },
+    });
+    assert.equal(stripe.statusCode, 409, stripe.body);
+    assert.equal(stripe.json().error, "ETSY_COMMERCE_FREE");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/web/orders",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "idempotency-key": "etsy-wallet-bound",
+      },
+      payload: {
+        track_id: trackId,
+        track_version_id: versionId,
+        payment_method: "gift_credit",
+        etsy_journey_id: context.journey_id,
+      },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    const unit = await db
+      .prepare(
+        "SELECT web_order_id, track_version_id, state FROM etsy_order_units WHERE id = ?",
+      )
+      .get(context.journey_id);
+    assert.equal(unit.web_order_id, response.json().order_id);
+    assert.equal(unit.track_version_id, versionId);
+    assert.equal(unit.state, "rendering");
   });
 
   it("restores an owned pending order draft after checkout cancellation", async () => {

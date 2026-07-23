@@ -88,4 +88,26 @@ describe("offer", () => {
     ).toBeDisabled();
     expect(screen.getByText("3 gift credits · $39.99")).toBeVisible();
   });
+
+  it("never falls back to Stripe when an Etsy credit is temporarily unavailable", () => {
+    const { container } = render(
+      <Offer
+        recipient="Sarah"
+        products={[
+          { price_key: "gift", localized_price: "$19.99", token_count: 1 },
+        ]}
+        commerceFree
+        walletBalance={0}
+        loading={false}
+        onSelectProduct={vi.fn()}
+        onCheckout={vi.fn()}
+        onUseCredit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/paid Etsy gift credit/i)).toBeVisible();
+    expect(container.textContent).not.toMatch(/\$|Stripe|secure checkout/i);
+    expect(
+      screen.getByRole("link", { name: "Contact support" }),
+    ).toHaveAttribute("href", "/support");
+  });
 });

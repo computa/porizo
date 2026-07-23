@@ -50,6 +50,8 @@ function createWebOrderOrchestrator({
   db,
   renderFullVersion,
   getVersionRenderState,
+  ensureRequiredArtifact = async () => ({ required: false, ready: true }),
+  markFulfilmentDelivered = async () => ({ required: false }),
   createGiftShare,
   finalizeGiftOrder = null,
   getDeliveryState = async () => null,
@@ -161,6 +163,20 @@ function createWebOrderOrchestrator({
     });
 
     if (state.ready) {
+      const artifact = await ensureRequiredArtifact({ order });
+      if (artifact.required && !artifact.ready) {
+        if (artifact.exhausted) {
+          await safeAlert("Etsy MP3 delivery requires intervention", {
+            orderId: order.id,
+            trackVersionId: order.track_version_id,
+          });
+        }
+        return {
+          status: "rendering",
+          artifactPending: true,
+          artifactExhausted: Boolean(artifact.exhausted),
+        };
+      }
       const reservationBacked =
         order.funding_model === "gift_reservation_v1" && finalizeGiftOrder;
       const share = reservationBacked
@@ -173,6 +189,7 @@ function createWebOrderOrchestrator({
         };
       }
       if (reservationBacked && share.orderTransitioned === false) {
+        await markFulfilmentDelivered({ order });
         return {
           status: "delivered",
           shareUrl: share.shareUrl,
@@ -192,12 +209,14 @@ function createWebOrderOrchestrator({
             shareTokenId: share.shareId,
           });
       if (!delivered) {
+        await markFulfilmentDelivered({ order });
         return {
           status: "delivered",
           shareUrl: share.shareUrl,
           alreadyAdvanced: true,
         };
       }
+      const fulfilment = await markFulfilmentDelivered({ order });
       if (order.funding_model !== "gift_reservation_v1") {
         try {
           await sendDeliveryEmail({ order, shareUrl: share.shareUrl });
@@ -207,7 +226,7 @@ function createWebOrderOrchestrator({
             "Delivery email failed after delivery; order is delivered, share is live",
           );
         }
-      } else {
+      } else if (!fulfilment?.required) {
         try {
           await sendBuyerCompletionEmail({
             order,
@@ -340,6 +359,7 @@ function createWebOrderOrchestrator({
     const deliveryState = await getDeliveryState({ order });
     return {
       order_id: order.id,
+      track_version_id: order.track_version_id || undefined,
       status: order.status,
       content_status: order.status === "delivered" ? "ready" : order.status,
       recipient_name: recipientName || undefined,

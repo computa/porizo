@@ -123,6 +123,73 @@ describe("AccountDeletionRepository", () => {
     ]);
   });
 
+  test("anonymizes retained Etsy fulfilment evidence without deleting commerce history", async () => {
+    const userId = "user_etsy_delete";
+    await seedUser({ userId });
+    await db
+      .prepare(
+        `INSERT INTO etsy_orders
+          (id, shop_id, receipt_id, buyer_user_id, buyer_email_encrypted,
+           buyer_email_lookup_hash, is_paid, is_canceled, state,
+           owner_user_id, created_at, updated_at)
+         VALUES ('etsy_delete_order', 'shop', '424242', ?, 'encrypted',
+                 'lookup', 1, 0, 'claimed', ?, ?, ?)`,
+      )
+      .run(userId, userId, NOW, NOW);
+    await db
+      .prepare(
+        `INSERT INTO etsy_order_units
+          (id, etsy_order_id, transaction_id, listing_id, ordinal, state,
+           owner_user_id, created_at, updated_at)
+         VALUES ('etsy_delete_unit', 'etsy_delete_order', 'tx', 'listing', 1,
+                 'claimed', ?, ?, ?)`,
+      )
+      .run(userId, NOW, NOW);
+    await db
+      .prepare(
+        `INSERT INTO etsy_redemption_codes
+          (code, batch_label, status, redeemed_by_user_id, redeemed_at, created_at)
+         VALUES ('legacy-delete', 'legacy', 'redeemed', ?, ?, ?)`,
+      )
+      .run(userId, NOW, NOW);
+
+    await repository.scrubEtsyRowsForUser(userId);
+
+    const order = await db
+      .prepare(
+        `SELECT owner_user_id, buyer_user_id, buyer_email_encrypted,
+                buyer_email_lookup_hash
+           FROM etsy_orders WHERE id = 'etsy_delete_order'`,
+      )
+      .get();
+    assert.deepEqual(order, {
+      owner_user_id: null,
+      buyer_user_id: null,
+      buyer_email_encrypted: null,
+      buyer_email_lookup_hash: null,
+    });
+    assert.equal(
+      (
+        await db
+          .prepare(
+            "SELECT owner_user_id FROM etsy_order_units WHERE id = 'etsy_delete_unit'",
+          )
+          .get()
+      ).owner_user_id,
+      null,
+    );
+    assert.equal(
+      (
+        await db
+          .prepare(
+            "SELECT redeemed_by_user_id FROM etsy_redemption_codes WHERE code = 'legacy-delete'",
+          )
+          .get()
+      ).redeemed_by_user_id,
+      null,
+    );
+  });
+
   test("deletes account-owned rows and scrubs retained account evidence atomically", async () => {
     const userId = "user_account_delete_repo";
     const otherUserId = "user_account_delete_other";

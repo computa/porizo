@@ -12,6 +12,8 @@ export type EtsyLandingState =
   | "void"
   | "invalid"
   | "rate_limited"
+  | "configuration"
+  | "network"
   | "unavailable"
   | "error";
 
@@ -29,6 +31,19 @@ export interface EtsyRedeemResponse {
 export interface EtsyRedeemOutcome {
   state: EtsyLandingState;
   balanceAfter?: number;
+}
+
+export interface EtsyOrderClaim {
+  claimed: true;
+  order_reference: string;
+  unit_ids: string[];
+  wallet_balance: number;
+  commerce_free: true;
+}
+
+export interface EtsyOrderCheck {
+  accepted: true;
+  claim_proof: string;
 }
 
 export function normalizeCode(raw: string | null | undefined): string {
@@ -56,7 +71,14 @@ export function landingStateForCode(check: EtsyCodeCheck): EtsyLandingState {
 // distinguishes them so a paused funnel doesn't read as a bad code.
 export function landingStateForError(error: unknown): EtsyLandingState {
   if (!(error instanceof ApiError)) return "error";
-  if (error.code === "NOT_FOUND") return "unavailable";
+  if (
+    error.code === "NOT_FOUND" ||
+    error.code === "ETSY_ENTRY_DISABLED" ||
+    error.code === "ETSY_CONFIG_UNAVAILABLE" ||
+    error.code === "TURNSTILE_UNAVAILABLE"
+  ) {
+    return "unavailable";
+  }
   switch (error.status) {
     case 404:
       return "invalid";
@@ -77,9 +99,7 @@ export async function fetchEtsyCodeCheck(
   client: ApiClient,
   code: string,
 ): Promise<EtsyCodeCheck> {
-  return client.get<EtsyCodeCheck>(
-    `/web/etsy/code/${encodeURIComponent(code)}`,
-  );
+  return client.post<EtsyCodeCheck>("/web/etsy/code/check", { code });
 }
 
 // Redeem a code for the current guest session. Idempotent server-side for the
@@ -102,4 +122,26 @@ export async function redeemLandingState(
   } catch (error) {
     return { state: landingStateForError(error) };
   }
+}
+
+export async function checkEtsyOrder(
+  client: ApiClient,
+  receiptId: string,
+  turnstileToken: string,
+) {
+  return client.post<EtsyOrderCheck>("/web/etsy/order/check", {
+    receipt_id: receiptId,
+    turnstile_token: turnstileToken,
+  });
+}
+
+export async function claimEtsyOrder(
+  client: ApiClient,
+  receiptId: string,
+  claimProof: string,
+): Promise<EtsyOrderClaim> {
+  return client.post<EtsyOrderClaim>("/web/etsy/order/claim", {
+    receipt_id: receiptId,
+    claim_proof: claimProof,
+  });
 }

@@ -49,6 +49,7 @@ describe("Etsy redemption routes", () => {
   let app;
   let wallet;
   let etsy;
+  let turnstileTokens;
 
   beforeEach(async () => {
     process.env.JWT_SECRET = "test-jwt-secret-web-etsy-route-32-bytes!!";
@@ -56,12 +57,27 @@ describe("Etsy redemption routes", () => {
     clearCache();
     db = await initDb();
     await setFeatureFlag(db, "web_funnel_enabled", true, "test");
+    await setFeatureFlag(
+      db,
+      "etsy_legacy_code_redemption_enabled",
+      true,
+      "test",
+    );
     wallet = createGiftWalletRepository(db);
     etsy = createEtsyRedemptionService({ db, giftWalletRepository: wallet });
+    turnstileTokens = [];
     app = buildServer({
       db,
       config: { STORAGE_DIR: "/tmp/test-storage" },
       storage: storageStub(),
+      webFunnelServices: {
+        turnstileVerifier: {
+          verify: async ({ token }) => {
+            turnstileTokens.push(token);
+            return { success: token === "etsy-human-token" };
+          },
+        },
+      },
     });
     await app.ready();
   });
@@ -96,6 +112,74 @@ describe("Etsy redemption routes", () => {
     assert.strictEqual(body.idempotent, false);
     assert.strictEqual(body.balance_after, 1);
     assert.strictEqual(await wallet.getBalance("guest_a"), 1);
+  });
+
+  it("requires Turnstile at receipt initiation without disclosing order existence", async () => {
+    await setFeatureFlag(db, "etsy_entry_enabled", true, "test");
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/web/etsy/order/check",
+      payload: { receipt_id: "123456", turnstile_token: "bad" },
+    });
+    assert.equal(rejected.statusCode, 400, rejected.body);
+    assert.equal(rejected.json().error, "TURNSTILE_INVALID");
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/web/etsy/order/check",
+      payload: {
+        receipt_id: "123456",
+        turnstile_token: "etsy-human-token",
+      },
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.equal(accepted.json().accepted, true);
+    assert.match(accepted.json().claim_proof, /^[^.]+\.[^.]+$/);
+    assert.deepEqual(turnstileTokens, ["bad", "etsy-human-token"]);
+  });
+
+  it("rejects a direct claim that did not complete the Turnstile check", async () => {
+    await setFeatureFlag(db, "etsy_entry_enabled", true, "test");
+    const token = await seedGuestWithToken(db, "guest_claim_bypass");
+    const response = await app.inject({
+      method: "POST",
+      url: "/web/etsy/order/claim",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "cf-connecting-ip": "203.0.113.40",
+      },
+      payload: { receipt_id: "123456" },
+    });
+
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().error, "ETSY_CLAIM_PROOF_REQUIRED");
+  });
+
+  it("binds a Turnstile claim proof to its receipt and client IP", async () => {
+    await setFeatureFlag(db, "etsy_entry_enabled", true, "test");
+    const checked = await app.inject({
+      method: "POST",
+      url: "/web/etsy/order/check",
+      headers: { "cf-connecting-ip": "203.0.113.41" },
+      payload: {
+        receipt_id: "123456",
+        turnstile_token: "etsy-human-token",
+      },
+    });
+    const claimProof = checked.json().claim_proof;
+    const token = await seedGuestWithToken(db, "guest_claim_binding");
+    const response = await app.inject({
+      method: "POST",
+      url: "/web/etsy/order/claim",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "cf-connecting-ip": "203.0.113.42",
+      },
+      payload: { receipt_id: "123456", claim_proof: claimProof },
+    });
+
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().error, "ETSY_CLAIM_PROOF_REQUIRED");
   });
 
   it("is idempotent for the same buyer re-submitting the same code", async () => {
@@ -240,24 +324,26 @@ describe("Etsy redemption routes", () => {
     assert.strictEqual(res.statusCode, 404, res.body);
   });
 
-  it("GET /web/etsy/code/:code pre-checks validity without side effects", async () => {
+  it("POST /web/etsy/code/check pre-checks validity without putting the secret in a URL", async () => {
     const [code] = await etsy.mintBatch({
       batchLabel: "route-check",
       count: 1,
     });
 
     const valid = await app.inject({
-      method: "GET",
-      url: `/web/etsy/code/${code}`,
+      method: "POST",
+      url: "/web/etsy/code/check",
       headers: { "cf-connecting-ip": "203.0.113.29" },
+      payload: { code },
     });
     assert.strictEqual(valid.statusCode, 200, valid.body);
     assert.deepEqual(valid.json(), { valid: true, status: "unredeemed" });
 
     const unknown = await app.inject({
-      method: "GET",
-      url: "/web/etsy/code/PZ-XXXX-XXXX",
+      method: "POST",
+      url: "/web/etsy/code/check",
       headers: { "cf-connecting-ip": "203.0.113.30" },
+      payload: { code: "PZ-XXXX-XXXX" },
     });
     assert.strictEqual(unknown.statusCode, 200, unknown.body);
     assert.deepEqual(unknown.json(), { valid: false, status: "not_found" });
@@ -267,5 +353,38 @@ describe("Etsy redemption routes", () => {
       valid: true,
       status: "unredeemed",
     });
+  });
+
+  it("read-only code checks do not consume the mutation rate-limit budget", async () => {
+    const [code] = await etsy.mintBatch({
+      batchLabel: "route-check-limit",
+      count: 1,
+    });
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/web/etsy/code/check",
+        headers: { "cf-connecting-ip": "203.0.113.31" },
+        payload: { code },
+      });
+      assert.equal(response.statusCode, 200, response.body);
+    }
+  });
+
+  it("retires legacy redemption by default behind a separate flag", async () => {
+    await setFeatureFlag(
+      db,
+      "etsy_legacy_code_redemption_enabled",
+      false,
+      "test",
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/web/etsy/redeem",
+      headers: { "cf-connecting-ip": "203.0.113.32" },
+      payload: { code: "PZ-XXXX-XXXX" },
+    });
+    assert.equal(response.statusCode, 410, response.body);
+    assert.equal(response.json().error, "ETSY_LEGACY_REDEMPTION_DISABLED");
   });
 });

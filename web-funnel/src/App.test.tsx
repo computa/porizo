@@ -380,6 +380,7 @@ describe("initial funnel route", () => {
       remove: vi.fn(),
     };
     const responses = [
+      { commerce_free: false },
       {},
       { job_id: "job-1" },
       { status: "failed" },
@@ -403,7 +404,11 @@ describe("initial funnel route", () => {
       "That take didn't come together",
     );
     expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(6);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/web/etsy/order/context",
+      expect.any(Object),
+    );
     fetcher.mockRestore();
   });
 

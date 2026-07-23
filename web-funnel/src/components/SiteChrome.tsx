@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { rememberOrderRecovery } from "../order-recovery";
+import { rememberPendingEtsyReceipt } from "../etsy-fulfilment";
 
 // `commerceFree` renders the brand-only variant for an already-paid Etsy
 // fulfilment session: the Porizo wordmark stays, but every commerce/nav
@@ -75,7 +76,7 @@ export function SiteSignInForm({
 }: {
   onClose?: () => void;
   recoverySessionId?: string;
-  recoveryKind?: "session" | "order";
+  recoveryKind?: "session" | "order" | "etsy" | "etsy_unit";
 }) {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
@@ -98,11 +99,16 @@ export function SiteSignInForm({
           email: email.trim(),
           platform: "web",
           purpose: "login",
+          ...(recoveryKind === "etsy" ? { return_to: "etsy" } : {}),
         }),
       });
       if (!response.ok) throw new Error("Sign-in request failed");
       if (recoverySessionId) {
-        rememberOrderRecovery({ kind: recoveryKind, value: recoverySessionId });
+        if (recoveryKind === "etsy") {
+          rememberPendingEtsyReceipt(recoverySessionId);
+        } else {
+          rememberOrderRecovery({ kind: recoveryKind, value: recoverySessionId });
+        }
       }
       setSent(true);
     } catch {
@@ -245,7 +251,10 @@ export function SiteFooter({
   );
 }
 
-export function DimBrand() {
+export function DimBrand({ commerceFree = false }: { commerceFree?: boolean }) {
+  if (commerceFree) {
+    return <span className="dim-brand" aria-label="Porizo">Porizo</span>;
+  }
   return (
     <a className="dim-brand" href="/" aria-label="Porizo home">
       Porizo

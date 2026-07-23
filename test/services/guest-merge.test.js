@@ -68,6 +68,30 @@ describe("mergeGuestIntoUser", () => {
         "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES ('a1', 'guest', 'created', 'track', 'trk_g', '{}', ?)",
       )
       .run(NOW);
+    await db
+      .prepare(
+        `INSERT INTO etsy_orders
+          (id, shop_id, receipt_id, is_paid, is_canceled, state, owner_user_id,
+           created_at, updated_at)
+         VALUES ('etsy_o1', 'shop', '123', 1, 0, 'claimed', 'guest', ?, ?)`,
+      )
+      .run(NOW, NOW);
+    await db
+      .prepare(
+        `INSERT INTO etsy_order_units
+          (id, etsy_order_id, transaction_id, listing_id, ordinal, state,
+           owner_user_id, created_at, updated_at)
+         VALUES ('etsy_u1', 'etsy_o1', 'txn', 'listing', 1, 'claimed',
+                 'guest', ?, ?)`,
+      )
+      .run(NOW, NOW);
+    await db
+      .prepare(
+        `INSERT INTO etsy_redemption_codes
+          (code, batch_label, status, redeemed_by_user_id, redeemed_at, created_at)
+         VALUES ('PZ-ABCD-2345', 'legacy', 'redeemed', 'guest', ?, ?)`,
+      )
+      .run(NOW, NOW);
 
     await db.transaction((query) =>
       mergeGuestIntoUser(query, {
@@ -109,6 +133,21 @@ describe("mergeGuestIntoUser", () => {
       "SELECT balance FROM gift_wallet WHERE user_id = 'guest'",
     );
     assert.equal(Number(guestWallet.rows[0].balance), 0);
+
+    const etsy = await db.query(
+      `SELECT o.owner_user_id AS order_owner,
+              u.owner_user_id AS unit_owner,
+              c.redeemed_by_user_id AS code_owner
+         FROM etsy_orders o
+         JOIN etsy_order_units u ON u.etsy_order_id = o.id
+         JOIN etsy_redemption_codes c ON c.code = 'PZ-ABCD-2345'
+        WHERE o.id = 'etsy_o1'`,
+    );
+    assert.deepEqual(etsy.rows[0], {
+      order_owner: "existing",
+      unit_owner: "existing",
+      code_owner: "existing",
+    });
 
     const guest = await db.query(
       "SELECT deleted_at FROM users WHERE id = 'guest'",

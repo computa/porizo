@@ -10,6 +10,7 @@ import {
   REFRESH_TOKEN_KEY,
   createGuestSession,
   exchangeWebSession,
+  refreshExistingSession,
 } from "./session-bootstrap";
 
 const originalFetch = globalThis.fetch;
@@ -20,6 +21,14 @@ function setCookie(value: string) {
     get: () => value,
     set: () => undefined,
   });
+}
+
+function jwt(exp: number) {
+  const payload = btoa(JSON.stringify({ exp }))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `header.${payload}.signature`;
 }
 
 beforeEach(() => {
@@ -58,12 +67,35 @@ describe("createGuestSession", () => {
   });
 
   it("reuses an already-stored guest token without hitting the network", async () => {
-    localStorage.setItem(TOKEN_KEY, "existing-jwt");
+    const token = jwt(Math.floor(Date.now() / 1000) + 3600);
+    localStorage.setItem(TOKEN_KEY, token);
     const fetcher = vi.fn<typeof fetch>();
     globalThis.fetch = fetcher;
 
-    await expect(createGuestSession()).resolves.toBe("existing-jwt");
+    await expect(createGuestSession()).resolves.toBe(token);
     expect(fetcher).not.toHaveBeenCalled();
+    expect(acquireTurnstileToken).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an expired stored token instead of returning it blindly", async () => {
+    localStorage.setItem(TOKEN_KEY, jwt(Math.floor(Date.now() / 1000) - 60));
+    localStorage.setItem(REFRESH_TOKEN_KEY, "refresh-one");
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: "fresh-access",
+          refresh_token: "refresh-two",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(createGuestSession()).resolves.toBe("fresh-access");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/auth/refresh",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe("refresh-two");
     expect(acquireTurnstileToken).not.toHaveBeenCalled();
   });
 
@@ -99,6 +131,37 @@ describe("createGuestSession", () => {
       status: 429,
       code: "WEB_SESSION_LIMIT_REACHED",
     });
+  });
+});
+
+describe("refreshExistingSession", () => {
+  it("keeps a refresh token on temporary server failure", async () => {
+    localStorage.setItem(REFRESH_TOKEN_KEY, "keep-me");
+    globalThis.fetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("{}", { status: 503 }));
+    await expect(refreshExistingSession()).resolves.toBeNull();
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe("keep-me");
+  });
+
+  it("single-flights concurrent refreshes so token rotation cannot race", async () => {
+    localStorage.setItem(REFRESH_TOKEN_KEY, "refresh-one");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: "fresh-access",
+          refresh_token: "refresh-two",
+        }),
+        { status: 200 },
+      ),
+    );
+    globalThis.fetch = fetcher;
+
+    await expect(
+      Promise.all([refreshExistingSession(), refreshExistingSession()]),
+    ).resolves.toEqual(["fresh-access", "fresh-access"]);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe("refresh-two");
   });
 });
 

@@ -469,7 +469,11 @@ function registerAdminRoutes(
 
   registerAdminEtsyCodeRoutes(app, {
     db,
-    requireAdminSession,
+    requireAdminRole,
+    auditService: adminService.adminAuditService,
+    etsyOrderService: app.etsyOrderService,
+    etsyArtifactService: app.etsyArtifactService,
+    etsyClient: app.etsyClient,
     sendError,
   });
   registerAdminGrowthRoutes(app, {

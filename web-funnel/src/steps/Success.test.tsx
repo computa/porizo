@@ -129,6 +129,30 @@ describe("paid-order lifecycle", () => {
     expect(await screen.findByRole("button", { name: "Copied ✓" })).toBeVisible();
   });
 
+  it("exposes the paid MP3 and removes alternate commerce in Etsy mode", () => {
+    const download = vi.fn(async () => {});
+    render(
+      <Success
+        elapsedMs={0}
+        commerceFree
+        onDownloadMp3={download}
+        onStartAnother={vi.fn()}
+        order={{
+          status: "delivered",
+          recipient_name: "Sarah",
+          share_url: "https://porizo.co/play/etsy",
+          track_version_id: "version_etsy",
+        }}
+      />,
+    );
+    screen.getByRole("button", { name: "Download MP3" }).click();
+    expect(download).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: "Make another song" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument();
+  });
+
   it("does not call a wallet-funded gift a paid receipt", () => {
     render(
       <Success
@@ -207,4 +231,21 @@ describe("paid-order lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Make another song" }));
     expect(onStartAnother).toHaveBeenCalledOnce();
   });
+
+  it.each(["failed", "refunded"] as const)(
+    "removes make-another commerce from a %s Etsy order",
+    (status) => {
+      render(
+        <Success
+          elapsedMs={0}
+          order={{ status, recipient_name: "Sarah" }}
+          onStartAnother={vi.fn()}
+          commerceFree
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Make another song" }),
+      ).not.toBeInTheDocument();
+    },
+  );
 });

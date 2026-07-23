@@ -13,6 +13,7 @@ interface OfferProps {
   onSelectProduct: (priceKey: string) => void;
   onCheckout: () => void;
   onUseCredit: () => void;
+  commerceFree?: boolean;
 }
 
 export function Offer({
@@ -27,10 +28,12 @@ export function Offer({
   onCheckout,
   onSelectProduct,
   onUseCredit,
+  commerceFree = false,
 }: OfferProps) {
-  const product =
-    products.find((candidate) => candidate.price_key === selectedPriceKey) ??
-    (products.length === 1 ? products[0] : undefined);
+  const product = commerceFree
+    ? undefined
+    : products.find((candidate) => candidate.price_key === selectedPriceKey) ??
+      (products.length === 1 ? products[0] : undefined);
   const hasCredit = (walletBalance ?? 0) > 0;
 
   if (previewOnly) {
@@ -70,6 +73,11 @@ export function Offer({
             </strong>
             <p>Use your gift credits here or in the Porizo app.</p>
           </div>
+        ) : commerceFree ? (
+          <div className="wallet-choice" role="alert">
+            <strong>We couldn't load your paid Etsy gift credit.</strong>
+            <p>Your order is safe. Contact support with your Etsy receipt.</p>
+          </div>
         ) : products.length > 1 ? (
           <fieldset className="bundle-choices">
             <legend>Choose a gift bundle</legend>
@@ -91,7 +99,7 @@ export function Offer({
             ))}
           </fieldset>
         ) : null}
-        <div className="price-row">
+        {!commerceFree || hasCredit ? <div className="price-row">
           {hasCredit ? (
             <span className="price">1 gift credit</span>
           ) : product ? (
@@ -104,7 +112,7 @@ export function Offer({
               ? `${walletBalance! - 1} left after this song`
               : `${product?.token_count ?? 1} gift credit${product?.token_count === 1 ? "" : "s"} · no subscription`}
           </span>
-        </div>
+        </div> : null}
         <ul className="bundle">
           {[
             "The full song — 60–90 seconds, with their name and your memory in the lyrics",
@@ -128,22 +136,27 @@ export function Offer({
           If it doesn't make them feel something, we'll refund it.
         </p>
       </section>
-      {!hasCredit && (
+      {!hasCredit && !commerceFree && (
         <p className="paymarks offer-paymarks">
           Apple Pay · Google Pay · Card · Secured by Stripe
         </p>
       )}
-      {!hasCredit && (
+      {!hasCredit && !commerceFree && (
         <p className="account-note">
           Sign in with your receipt email to use remaining gift credits here or
           in the Porizo app.
         </p>
       )}
       <div className="cta-bar">
-        <button
+        {commerceFree && !hasCredit ? (
+          <a className="btn-primary" href="/support">
+            Contact support
+          </a>
+        ) : (
+          <button
           className="btn-primary"
           type="button"
-          disabled={(!hasCredit && !product) || loading}
+          disabled={(!hasCredit && (!product || commerceFree)) || loading}
           onClick={hasCredit ? onUseCredit : onCheckout}
         >
           {loading
@@ -152,10 +165,13 @@ export function Offer({
               : "Opening secure checkout…"
             : hasCredit
               ? "Use 1 gift credit"
-              : product
+              : commerceFree
+                ? "Contact support"
+                : product
                 ? `Unlock for ${product.localized_price}`
                 : "Loading price…"}
-        </button>
+          </button>
+        )}
       </div>
     </main>
   );

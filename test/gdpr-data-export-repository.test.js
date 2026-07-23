@@ -90,6 +90,27 @@ describe("GdprDataExportRepository", () => {
         "other-export@example.com",
         "2026-06-28T00:00:00.000Z",
       );
+    await db
+      .prepare(
+        `INSERT INTO etsy_orders
+          (id, shop_id, receipt_id, buyer_email_encrypted,
+           buyer_email_lookup_hash, is_paid, is_canceled, state,
+           owner_user_id, created_at, updated_at)
+         VALUES ('etsy_export_order', 'shop', '525252', 'encrypted-secret',
+                 'lookup-secret', 1, 0, 'claimed', 'gdpr_export_user',
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO etsy_order_units
+          (id, etsy_order_id, transaction_id, listing_id, ordinal, state,
+           owner_user_id, created_at, updated_at)
+         VALUES ('etsy_export_unit', 'etsy_export_order', 'tx', 'listing', 1,
+                 'claimed', 'gdpr_export_user', CURRENT_TIMESTAMP,
+                 CURRENT_TIMESTAMP)`,
+      )
+      .run();
 
     const sections =
       await repository.listUserExportSections("gdpr_export_user");
@@ -102,6 +123,10 @@ describe("GdprDataExportRepository", () => {
       sections.profile.some((row) => row.id === "other_export_user"),
       false,
     );
+    assert.equal(sections.etsy_orders[0].id, "etsy_export_order");
+    assert.equal(sections.etsy_order_units[0].id, "etsy_export_unit");
+    assert.equal("buyer_email_encrypted" in sections.etsy_orders[0], false);
+    assert.equal("buyer_email_lookup_hash" in sections.etsy_orders[0], false);
   });
 
   test("listUserExportSections preserves per-section unavailable fallback", async () => {

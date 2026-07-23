@@ -196,7 +196,8 @@ function createEventsRepository(db) {
     return db
       .prepare(
         `INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
       )
       .run(
         id,

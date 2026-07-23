@@ -78,6 +78,14 @@ describe("landingStateForError (redeem failure mapping)", () => {
     );
   });
 
+  it("maps an explicitly disabled Etsy entry to unavailable", () => {
+    expect(
+      landingStateForError(
+        new ApiError("Not found", 404, "ETSY_ENTRY_DISABLED"),
+      ),
+    ).toBe("unavailable");
+  });
+
   it("maps any other failure to a generic error", () => {
     expect(
       landingStateForError(new ApiError("boom", 500, "ETSY_REDEEM_FAILED")),

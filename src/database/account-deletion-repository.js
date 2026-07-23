@@ -52,6 +52,9 @@ const ACCOUNT_DELETION_LOCK_TABLES = [
   "user_credentials",
   "user_contacts",
   "audit_logs",
+  "etsy_orders",
+  "etsy_order_units",
+  "etsy_redemption_codes",
 ];
 
 function createAccountDeletionRepository(db) {
@@ -107,6 +110,32 @@ function createAccountDeletionRepository(db) {
       )
       .run(userId);
     await db.prepare("DELETE FROM story_sessions WHERE user_id = ?").run(userId);
+  }
+
+  async function scrubEtsyRowsForUser(userId) {
+    await db
+      .prepare(
+        `UPDATE etsy_orders
+            SET owner_user_id = NULL, buyer_user_id = NULL,
+                buyer_email_encrypted = NULL, buyer_email_lookup_hash = NULL,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE owner_user_id = ?`,
+      )
+      .run(userId);
+    await db
+      .prepare(
+        `UPDATE etsy_order_units
+            SET owner_user_id = NULL, updated_at = CURRENT_TIMESTAMP
+          WHERE owner_user_id = ?`,
+      )
+      .run(userId);
+    await db
+      .prepare(
+        `UPDATE etsy_redemption_codes
+            SET redeemed_by_user_id = NULL
+          WHERE redeemed_by_user_id = ?`,
+      )
+      .run(userId);
   }
 
   async function deleteShareRowsForUser(userId) {
@@ -444,6 +473,7 @@ function createAccountDeletionRepository(db) {
     lockUserScopedTablesForAccountDeletion,
     getDeletionTombstoneContext,
     deleteStoryRowsForUser,
+    scrubEtsyRowsForUser,
     deleteShareRowsForUser,
     deleteTrackRowsForUser,
     deletePoemRowsForUser,

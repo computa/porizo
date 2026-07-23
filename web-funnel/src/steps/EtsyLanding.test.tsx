@@ -1,126 +1,142 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import { EtsyLanding } from "./EtsyLanding";
 
-const navigate = vi.fn();
-const createSession = vi.fn(async () => "guest-jwt");
-
-function deps(overrides: Partial<Parameters<typeof EtsyLanding>[0]> = {}) {
+function deps(
+  overrides: Partial<Parameters<typeof EtsyLanding>[0]> = {},
+): Parameters<typeof EtsyLanding>[0] {
   return {
-    code: "PZ-ABCD-2345",
-    checkCode: vi.fn(),
-    redeem: vi.fn(),
-    createSession,
-    navigate,
+    checkReceipt: vi.fn(async () => "ready" as const),
+    claim: vi.fn(async () => ({
+      claimed: true as const,
+      order_reference: "etsy_order_1",
+      unit_ids: ["unit_1"],
+      wallet_balance: 1,
+      commerce_free: true as const,
+    })),
+    createSession: vi.fn(async () => "token"),
+    navigate: vi.fn(),
     ...overrides,
   };
 }
 
-beforeEach(() => {
-  navigate.mockClear();
-  createSession.mockClear();
-});
-
 afterEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe("EtsyLanding", () => {
-  it("redeems a valid code and hands the buyer off to /create", async () => {
-    const checkCode = vi.fn(async () => "ready" as const);
-    const redeem = vi.fn(async () => ({
-      state: "ready" as const,
-      balanceAfter: 1,
+  it("never consumes an entitlement on mount and requires an explicit action", () => {
+    const claim = vi.fn();
+    render(<EtsyLanding {...deps({ claim })} />);
+    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled();
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("claims a receipt only after the buyer submits it", async () => {
+    const claim = vi.fn(async () => ({
+      claimed: true as const,
+      order_reference: "etsy_order_1",
+      unit_ids: ["unit_1", "unit_2"],
+      wallet_balance: 2,
+      commerce_free: true as const,
     }));
-    render(<EtsyLanding {...deps({ checkCode, redeem })} />);
-
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/create"));
-    expect(createSession).toHaveBeenCalledOnce();
-    expect(redeem).toHaveBeenCalledWith("PZ-ABCD-2345");
+    const navigate = vi.fn();
+    render(<EtsyLanding {...deps({ claim, navigate })} />);
+    fireEvent.change(screen.getByLabelText(/receipt number/i), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    await waitFor(() => expect(claim).toHaveBeenCalledWith("123456"));
+    expect(navigate).toHaveBeenCalledOnce();
   });
 
-  it("tells the buyer the song is paid for while it works", async () => {
-    const checkCode = vi.fn(() => new Promise<"ready">(() => {}));
-    render(<EtsyLanding {...deps({ checkCode })} />);
-
-    expect(await screen.findByText(/paid for/i)).toBeVisible();
-    expect(navigate).not.toHaveBeenCalled();
+  it("shows verified-email recovery rather than burning the order into a guest", async () => {
+    render(
+      <EtsyLanding
+        {...deps({
+          claim: vi.fn(async () => {
+            throw new ApiError("verified email required", 401);
+          }),
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/receipt number/i), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(
+      await screen.findByText(/sign in with the email on your Etsy receipt/i),
+    ).toBeVisible();
   });
 
-  it("shows a warm, human message for an already-used code and never a stack trace", async () => {
-    const checkCode = vi.fn(async () => "redeemed" as const);
-    render(<EtsyLanding {...deps({ checkCode })} />);
-
-    expect(await screen.findByText(/already been used/i)).toBeVisible();
-    expect(screen.getByText(/Etsy order messages/i)).toBeVisible();
-    expect(navigate).not.toHaveBeenCalled();
+  it("maps claim limits and displays the server retry interval", async () => {
+    render(
+      <EtsyLanding
+        {...deps({
+          claim: vi.fn(async () => {
+            throw new ApiError(
+              "too many attempts",
+              429,
+              "ETSY_REDEEM_LIMIT_REACHED",
+              120,
+            );
+          }),
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/receipt number/i), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(await screen.findByText(/try again in 2 minutes/i)).toBeVisible();
   });
 
-  it("shows a warm message for an unrecognised code", async () => {
-    const checkCode = vi.fn(async () => "invalid" as const);
-    render(<EtsyLanding {...deps({ checkCode, code: "NOT-A-CODE" })} />);
+  it("offers an explicit account switch after a mismatched claim", async () => {
+    render(
+      <EtsyLanding
+        {...deps({
+          claim: vi.fn(async () => {
+            throw new ApiError(
+              "This order belongs to another account.",
+              409,
+              "ETSY_ORDER_ALREADY_CLAIMED",
+            );
+          }),
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/receipt number/i), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /use another account/i }),
+    );
 
-    expect(await screen.findByText(/couldn.t find that code/i)).toBeVisible();
+    expect(screen.getByLabelText("Email address")).toBeVisible();
+    expect(
+      screen.getByText(/email on your Etsy receipt/i),
+    ).toBeVisible();
   });
 
-  it("shows a warm message for a voided code", async () => {
-    const checkCode = vi.fn(async () => "void" as const);
-    render(<EtsyLanding {...deps({ checkCode })} />);
-
-    expect(await screen.findByText(/no longer valid/i)).toBeVisible();
-  });
-
-  it("shows a try-again message when redemption is rate-limited", async () => {
-    const checkCode = vi.fn(async () => "ready" as const);
-    const redeem = vi.fn(async () => ({ state: "rate_limited" as const }));
-    render(<EtsyLanding {...deps({ checkCode, redeem })} />);
-
-    expect(await screen.findByText(/too many/i)).toBeVisible();
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it("shows a temporarily-unavailable message when the funnel is disabled", async () => {
-    const checkCode = vi.fn(async () => "ready" as const);
-    const redeem = vi.fn(async () => ({ state: "unavailable" as const }));
-    render(<EtsyLanding {...deps({ checkCode, redeem })} />);
-
+  it("maps initial configuration and rate failures to honest states", async () => {
+    const { rerender } = render(
+      <EtsyLanding
+        {...deps({ checkReceipt: vi.fn(async () => "unavailable" as const) })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/receipt number/i), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     expect(await screen.findByText(/temporarily unavailable/i)).toBeVisible();
-  });
 
-  it("recovers when session creation fails, without leaking the error", async () => {
-    const checkCode = vi.fn(async () => "ready" as const);
-    const redeem = vi.fn(async () => ({
-      state: "ready" as const,
-      balanceAfter: 1,
-    }));
-    createSession.mockRejectedValueOnce(
-      new ApiError("nope", 503, "TURNSTILE_UNAVAILABLE"),
+    rerender(
+      <EtsyLanding
+        {...deps({ checkReceipt: vi.fn(async () => "rate_limited" as const) })}
+      />,
     );
-    render(<EtsyLanding {...deps({ checkCode, redeem })} />);
-
-    expect(await screen.findByText(/couldn.t/i)).toBeVisible();
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it("shows a warm message when there is no code in the URL at all", async () => {
-    const checkCode = vi.fn();
-    render(<EtsyLanding {...deps({ code: "", checkCode })} />);
-
-    expect(await screen.findByText(/couldn.t find that code/i)).toBeVisible();
-    expect(checkCode).not.toHaveBeenCalled();
-  });
-
-  it("never shows a price, buy-another, or storefront navigation", async () => {
-    const checkCode = vi.fn(async () => "redeemed" as const);
-    const { container } = render(<EtsyLanding {...deps({ checkCode })} />);
-    await screen.findByText(/already been used/i);
-
-    expect(container.textContent).not.toMatch(
-      /\$|price|buy another|checkout|£|€/i,
-    );
-    // The wordmark must not be a storefront link.
-    expect(container.querySelector('a[href="/"]')).toBeNull();
-    expect(container.querySelectorAll("a").length).toBe(0);
   });
 });

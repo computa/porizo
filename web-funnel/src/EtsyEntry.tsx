@@ -1,48 +1,57 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { createApiClient } from "./api/client";
 import {
-  fetchEtsyCodeCheck,
-  landingStateForCode,
-  normalizeCode,
-  redeemLandingState,
+  claimEtsyOrder,
+  checkEtsyOrder,
+  landingStateForError,
 } from "./api/etsy";
 import { EtsyLanding } from "./steps/EtsyLanding";
 import { beginEtsyFulfilmentHandoff } from "./etsy-fulfilment";
-import { TOKEN_KEY, createGuestSession } from "./session-bootstrap";
+import {
+  TOKEN_KEY,
+  createGuestSession,
+  refreshExistingSession,
+} from "./session-bootstrap";
+import { acquireTurnstileToken, TurnstileError } from "./turnstile";
 
-// Wires the real API client into the pure EtsyLanding component. Reads ?code=
-// from the URL, pre-checks it, and (on success) redeems against a guest session
-// before a full-page hand-off to /create — where the already-built wallet-credit
-// offer branch picks up the granted gift credit on the same guest session.
 export default function EtsyEntry() {
-  const code = useMemo(
-    () => normalizeCode(new URLSearchParams(location.search).get("code")),
-    [],
-  );
-
+  const claimProof = useRef<string | undefined>(undefined);
   const client = useMemo(
-    () => createApiClient({ getToken: () => localStorage.getItem(TOKEN_KEY) }),
+    () =>
+      createApiClient({
+        getToken: () => localStorage.getItem(TOKEN_KEY),
+        refreshSession: refreshExistingSession,
+      }),
     [],
   );
 
   return (
     <EtsyLanding
-      code={code}
-      checkCode={async (value) => {
-        const check = await fetchEtsyCodeCheck(client, value);
-        const state = landingStateForCode(check);
-        // The landing only forwards the four pre-check outcomes; a disabled
-        // funnel or guard failure surfaces later, at redeem, as its own state.
-        return state === "ready" || state === "redeemed" || state === "void"
-          ? state
-          : "invalid";
+      checkReceipt={async (receiptId) => {
+        try {
+          const checked = await checkEtsyOrder(
+            client,
+            receiptId,
+            await acquireTurnstileToken(),
+          );
+          claimProof.current = checked.claim_proof;
+          return "ready";
+        } catch (error) {
+          if (error instanceof TurnstileError) {
+            return error.code === "configuration" ? "configuration" : "network";
+          }
+          return landingStateForError(error);
+        }
       }}
-      redeem={(value) => redeemLandingState(client, value)}
+      claim={async (receiptId) => {
+        if (!claimProof.current) {
+          throw new Error("ETSY_CLAIM_PROOF_REQUIRED");
+        }
+        return claimEtsyOrder(client, receiptId, claimProof.current);
+      }}
       createSession={createGuestSession}
-      navigate={(path) =>
-        // Flag this as an already-paid Etsy fulfilment session so /create renders
-        // stripped, commerce-free chrome — no "buy elsewhere" or signup-wall links.
-        beginEtsyFulfilmentHandoff(() => location.assign(path))
+      navigate={() =>
+        beginEtsyFulfilmentHandoff(() => location.assign("/create"))
       }
     />
   );

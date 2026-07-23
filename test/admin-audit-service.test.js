@@ -53,6 +53,39 @@ describe("AdminAuditService", () => {
     );
   });
 
+  test("uses one deterministic audit ID for a retried admin mutation", async () => {
+    const payloads = [];
+    const service = createAdminAuditService({
+      eventsRepository: {
+        async insertAuditLog(payload) {
+          payloads.push(payload);
+          return { changes: payloads.length === 1 ? 1 : 0 };
+        },
+      },
+      now: () => "2026-06-29T09:10:11.000Z",
+    });
+
+    await service.auditOnce(
+      "etsy-reversal:receipt-1:evidence-1",
+      "admin_1",
+      "etsy_order_entitlement_reversal_requested",
+      "etsy_receipt",
+      "receipt-1",
+      { money_refunded: false },
+    );
+    await service.auditOnce(
+      "etsy-reversal:receipt-1:evidence-1",
+      "admin_1",
+      "etsy_order_entitlement_reversal_requested",
+      "etsy_receipt",
+      "receipt-1",
+      { money_refunded: false },
+    );
+
+    assert.equal(payloads[0].id, payloads[1].id);
+    assert.match(payloads[0].id, /^audit_[a-f0-9]{24}$/);
+  });
+
   test("generates audit-prefixed random IDs", () => {
     assert.match(generateAuditId(), /^audit_[a-f0-9]{24}$/);
   });

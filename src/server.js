@@ -69,6 +69,9 @@ const {
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerWebFunnelRoutes } = require("./routes/web-funnel");
 const { registerWebEtsyRoutes } = require("./routes/web-etsy");
+const {
+  registerWebEtsyWebhookRoutes,
+} = require("./routes/web-etsy-webhook");
 const { registerWebCheckoutRoutes } = require("./routes/web-checkout");
 const { createStripeService } = require("./services/stripe-service");
 const {
@@ -77,6 +80,16 @@ const {
 const {
   createGiftPurchaseReversalService,
 } = require("./services/gift-purchase-reversal");
+const { createEtsyOrderService } = require("./services/etsy-order-service");
+const { createEtsyClient } = require("./services/etsy-client");
+const { encryptValue, decryptValue } = require("./services/etsy-secrets");
+const {
+  bootstrapEtsyConnection,
+  createEtsyOAuthCoordinator,
+} = require("./services/etsy-oauth-coordinator");
+const {
+  createEtsyArtifactService,
+} = require("./services/etsy-artifact-service");
 const {
   createOrGetShareToken: createGiftShareToken,
 } = require("./services/share-service");
@@ -458,6 +471,193 @@ function buildServer({
   const giftPurchaseReversalService = createGiftPurchaseReversalService({
     giftWalletRepository,
   });
+  const etsyOrderService = createEtsyOrderService({
+    db,
+    giftWalletRepository,
+    giftPurchaseReversalService,
+    revokeBoundOrder: async ({ unit, query }) => {
+      const orderResult = await query(
+        `SELECT * FROM web_orders WHERE id = ?${
+          db.isPostgres ? " FOR UPDATE" : ""
+        }`,
+        [unit.web_order_id],
+      );
+      const order = orderResult?.rows?.[0];
+      if (!order || order.status === "refunded") return;
+      if (order.gift_reservation_id) {
+        const reservationResult = await query(
+          `SELECT status FROM gift_reservations WHERE id = ?${
+            db.isPostgres ? " FOR UPDATE" : ""
+          }`,
+          [order.gift_reservation_id],
+        );
+        const reservation = reservationResult?.rows?.[0];
+        if (["reserved", "content_ready"].includes(reservation?.status)) {
+          await app.refundGiftReservationById({
+            reservationId: order.gift_reservation_id,
+            userId: order.user_id,
+            reason: "etsy_order_canceled",
+            source: "etsy_refund",
+            description: "Etsy gift credit restored before order reversal",
+            externalQuery: query,
+            skipSideEffects: true,
+          });
+        }
+      }
+      await query(
+        `UPDATE web_orders SET status = 'refunded', updated_at = ?
+          WHERE id = ? AND status != 'refunded'`,
+        [nowIso(), order.id],
+      );
+      // Refunds stop unfinished fulfilment, but do not remotely destroy a
+      // personalized song that was already delivered to the buyer.
+      if (order.share_token_id && order.status !== "delivered") {
+        await query(
+          "UPDATE share_tokens SET status = 'revoked' WHERE id = ? AND status != 'revoked'",
+          [order.share_token_id],
+        );
+      }
+    },
+  });
+  app.decorate("etsyOrderService", etsyOrderService);
+  const etsyConnectionBootstrap =
+    process.env.ETSY_SHOP_ID &&
+    process.env.ETSY_ACCESS_TOKEN &&
+    process.env.ETSY_REFRESH_TOKEN
+      ? (() => {
+          return bootstrapEtsyConnection({
+            db,
+            shopId: process.env.ETSY_SHOP_ID,
+            accessToken: process.env.ETSY_ACCESS_TOKEN,
+            refreshToken: process.env.ETSY_REFRESH_TOKEN,
+            bootstrapGeneration: process.env.ETSY_TOKEN_GENERATION,
+          });
+        })()
+      : Promise.resolve();
+  const etsyOAuthCoordinator = createEtsyOAuthCoordinator({
+    db,
+    shopId: process.env.ETSY_SHOP_ID,
+  });
+  const etsyClient = createEtsyClient({
+    tokenProvider: async () => {
+      await etsyConnectionBootstrap;
+      const connection = await db
+        .prepare(
+          `SELECT access_token_encrypted, refresh_token_encrypted, token_version
+             FROM etsy_connections
+            WHERE shop_id = ? AND status = 'connected'`,
+        )
+        .get(process.env.ETSY_SHOP_ID);
+      if (!connection) return null;
+      return {
+        accessToken: decryptValue(connection.access_token_encrypted),
+        refreshToken: decryptValue(connection.refresh_token_encrypted),
+        tokenVersion: Number(connection.token_version || 0),
+      };
+    },
+    tokenUpdater: async ({
+      accessToken,
+      refreshToken,
+      expiresAt,
+      sourceTokenVersion,
+    }) => {
+      const now = nowIso();
+      const updated = await db
+        .prepare(
+          `INSERT INTO etsy_connections
+            (shop_id, access_token_encrypted, refresh_token_encrypted,
+             access_expires_at, scopes, status, token_version, created_at,
+             updated_at)
+           VALUES (?, ?, ?, ?, 'transactions_r', 'connected', 1, ?, ?)
+           ON CONFLICT(shop_id) DO UPDATE SET
+             access_token_encrypted = excluded.access_token_encrypted,
+             refresh_token_encrypted = excluded.refresh_token_encrypted,
+             access_expires_at = excluded.access_expires_at,
+             token_version = etsy_connections.token_version + 1,
+             refresh_lease_until = NULL,
+             status = 'connected', last_error = NULL,
+             updated_at = excluded.updated_at
+           WHERE etsy_connections.token_version = ?`,
+        )
+        .run(
+          process.env.ETSY_SHOP_ID,
+          encryptValue(accessToken),
+          encryptValue(refreshToken),
+          expiresAt,
+          now,
+          now,
+          Number(sourceTokenVersion || 0),
+        );
+      if ((updated?.rowCount ?? updated?.changes ?? 0) !== 1) {
+        throw Object.assign(new Error("ETSY_OAUTH_REFRESH_SUPERSEDED"), {
+          code: "ETSY_OAUTH_REFRESH_SUPERSEDED",
+          retryable: true,
+        });
+      }
+    },
+    refreshCoordinator: etsyOAuthCoordinator.coordinate,
+    onReconnectRequired: etsyOAuthCoordinator.markReconnectRequired,
+  });
+  app.decorate("etsyClient", etsyClient);
+  const etsyArtifactService = createEtsyArtifactService({
+    db,
+    storageProvider,
+    storageDir: appConfig.STORAGE_DIR || config.STORAGE_DIR,
+    etsyOrderService,
+    logger: app.log,
+  });
+  app.decorate("etsyArtifactService", etsyArtifactService);
+  let etsyArtifactSweepInFlight = false;
+  const etsyArtifactSweepTimer = setInterval(async () => {
+    if (etsyArtifactSweepInFlight) return;
+    etsyArtifactSweepInFlight = true;
+    try {
+      await etsyArtifactService.processDueArtifacts();
+      await etsyOrderService.processReadyUnits();
+      await etsyOrderService.processFulfilmentOutbox({
+        sendMp3ReadyEmail: async ({
+          to,
+          recipientName,
+          shareTokenId,
+          shareUrl,
+          orderId,
+          etsyUnitId,
+          idempotencyKey,
+        }) => {
+          if (!emailService.isConfigured()) {
+            throw Object.assign(new Error("EMAIL_PROVIDER_UNCONFIGURED"), {
+              code: "EMAIL_PROVIDER_UNCONFIGURED",
+            });
+          }
+          const finalShareUrl =
+            shareUrl ||
+            (shareTokenId ? buildGiftShareUrl(shareTokenId) : null);
+          if (!finalShareUrl) {
+            throw Object.assign(new Error("ETSY_SHARE_URL_PENDING"), {
+              code: "ETSY_SHARE_URL_PENDING",
+            });
+          }
+          return emailService.sendGiftBuyerCompletionEmail({
+            to,
+            recipientName,
+            shareUrl: finalShareUrl,
+            orderId,
+            etsyUnitId,
+            idempotencyKey,
+          });
+        },
+      });
+    } catch (error) {
+      app.log.error(
+        { code: error?.code },
+        "Etsy MP3 artifact retry sweep failed",
+      );
+    } finally {
+      etsyArtifactSweepInFlight = false;
+    }
+  }, 60_000);
+  etsyArtifactSweepTimer.unref?.();
+  app.addHook("onClose", async () => clearInterval(etsyArtifactSweepTimer));
 
   // Initialize billing services (use passed-in services or create new ones)
   const planConfigService =
@@ -789,6 +989,14 @@ function buildServer({
     sendError,
     requireUserId,
     giftWalletRepository,
+    etsyOrderService,
+    turnstileVerifier: webFunnelServices?.turnstileVerifier,
+  });
+  registerWebEtsyWebhookRoutes(app, {
+    db,
+    etsyOrderService,
+    etsyClient,
+    logger: app.log,
   });
 
   function getDeviceTokenPayload(request, reply, { required = false } = {}) {
@@ -2834,6 +3042,10 @@ function buildServer({
         fullUrl: version?.full_url || null,
       };
     },
+    ensureRequiredArtifact: async ({ order }) =>
+      etsyArtifactService.repairForOrder(order),
+    markFulfilmentDelivered: async ({ order }) =>
+      etsyOrderService.markDeliveredForWebOrder(order.id),
     createGiftShare: async ({ order }) => {
       const result = await createGiftShareToken({
         db,
@@ -3200,6 +3412,7 @@ function buildServer({
     requireUserId,
     stripeService,
     giftWalletRepository,
+    etsyOrderService,
     orchestrator: webOrderOrchestrator,
     publicBaseUrl,
   });

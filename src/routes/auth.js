@@ -639,6 +639,8 @@ function registerAuthRoutes(
       .toLowerCase();
     const platform = String(request.body?.platform || "").toLowerCase();
     const purpose = String(request.body?.purpose || "login").toLowerCase();
+    const returnTo =
+      platform === "web" && request.body?.return_to === "etsy" ? "etsy" : null;
     let requesterKey = String(request.body?.requester_key || "");
     const clientIp = getClientIp(request);
     const enabled = process.env.MAGIC_LOGIN_ENABLED !== "false";
@@ -743,7 +745,7 @@ function registerAuthRoutes(
     reply.header("Cache-Control", "no-store");
     if (platform === "web") {
       reply.header("Set-Cookie", [
-        `__Host-porizo_preauth=${encodePreauthCookie({ transactionId: created.transactionId, requestSecret: created.requestSecret })}; Max-Age=900; Path=/; Secure; HttpOnly; SameSite=Lax`,
+        `__Host-porizo_preauth=${encodePreauthCookie({ transactionId: created.transactionId, requestSecret: created.requestSecret, returnTo })}; Max-Age=900; Path=/; Secure; HttpOnly; SameSite=Lax`,
         `__Host-porizo_csrf=${encodeURIComponent(requesterKey)}; Max-Age=900; Path=/; Secure; SameSite=Lax`,
       ]);
       return reply.code(202).send({
@@ -865,6 +867,13 @@ function registerAuthRoutes(
       return reply.code(404).type("text/plain").send("Not found");
     }
     if (platform === "web") {
+      const cookies = parseCookieHeader(request.headers.cookie);
+      const preauth = decodePreauthCookie(cookies["__Host-porizo_preauth"]);
+      const transactionId = String(request.query?.transaction_id || "");
+      const returnPath =
+        preauth?.transactionId === transactionId && preauth?.returnTo === "etsy"
+          ? "/etsy"
+          : "/create";
       const nonce = crypto.randomBytes(16).toString("base64");
       reply.header(
         "Content-Security-Policy",
@@ -890,7 +899,7 @@ function registerAuthRoutes(
     });
     if (!response.ok) throw new Error('exchange failed');
     status.textContent = 'Signed in. Redirecting…';
-    location.replace('/create');
+    location.replace(${JSON.stringify(returnPath)});
   } catch { status.textContent = 'This sign-in link is invalid, expired, or was opened in a different browser.'; }
 })();
 </script></body></html>`);

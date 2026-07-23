@@ -1,3 +1,72 @@
+# Etsy order-backed fulfilment launch readiness (2026-07-23) [CODE COMPLETE]
+
+The obsolete unassigned-code wedge below is retained as history only. It is not
+the launch contract. The current source of truth is
+`docs/plans/2026-07-23-001-fix-etsy-launch-readiness-plan.md`.
+
+## Original adversarial findings
+
+- [x] P0.1 Replace static/shared codes with paid Etsy receipt ingestion, one
+      durable fulfilment unit per configured transaction quantity, webhook
+      dedupe, and reconciliation.
+- [x] P0.2 Bind claims to a verified receipt email and shared identity; add
+      cross-browser/order recovery rather than browser-local entitlement.
+- [x] P1.3 Reuse access-token refresh and one-retry behavior on Etsy entry.
+- [x] P1.4 Isolate Etsy journeys from stale 90-day web-order recovery.
+- [x] P1.5 Expose an authenticated Download MP3 action on Success.
+- [x] P1.6 Make MP3 a durable, fenced, retryable artifact with admin replay and
+      a completion outbox; never mark Etsy delivered without it.
+- [x] P1.7 Retire minting/export, require superadmin for mutations, emit
+      idempotent audit intent, and return `Cache-Control: no-store`.
+- [x] P1.8 Associate refunds/cancellations with receipts and exact units;
+      reverse unspent/shared-wallet grants idempotently and hold ambiguity for
+      manual review.
+- [x] P1.9 Report paid/claimed/delivered/refunded order and unit metrics rather
+      than minted inventory.
+- [x] P1.10 Transfer Etsy order, unit, and legacy-code ownership during
+      guest-to-account convergence.
+- [x] P1.11 Remove bearer secrets from URLs; receipt references are locators,
+      verified email is identity, and Turnstile produces a short-lived
+      receipt/IP-bound claim proof.
+- [x] P1.12 Derive commerce-free policy from server provenance, suppress
+      alternate storefront actions, and reject duplicate Stripe checkout.
+- [x] P1.13 Render public pricing from the active backend product contract.
+- [x] P2.14 Keep read-only checks outside the mutation budget and return exact
+      retry timing.
+- [x] P2.15 Preserve distinct configuration, Turnstile, rate, network, and
+      unavailable states.
+
+## Consolidated review fixes
+
+- [x] Recover native Etsy MP3 email links after cross-device magic sign-in via
+      durable `etsy_unit` recovery.
+- [x] Offer “Use another account” when a signed-in account does not own the
+      receipt.
+- [x] Fence OAuth refresh/reconnect by database lease, token version, refresh
+      fingerprint, and operator-managed bootstrap generation.
+- [x] Fence every artifact success/failure/reschedule write to the worker lease.
+- [x] Suppress duplicate Etsy completion email from the generic web orchestrator.
+- [x] Include Etsy fulfilment in GDPR export and account-deletion anonymization.
+- [x] Support staged Etsy encryption-key rotation with current key ID and
+      previous-key keyring.
+- [x] Require a server-signed Turnstile proof at claim, not only at precheck.
+
+## External launch evidence (still blocking real traffic)
+
+- [ ] Etsy Seller App access proves the real receipt payload includes
+      `buyer_email`.
+- [ ] Etsy confirms the generic instruction file and transaction-only
+      off-platform claim/completion emails comply with seller policy.
+- [ ] Railway ingress is restricted to Cloudflare and production secrets,
+      listing IDs, token generation, key IDs/keyring, and feature flags are set.
+- [ ] A real paid/canceled/refunded order passes webhook, claim on a second
+      device, native/web gift-credit fungibility, MP3 listening/download,
+      reconciliation, and audit checks.
+- [ ] Listing price, currency, format, SLA, revision, and refund language match
+      the active catalog and approved listing manifest.
+
+---
+
 # Etsy buyer landing (/etsy?code=) + offer-step branch (2026-07-23) [DONE — reviewed]
 
 **Final review (opus `etsy-final-review`): VERIFIED SAFE, no P0/P1.** App.tsx
@@ -578,6 +647,19 @@ Backend deployed + song rendered successfully, but user is validating more in-ap
 - [ ] Confirm in-app experience is good (playback, share, gift flows).
 - [ ] Then merge `refactor` → `main` (style TBD: merge-commit vs squash vs PR) — OR `railway redeploy` to roll back to `main` if issues found.
 
+## Etsy launch-readiness remediation (2026-07-23)
+
+- [x] Review and lock the implementation plan against all 15 accepted findings.
+- [x] Add regression coverage for purchase ingestion, stable entitlement recovery, token refresh, journey isolation, MP3 delivery/retry, admin authorization/audit, refund reversal, metrics, ownership merge, secret handling, commerce-free behavior, runtime pricing, rate limits, and initial-check error taxonomy.
+- [x] Implement Etsy paid/canceled event ingestion with replay-safe unique entitlement issuance and durable delivery/recovery state.
+- [x] Make paid entitlements recoverable across browsers/devices through verified identity; remove automatic GET/mount consumption and raw bearer secrets from URLs and logs.
+- [x] Make MP3 an explicit durable Etsy deliverable with retry/backfill/incident state and expose its authenticated download action.
+- [x] Require superadmin authorization and audit for Etsy inventory/refund operations; reconcile cancellation/refund against the immutable purchase grant.
+- [x] Transfer Etsy ownership during guest→account convergence and isolate a new Etsy journey from stale web-order recovery.
+- [x] Enforce flow-scoped commerce-free Etsy Offer/Success behavior and source public pricing from runtime product configuration.
+- [x] Split validation from redemption rate limiting and map initial-check failures to honest UI states.
+- [ ] Complete the final full repository gate and consolidated adversarial review; fix every accepted finding.
+
 ### E2E sim trace findings (2026-07-14 ~10:45, Claude session)
 
 Full repro in simulator (request + tap same install, prod API via `SIMCTL_CHILD_PORIZO_API_BASE_URL`):
@@ -585,3 +667,70 @@ Full repro in simulator (request + tap same install, prod API via `SIMCTL_CHILD_
 - [x] **FIXED IN PROD — new-user email signup was completely broken**: exchange rejected `code=23514` (pg `check_violation`). `migrations/pg/091_user_contacts.sql` CHECK on `user_contacts.source` lacks `'magic_link'`. SQLite twin has NO check → 3,238 tests green while prod 500s. **Migration 130 (pg widens CHECK; sqlite no-op) applied to prod + recorded in schema_migrations + verified** (`pg_get_constraintdef` now includes magic_link).
 - [ ] **OPEN — client completion self-sabotage loop** (needs iOS fix + build 155): after the constraint fix, tap → exchange → poll sees `consumed` → `/auth/magic/native/complete` returns **200 with credentials repeatedly** (server perfect), but the client rejects its own success each time, shows "We could not check the link", retries every ~3.5s. Diagnosed cause: `finishMagicLogin` (or its caller) re-checks `isCurrentMagicOperation(generation, sessionGeneration:)` AFTER installing the session — and login itself bumps `authSessionGeneration` (`AuthManager.swift:1831/:2042`) → guard fails → own success discarded. Fix: capture/exempt the session-generation bump caused by the operation itself (or drop the sessionGeneration check post-install). See `AuthManager.swift:821-831` + `:1898-1920`.
 - [x] User-confirmed context for the phone TestFlight failure: the tapped email was **not initiated from that install** — platform-bound by design; needs clearer UX copy ("requested on another device — request a new one here") instead of silent absorb / generic error.
+
+---
+
+# ⚠️ Etsy fulfilment-mode chrome leak (2026-07-23) [FOUND in local E2E — NEEDS FIX before launch]
+
+**Found by:** local browser E2E of the /etsy?code= happy path. Landing page itself is
+clean (no price/nav), BUT after redeem it location.assign('/create') into the FULL public
+<App/> funnel, which renders SiteChrome with:
+- Nav: "How it works · **Pricing** · Blog · **Sign in**"
+- Footer: PRODUCT/**Pricing**·Download, "All gift ideas", gift-idea links (~19 links total)
+
+**Why it matters (policy):** an already-paid Etsy buyer is shown a "Pricing" link and a
+"Sign in" wall inside the funnel — exactly the Etsy off-platform "purchase through another
+venue" + forced-signup risk that plan §1 says the fulfilment surface must NOT have. The
+constraint was enforced on EtsyLanding.tsx but NOT carried through the /create handoff.
+
+**Root cause:** main.tsx only special-cases the /etsy landing; once at /create it's the
+standard <App/>. SiteNav (SiteChrome.tsx:4) renders unconditionally when !isDim; no
+fulfilment/etsy-session signal is threaded into App.
+
+**Fix shape (TDD + review, touches SHARED App.tsx — must be strictly additive):**
+- Persist an "etsy fulfilment session" signal when the buyer redeems (e.g. a sessionStorage
+  flag set by EtsyEntry before handoff, read by App).
+- When set: suppress or render a commerce-free variant of SiteNav + SiteFooter — keep the
+  Porizo wordmark, drop Pricing / Sign in / Download / gift-idea links. No price, no
+  purchase-elsewhere CTA, no signup wall.
+- Default (non-etsy) behavior UNCHANGED — this is the whole web funnel.
+- Tests: App renders commerce-free chrome under the etsy flag; renders normal chrome
+  without it. Policy assertion: zero /pricing links, zero "Sign in" in the etsy path.
+
+**Status:** BLOCKING for Etsy launch; does not block the already-committed backend/redeem
+slice (that's correct as-is). Verified good in the same E2E: redeem→credit→/create#recipient
+handoff works, wallet_balance=1 visible, landing warm-error + happy states both render.
+
+---
+# UPDATE 2026-07-23 (later): chrome fix + pricing reframe — both verified
+
+## Chrome leak fix [DONE — browser-verified]
+opus etsy-chrome-fix. sessionStorage flag `porizo.etsy-fulfilment` set by EtsyEntry
+before /create handoff; App reads on mount → SiteNav/SiteFooter render stripped
+(commerce-free) variant. 8/8 targeted tests (stripped + no-regression). I verified IN
+BROWSER by setting the flag and reloading /create: hasPricing=False, hasSignIn=False,
+hasDownload=False, hasGiftIdeas=False, hasWordmark=TRUE; nav links=[], footer=only
+Privacy+Terms. Fix confirmed against the exact defect.
+
+## Website pricing reframe to $19.99 gift [DONE — needs owner copy approval]
+opus etsy-pricing-reframe. public/pricing.html: subscription tiers CUT (not just
+demoted — 440 lines removed), gift is now the whole page. Hero "One song. One
+unforgettable gift." Primary card "Gift Song $19.99 one-time · no subscription".
+CTA → /create (funnel), not /download. JSON-LD price 19.99, url /create. meta/og/twitter
+reframed. Apple-ID subscription legal copy removed (consistent w/ cutting subs).
+Every $ on page = $19.99 (11×), zero stale sub prices. Matches Etsy + funnel + web_products.
+
+## Local browser E2E finding (env limitation, NOT a bug)
+Cannot complete the /etsy redeem→handoff in a LOCAL browser: acquireTurnstileToken loads
+the real Cloudflare widget which localhost's sitekey can't satisfy → createGuestSession
+throws → warm error state (which itself rendered correctly). Prod works (porizo.co
+whitelisted). Symmetric to why prod can't be API-scripted (real Turnstile). The redeem
+BACKEND is proven via API (dummy token) + full test suite; the chrome fix proven via
+direct-flag browser check.
+
+## mp3 prod artifact verification — STILL OPEN (owner decision pending)
+Blocked both ways: local browser can't solve Turnstile; prod can't be scripted (real
+Turnstile) AND prod session is minted lazily mid-quiz. Only a full prod browser quiz run
+triggers a render. Options given to owner: (1) drive full prod quiz now (~cents), (2)
+defer to first real order/preview (recommended — free, real path), (3) wait. Code +
+infra verified; only the live-artifact observation remains.

@@ -10,6 +10,7 @@ function createGiftReservationService({ db, giftWalletRepository, giftReservatio
     expiresAt,
     purpose = "interactive_draft",
     originWebOrderId = null,
+    preferredEtsyUnitId = null,
     externalQuery = null,
   }) {
     const execute = async (query) => {
@@ -45,6 +46,35 @@ function createGiftReservationService({ db, giftWalletRepository, giftReservatio
         originWebOrderId,
         query,
       });
+      // Gift credits are fungible across web and native clients. Attribute an
+      // Etsy-funded ledger credit at the shared reservation boundary instead
+      // of only in the web checkout route. This association is operational
+      // provenance; it does not change which wallet credit the buyer can use.
+      const candidateResult = await query(
+        `SELECT id
+           FROM etsy_order_units
+          WHERE owner_user_id = ? AND state = 'claimed'
+            AND gift_reservation_id IS NULL
+            AND (? IS NULL OR id = ?)
+          ORDER BY claimed_at ASC, created_at ASC
+          LIMIT 1${db.isPostgres ? " FOR UPDATE" : ""}`,
+        [userId, preferredEtsyUnitId, preferredEtsyUnitId],
+      );
+      const candidate = candidateResult?.rows?.[0];
+      if (candidate) {
+        await query(
+          `UPDATE etsy_order_units
+              SET state = 'reserved', gift_reservation_id = ?,
+                  web_order_id = COALESCE(web_order_id, ?), updated_at = ?
+            WHERE id = ? AND state = 'claimed'
+              AND gift_reservation_id IS NULL`,
+          [reservationId, originWebOrderId, timestamp, candidate.id],
+        );
+      } else if (preferredEtsyUnitId) {
+        const err = new Error("ETSY_JOURNEY_NOT_AVAILABLE");
+        err.code = "ETSY_JOURNEY_NOT_AVAILABLE";
+        throw err;
+      }
       return {
         reservation: await giftReservationRepository.getById(reservationId, query),
         balanceAfter: wallet.balanceAfter,
@@ -76,6 +106,14 @@ function createGiftReservationService({ db, giftWalletRepository, giftReservatio
         err.code = "GIFT_CONTENT_NOT_ADOPTABLE";
         throw err;
       }
+      await query(
+        `UPDATE etsy_order_units
+            SET track_id = ?, track_version_id = ?, state = 'rendering',
+                updated_at = ?
+          WHERE gift_reservation_id = ? AND owner_user_id = ?
+            AND state IN ('reserved', 'rendering')`,
+        [trackId, trackVersionId, nowIso(), reservationId, userId],
+      );
       return giftReservationRepository.getById(reservationId, query);
     };
     return externalQuery ? execute(externalQuery) : db.transaction(execute);

@@ -634,3 +634,9 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Trigger:** Planning web recipient delivery on top of the existing iOS gift-order lifecycle.
 - **Mistake:** Proposed `funding_source=web_order` semantics on `gift_orders` to avoid a second debit and an incorrect cancellation refund. That would make a Stripe-bought gift credit behave differently from the same wallet credit bought with StoreKit.
 - **Rule:** Gift credits are fungible across web and app. Payment rails may differ in the immutable purchase ledger, but consumption must converge on the same gift-wallet reservation → gift-funded content → gift finalization lifecycle. Solve double-spend and refund risks by reusing/fixing the shared reservation state machine, not by branching credit semantics on purchase origin.
+
+## 2026-07-23 — A remediation request covers the full reviewed finding set
+
+- **Trigger:** Ambrose clarified that the Etsy remediation scope means all 15 P0–P2 findings, not only the purchase-to-code integration gap.
+- **Mistake:** I initially foregrounded the architectural P0 decision strongly enough that it sounded like the remaining correctness, operations, security, commerce-free, pricing, rate-limit, and error-taxonomy findings might be deferred.
+- **Rule:** When a user supplies a numbered review and asks to implement “all issues,” preserve the numbered list as the acceptance contract. Architectural corrections may change the implementation shape, but may not silently narrow scope. Map every finding to a requirement, regression proof, implementation unit, and final verification result.

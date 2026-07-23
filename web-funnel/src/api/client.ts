@@ -3,6 +3,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly retryAfterSeconds?: number,
+    readonly retryAt?: string,
   ) {
     super(message);
   }
@@ -40,11 +42,15 @@ export function createApiClient(options: ApiClientOptions) {
         error?: string;
         code?: string;
         message?: string;
+        retry_at?: string;
       };
+      const retryAfter = Number(response.headers.get("Retry-After"));
       throw new ApiError(
         body.message ?? body.error ?? "Request failed",
         response.status,
         body.error ?? body.code,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+        body.retry_at,
       );
     }
 

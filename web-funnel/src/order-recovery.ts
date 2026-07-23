@@ -5,7 +5,7 @@ const SESSION_RECOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ORDER_RECOVERY_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 export interface OrderRecoveryReference {
-  kind: "session" | "order";
+  kind: "session" | "order" | "etsy_unit";
   value: string;
 }
 
@@ -37,12 +37,12 @@ export function readOrderRecovery(now = Date.now()) {
     const kind = value.kind ?? (value.sessionId ? "session" : undefined);
     const reference = value.value ?? value.sessionId;
     if (
-      (kind !== "session" && kind !== "order") ||
+      (kind !== "session" && kind !== "order" && kind !== "etsy_unit") ||
       typeof reference !== "string" ||
       !reference ||
       typeof value.savedAt !== "number" ||
       now - value.savedAt >
-        (kind === "order"
+        (kind === "order" || kind === "etsy_unit"
           ? ORDER_RECOVERY_MAX_AGE_MS
           : SESSION_RECOVERY_MAX_AGE_MS)
     ) {

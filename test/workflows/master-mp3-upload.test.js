@@ -64,7 +64,12 @@ function makeFakeStorage() {
     async putFile({ key, filePath, contentType }) {
       this.putCalls.push({ key, contentType });
       const bytes = fs.readFileSync(filePath);
-      objects.set(key, { contentType, size: bytes.length });
+      objects.set(key, { contentType, size: bytes.length, bytes });
+    },
+    async downloadToFile({ key, filePath }) {
+      const object = objects.get(key);
+      if (!object?.bytes) throw new Error("OBJECT_NOT_FOUND");
+      fs.writeFileSync(filePath, object.bytes);
     },
   };
 }
@@ -173,7 +178,11 @@ describe("uploadTrackMasterMp3", () => {
       trackId: track.id,
       versionNum: trackVersion.version_num,
     });
-    storage.forceExists.add(expectedKey);
+    storage.objects.set(expectedKey, {
+      contentType: "audio/mpeg",
+      size: 2048,
+      bytes: Buffer.alloc(2048, 7),
+    });
 
     const result = await uploadTrackMasterMp3({
       storageProvider: storage,

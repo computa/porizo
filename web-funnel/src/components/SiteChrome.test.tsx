@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { SiteFooter, SiteNav } from "./SiteChrome";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DimBrand, SiteFooter, SiteNav, SiteSignInForm } from "./SiteChrome";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("site chrome", () => {
   it("uses the real static-nav vocabulary with a quiet sign-in action", () => {
@@ -62,6 +66,58 @@ describe("commerce-free chrome (etsy fulfilment)", () => {
     ).not.toBeInTheDocument();
     expect(container.textContent).not.toMatch(
       /pricing|sign in|how it works|blog/i,
+    );
+  });
+
+  it("renders the dim-scene brand as plain text rather than a storefront link", () => {
+    render(<DimBrand commerceFree />);
+
+    expect(screen.getByText("Porizo")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Porizo home" })).not.toBeInTheDocument();
+  });
+
+  it("requests a safe Etsy return intent without putting the receipt in the request URL", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ accepted: true }), { status: 202 }),
+    );
+    render(
+      <SiteSignInForm
+        recoveryKind="etsy"
+        recoverySessionId="123456"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "buyer@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Email me a sign-in link" }));
+
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    const [, init] = fetcher.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toMatchObject({ return_to: "etsy" });
+    expect(fetcher.mock.calls[0][0]).toBe("/auth/magic/request");
+  });
+
+  it("persists a native Etsy unit before sending a cross-device sign-in link", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ accepted: true }), { status: 202 }),
+    );
+    render(
+      <SiteSignInForm
+        recoveryKind="etsy_unit"
+        recoverySessionId="etsy_unit_42"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "buyer@example.com" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Email me a sign-in link" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(localStorage.getItem("porizo.web-funnel.order-recovery.v1")).toContain(
+        '"kind":"etsy_unit"',
+      ),
     );
   });
 

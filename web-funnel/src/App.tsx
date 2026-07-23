@@ -52,9 +52,8 @@ import { rememberOrderRecovery } from "./order-recovery";
 import type { deliveryRequest, DeliveryChannelName } from "./delivery-state";
 import {
   TOKEN_KEY,
-  REFRESH_TOKEN_KEY,
   createGuestSession,
-  exchangeWebSession,
+  refreshExistingSession,
 } from "./session-bootstrap";
 
 const STORAGE_KEY = "porizo.web-funnel.v1";
@@ -97,6 +96,7 @@ function initialState(): FunnelState {
 }
 
 export default function App() {
+  const etsyFlow = isEtsyFulfilment();
   const [state, dispatch] = useReducer(funnelReducer, undefined, initialState);
   const [resumeCandidate, setResumeCandidate] = useState(() =>
     resolveResumeCandidate(
@@ -133,11 +133,16 @@ export default function App() {
   const checkoutOrderId =
     RUNTIME_PARAMS.get("order_id") ??
     (recovery?.kind === "order" ? recovery.value : null);
-  const orderStatusUrl = checkoutOrderId
-    ? `/web/orders/by-id/${encodeURIComponent(checkoutOrderId)}`
-    : checkoutSessionId
-      ? `/web/orders/${encodeURIComponent(checkoutSessionId)}`
-      : "/web/orders/latest";
+  const etsyUnitId =
+    RUNTIME_PARAMS.get("etsy_unit_id") ??
+    (recovery?.kind === "etsy_unit" ? recovery.value : null);
+  const orderStatusUrl = etsyUnitId
+    ? `/web/etsy/order/unit/${encodeURIComponent(etsyUnitId)}`
+    : checkoutOrderId
+      ? `/web/orders/by-id/${encodeURIComponent(checkoutOrderId)}`
+      : checkoutSessionId
+        ? `/web/orders/${encodeURIComponent(checkoutSessionId)}`
+        : "/web/orders/latest";
   const [orderStartedAt] = useState(() => Date.now());
   const [orderElapsed, setOrderElapsed] = useState(0);
   const [orderNeedsSignIn, setOrderNeedsSignIn] = useState(false);
@@ -170,7 +175,11 @@ export default function App() {
       setError(undefined);
       if (next.order_id) {
         rememberOrderRecovery({ kind: "order", value: next.order_id });
-      } else if (isOrderPollingComplete(next) && !checkoutOrderId) {
+      } else if (
+        isOrderPollingComplete(next) &&
+        !checkoutOrderId &&
+        !etsyUnitId
+      ) {
         clearOrderRecovery();
       }
     } catch (caught) {
@@ -180,7 +189,14 @@ export default function App() {
       }
       setError("We couldn't refresh the order yet. Try again shortly.");
     }
-  }, [checkoutOrderId, client, orderStatusUrl, state.activeStep]);
+  }, [checkoutOrderId, client, etsyUnitId, orderStatusUrl, state.activeStep]);
+
+  useEffect(() => {
+    const linkedUnitId = RUNTIME_PARAMS.get("etsy_unit_id");
+    if (linkedUnitId) {
+      rememberOrderRecovery({ kind: "etsy_unit", value: linkedUnitId });
+    }
+  }, []);
 
   useEffect(() => {
     if (resumeCandidate) {
@@ -211,6 +227,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (etsyFlow) return;
     const sync = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY || !event.newValue) return;
       const next = parseStoredState(event.newValue);
@@ -220,7 +237,7 @@ export default function App() {
     };
     addEventListener("storage", sync);
     return () => removeEventListener("storage", sync);
-  }, [state.savedAt]);
+  }, [etsyFlow, state.savedAt]);
 
   useEffect(() => {
     if (state.activeStep !== "offer" && state.activeStep !== "success") return;
@@ -428,41 +445,32 @@ export default function App() {
   ]);
 
   const recipient = titleCaseForDisplay(state.answers.recipient || "Sarah");
-  // Read once on mount: an Etsy redemption handed off to /create with this flag,
-  // so the whole session renders stripped, commerce-free chrome (no buy-elsewhere
-  // or signup-wall links). Buyers arriving normally see the standard chrome.
-  const [commerceFree] = useState(isEtsyFulfilment);
+  // Success starts conservatively commerce-free until its server-owned
+  // provenance resolves; this prevents a paid Etsy buyer seeing Stripe chrome
+  // during cross-device recovery.
+  const [contextCommerceFree, setCommerceFree] = useState(
+    etsyFlow || state.activeStep === "success",
+  );
+  const [etsyJourneyId, setEtsyJourneyId] = useState<string>();
+  useEffect(() => {
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    void client
+      .get<{ commerce_free: boolean; journey_id?: string }>(
+        "/web/etsy/order/context",
+      )
+      .then((context) => {
+        if (context.commerce_free) setCommerceFree(true);
+        setEtsyJourneyId(context.journey_id);
+      })
+      .catch(() => {
+        // The local handoff marker keeps paid buyers commerce-free while a
+        // temporary context lookup failure recovers.
+      });
+  }, [client]);
+  const commerceFree = order?.commerce_free ?? contextCommerceFree;
   const isDim = state.activeStep === "preview";
   const showEntryFooter =
     state.activeStep === "recipient" && state.furthestStep === "recipient";
-
-  async function refreshExistingSession() {
-    const bridged = await exchangeWebSession();
-    if (bridged) return bridged;
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    if (!refreshToken) return null;
-    const response = await fetch("/auth/refresh", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    if (!response.ok) {
-      localStorage.removeItem(REFRESH_TOKEN_KEY);
-      return null;
-    }
-    const body = (await response.json()) as {
-      access_token?: string;
-      refresh_token?: string;
-    };
-    if (!body.access_token || !body.refresh_token) return null;
-    localStorage.setItem(TOKEN_KEY, body.access_token);
-    localStorage.setItem(REFRESH_TOKEN_KEY, body.refresh_token);
-    return body.access_token;
-  }
 
   async function startSession() {
     setBusy(true);
@@ -730,6 +738,12 @@ export default function App() {
 
   async function startWalletOrder() {
     if (!state.artifacts.trackId || !state.artifacts.versionId) return;
+    if (commerceFree && !etsyJourneyId) {
+      setError(
+        "We couldn't reconnect this Etsy order yet. Refresh the page before finishing the song.",
+      );
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
@@ -741,6 +755,7 @@ export default function App() {
         buildWalletOrderRequest(
           state.artifacts.trackId,
           state.artifacts.versionId,
+          commerceFree ? etsyJourneyId : undefined,
         ),
         {
           headers: {
@@ -827,6 +842,40 @@ export default function App() {
       setError(actionErrorCopy(caught, "checkout").message);
       throw caught;
     }
+  }
+
+  async function downloadMp3() {
+    const versionId = order?.track_version_id;
+    if (!versionId) throw new Error("The MP3 is still being prepared.");
+    const path = `/full/${encodeURIComponent(versionId)}.mp3`;
+    const requestDownload = (token: string | null) =>
+      fetch(path, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+    let response = await requestDownload(localStorage.getItem(TOKEN_KEY));
+    if (response.status === 401) {
+      const refreshed = await refreshExistingSession();
+      if (refreshed) response = await requestDownload(refreshed);
+    }
+    if (!response.ok) {
+      setError(
+        response.status === 404
+          ? "Your MP3 is still being prepared. Check again shortly."
+          : "We couldn't download the MP3 just now.",
+      );
+      return;
+    }
+    const blob = await response.blob();
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = `${recipient || "porizo-song"}.mp3`;
+    document.body.append(anchor);
+    anchor.click();
+    setTimeout(() => {
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    }, 0);
   }
 
   function reset() {
@@ -928,6 +977,7 @@ export default function App() {
                 error={error}
                 cancelled={RUNTIME_PARAMS.get("cancelled") === "1"}
                 previewOnly={previewOnly}
+                commerceFree={commerceFree}
                 onSelectProduct={(priceKey) =>
                   setProduct(
                     products.find(
@@ -947,9 +997,18 @@ export default function App() {
                 needsSignIn={orderNeedsSignIn}
                 timedOut={orderTimedOut}
                 orderReference={
-                  checkoutOrderId ?? checkoutSessionId ?? undefined
+                  etsyUnitId ??
+                  checkoutOrderId ??
+                  checkoutSessionId ??
+                  undefined
                 }
-                orderReferenceKind={checkoutOrderId ? "order" : "session"}
+                orderReferenceKind={
+                  etsyUnitId
+                    ? "etsy_unit"
+                    : checkoutOrderId
+                      ? "order"
+                      : "session"
+                }
                 onSaveDelivery={saveDelivery}
                 automatedDeliveryEnabled={automatedDeliveryEnabled}
                 onStopDeliveryChannel={stopDeliveryChannel}
@@ -960,9 +1019,12 @@ export default function App() {
                 }}
                 onCheckStatus={() => void refreshOrderStatus()}
                 onStartAnother={reset}
+                commerceFree={commerceFree}
+                onDownloadMp3={commerceFree ? downloadMp3 : undefined}
               />
             )}
-            {state.activeStep !== "recipient" &&
+            {!commerceFree &&
+              state.activeStep !== "recipient" &&
               state.activeStep !== "success" && (
                 <div className="flow-reset">
                   <button
@@ -980,7 +1042,7 @@ export default function App() {
       )}
       {state.activeStep === "preview" && (
         <>
-          <DimBrand />
+          <DimBrand commerceFree={commerceFree} />
           <Preview
             recipient={recipient}
             lines={state.artifacts.lyrics ?? []}

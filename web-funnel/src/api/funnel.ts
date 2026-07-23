@@ -45,6 +45,9 @@ export interface OrderDelivery {
 
 export interface OrderStatus {
   order_id?: string;
+  etsy_unit_id?: string;
+  commerce_free?: boolean;
+  track_version_id?: string;
   status?: "pending" | "paid" | "rendering" | "delivered" | "failed" | "refunded";
   content_status?: ContentStatus;
   delivery_status?:
@@ -117,11 +120,16 @@ export function buildCheckoutRequest(
   };
 }
 
-export function buildWalletOrderRequest(trackId: string, trackVersionId: string) {
+export function buildWalletOrderRequest(
+  trackId: string,
+  trackVersionId: string,
+  etsyJourneyId?: string,
+) {
   return {
     track_id: trackId,
     track_version_id: trackVersionId,
     payment_method: "gift_credit" as const,
+    ...(etsyJourneyId ? { etsy_journey_id: etsyJourneyId } : {}),
   };
 }
 
