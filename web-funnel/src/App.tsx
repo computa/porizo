@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { createApiClient, ApiError } from "./api/client";
 import {
   approveAndRenderPreview,
@@ -42,27 +49,24 @@ import { actionErrorCopy, sessionStartErrorCopy } from "./session-errors";
 import { clearOrderRecovery, readOrderRecovery } from "./order-recovery";
 import { rememberOrderRecovery } from "./order-recovery";
 import type { deliveryRequest, DeliveryChannelName } from "./delivery-state";
+import {
+  TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
+  createGuestSession,
+  exchangeWebSession,
+} from "./session-bootstrap";
 
 const STORAGE_KEY = "porizo.web-funnel.v1";
-const TOKEN_KEY = "porizo.web-funnel.token";
-const REFRESH_TOKEN_KEY = "porizo.web-funnel.refresh-token";
 const RUNTIME_PARAMS = new URLSearchParams(location.search);
 const DEMO_PARAMS = import.meta.env.DEV
   ? RUNTIME_PARAMS
   : new URLSearchParams();
 
-function readCookie(name: string) {
-  const prefix = `${name}=`;
-  const match = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith(prefix));
-  return match ? decodeURIComponent(match.slice(prefix.length)) : null;
-}
-
 function initialDemoProduct(): Product | undefined {
   const price = DEMO_PARAMS.get("price");
-  return price ? { price_key: "demo", localized_price: price, token_count: 1 } : undefined;
+  return price
+    ? { price_key: "demo", localized_price: price, token_count: 1 }
+    : undefined;
 }
 
 function initialDemoOrder(): OrderStatus | undefined {
@@ -152,7 +156,6 @@ export default function App() {
           return refreshExistingSession();
         },
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -223,9 +226,15 @@ export default function App() {
     if (DEMO_PARAMS.has("price")) return;
     let live = true;
     client
-      .get<{ products: Product[]; preview_only?: boolean; wallet_balance?: number; automated_delivery_enabled?: boolean } | Product[]>(
-        "/web/products",
-      )
+      .get<
+        | {
+            products: Product[];
+            preview_only?: boolean;
+            wallet_balance?: number;
+            automated_delivery_enabled?: boolean;
+          }
+        | Product[]
+      >("/web/products")
       .then((response) => {
         if (!live) return;
         const products = Array.isArray(response) ? response : response.products;
@@ -240,8 +249,15 @@ export default function App() {
           !Array.isArray(response) && Boolean(response.preview_only),
         );
         setProduct((selected) => {
-          if (selected && products.some((candidate) => candidate.price_key === selected.price_key)) {
-            return products.find((candidate) => candidate.price_key === selected.price_key);
+          if (
+            selected &&
+            products.some(
+              (candidate) => candidate.price_key === selected.price_key,
+            )
+          ) {
+            return products.find(
+              (candidate) => candidate.price_key === selected.price_key,
+            );
           }
           return products.length === 1 ? products[0] : undefined;
         });
@@ -316,7 +332,6 @@ export default function App() {
       live = false;
     };
     // This recovery runs only for the immutable checkout return URL.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, state.artifacts.trackId]);
 
   useEffect(() => {
@@ -415,82 +430,6 @@ export default function App() {
   const isDim = state.activeStep === "preview";
   const showEntryFooter =
     state.activeStep === "recipient" && state.furthestStep === "recipient";
-
-  async function createGuestSession() {
-    const bridged = await exchangeWebSession();
-    if (bridged) return bridged;
-    const existing = localStorage.getItem(TOKEN_KEY);
-    if (existing) return existing;
-    const turnstileToken = await acquireTurnstileToken();
-    const response = await fetch("/web/session", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        turnstile_token: turnstileToken,
-        entry_url: location.href,
-      }),
-    });
-    if (!response.ok) {
-      const failure = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        code?: string;
-        message?: string;
-      };
-      throw new ApiError(
-        failure.message ?? "Session could not be started",
-        response.status,
-        failure.error ?? failure.code,
-      );
-    }
-    const body = (await response.json()) as {
-      access_token?: string;
-      token?: string;
-      refresh_token?: string;
-    };
-    const token = body.access_token ?? body.token;
-    if (!token)
-      throw new Error("Guest session response did not include a token.");
-    localStorage.setItem(TOKEN_KEY, token);
-    if (body.refresh_token)
-      localStorage.setItem(REFRESH_TOKEN_KEY, body.refresh_token);
-    return token;
-  }
-
-  async function exchangeWebSession() {
-    const csrf = readCookie("__Host-porizo_web_csrf");
-    if (!csrf) return null;
-    const response = await fetch("/auth/web/token", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        "X-CSRF-Token": csrf,
-      },
-    });
-    if (response.status === 401) return null;
-    if (!response.ok) {
-      const failure = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-      };
-      throw new ApiError(
-        failure.message ?? "Signed-in session could not be restored",
-        response.status,
-        failure.error,
-      );
-    }
-    const body = (await response.json()) as { access_token?: string };
-    if (!body.access_token) {
-      throw new Error("Signed-in session response did not include a token.");
-    }
-    localStorage.setItem(TOKEN_KEY, body.access_token);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    return body.access_token;
-  }
 
   async function refreshExistingSession() {
     const bridged = await exchangeWebSession();
@@ -789,7 +728,10 @@ export default function App() {
     setBusy(true);
     setError(undefined);
     try {
-      const result = await client.post<{ order_id: string; status_url?: string }>(
+      const result = await client.post<{
+        order_id: string;
+        status_url?: string;
+      }>(
         "/web/orders",
         buildWalletOrderRequest(
           state.artifacts.trackId,
@@ -802,7 +744,11 @@ export default function App() {
         },
       );
       rememberOrderRecovery({ kind: "order", value: result.order_id });
-      history.replaceState({}, "", `/create/success?order_id=${encodeURIComponent(result.order_id)}`);
+      history.replaceState(
+        {},
+        "",
+        `/create/success?order_id=${encodeURIComponent(result.order_id)}`,
+      );
       dispatch({ type: "advance", to: "success" });
       setOrder(undefined);
       setOrderPollRun((value) => value + 1);
@@ -978,7 +924,11 @@ export default function App() {
                 cancelled={RUNTIME_PARAMS.get("cancelled") === "1"}
                 previewOnly={previewOnly}
                 onSelectProduct={(priceKey) =>
-                  setProduct(products.find((candidate) => candidate.price_key === priceKey))
+                  setProduct(
+                    products.find(
+                      (candidate) => candidate.price_key === priceKey,
+                    ),
+                  )
                 }
                 onCheckout={() => void checkout()}
                 onUseCredit={() => void startWalletOrder()}
@@ -991,7 +941,9 @@ export default function App() {
                 elapsedMs={orderElapsed}
                 needsSignIn={orderNeedsSignIn}
                 timedOut={orderTimedOut}
-                orderReference={checkoutOrderId ?? checkoutSessionId ?? undefined}
+                orderReference={
+                  checkoutOrderId ?? checkoutSessionId ?? undefined
+                }
                 orderReferenceKind={checkoutOrderId ? "order" : "session"}
                 onSaveDelivery={saveDelivery}
                 automatedDeliveryEnabled={automatedDeliveryEnabled}

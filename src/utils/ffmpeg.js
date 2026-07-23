@@ -25,7 +25,9 @@ function cleanStaleTempFiles() {
       const stat = fs.statSync(fp);
       if (stat.mtimeMs < cutoff) fs.unlinkSync(fp);
     }
-  } catch (_) { /* best effort */ }
+  } catch (_) {
+    /* best effort */
+  }
 }
 
 /**
@@ -71,7 +73,9 @@ function getFFmpegPath() {
   try {
     return require("ffmpeg-static");
   } catch (err) {
-    console.warn("[ffmpeg] no system ffmpeg found and ffmpeg-static missing; relying on 'ffmpeg' in PATH");
+    console.warn(
+      "[ffmpeg] no system ffmpeg found and ffmpeg-static missing; relying on 'ffmpeg' in PATH",
+    );
     return "ffmpeg";
   }
 }
@@ -86,7 +90,13 @@ function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const timer = setTimeout(() => {
       killed = true;
       ffmpeg.kill("SIGKILL");
-      reject(new Error("E301_FFMPEG_TIMEOUT: FFmpeg operation timed out after " + (timeoutMs / 1000) + "s"));
+      reject(
+        new Error(
+          "E301_FFMPEG_TIMEOUT: FFmpeg operation timed out after " +
+            timeoutMs / 1000 +
+            "s",
+        ),
+      );
     }, timeoutMs);
 
     // Cap stderr buffer to prevent memory leak on long-running operations
@@ -94,8 +104,11 @@ function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
     ffmpeg.stderr.on("data", (data) => {
       stderr += data.toString();
       if (stderr.length > MAX_STDERR_SIZE) {
-        console.warn(`[ffmpeg] stderr exceeded ${MAX_STDERR_SIZE} bytes, keeping end`);
-        stderr = "[earlier output truncated]\n" + stderr.slice(-MAX_STDERR_SIZE);
+        console.warn(
+          `[ffmpeg] stderr exceeded ${MAX_STDERR_SIZE} bytes, keeping end`,
+        );
+        stderr =
+          "[earlier output truncated]\n" + stderr.slice(-MAX_STDERR_SIZE);
       }
     });
 
@@ -113,25 +126,38 @@ function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
   });
 }
 
-async function mixTracks({ vocalPath, instrumentalPath, outputPath, vocalGain = 0.8, instrumentalGain = 0.6, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function mixTracks({
+  vocalPath,
+  instrumentalPath,
+  outputPath,
+  vocalGain = 0.8,
+  instrumentalGain = 0.6,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   if (!fs.existsSync(vocalPath)) {
     throw new Error("E301_FFMPEG_ERROR: Vocal file not found: " + vocalPath);
   }
   if (!fs.existsSync(instrumentalPath)) {
-    throw new Error("E301_FFMPEG_ERROR: Instrumental file not found: " + instrumentalPath);
+    throw new Error(
+      "E301_FFMPEG_ERROR: Instrumental file not found: " + instrumentalPath,
+    );
   }
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
   const args = [
     "-y",
-    "-i", vocalPath,
-    "-i", instrumentalPath,
+    "-i",
+    vocalPath,
+    "-i",
+    instrumentalPath,
     "-filter_complex",
     `[0:a]volume=${vocalGain}[v];[1:a]volume=${instrumentalGain}[i];[v][i]amix=inputs=2:duration=longest`,
-    "-ac", "2",
-    "-ar", "44100",
-    outputPath
+    "-ac",
+    "2",
+    "-ar",
+    "44100",
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -149,21 +175,27 @@ async function mixTracksPersonalized({
     throw new Error("E301_FFMPEG_ERROR: Vocal file not found: " + vocalPath);
   }
   if (!fs.existsSync(instrumentalPath)) {
-    throw new Error("E301_FFMPEG_ERROR: Instrumental file not found: " + instrumentalPath);
+    throw new Error(
+      "E301_FFMPEG_ERROR: Instrumental file not found: " + instrumentalPath,
+    );
   }
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
   const args = [
     "-y",
-    "-i", vocalPath,
-    "-i", instrumentalPath,
+    "-i",
+    vocalPath,
+    "-i",
+    instrumentalPath,
     "-filter_complex",
     `[0:a]volume=${vocalGain},highpass=f=80,acompressor=threshold=0.06:ratio=2.5:attack=20:release=300:knee=6:makeup=2,lowpass=f=15000[v];` +
       `[1:a]volume=${instrumentalGain}[i];` +
       `[v][i]amix=inputs=2:duration=longest,loudnorm=I=-14:TP=-1:LRA=11`,
-    "-ac", "2",
-    "-ar", "44100",
+    "-ac",
+    "2",
+    "-ar",
+    "44100",
     outputPath,
   ];
 
@@ -180,17 +212,28 @@ const LOUDNORM = "loudnorm=I=-18:TP=-1:LRA=11";
 
 // --- Blend strategy: Amplitude (v2 current behavior) ---
 
-async function blendAmplitude({ originalVocalPath, convertedVocalPath, outputPath, blendRatio = 0.25, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function blendAmplitude({
+  originalVocalPath,
+  convertedVocalPath,
+  outputPath,
+  blendRatio = 0.25,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   const origVol = (1 - blendRatio).toFixed(3);
   const convVol = blendRatio.toFixed(3);
 
   const args = [
-    "-y", "-i", originalVocalPath, "-i", convertedVocalPath,
+    "-y",
+    "-i",
+    originalVocalPath,
+    "-i",
+    convertedVocalPath,
     "-filter_complex",
     `[0:a]${LOUDNORM},volume=${origVol}[orig];` +
-    `[1:a]${LOUDNORM},volume=${convVol}[conv];` +
-    `[orig][conv]amix=inputs=2:duration=longest`,
-    ...STEREO_44100, outputPath,
+      `[1:a]${LOUDNORM},volume=${convVol}[conv];` +
+      `[orig][conv]amix=inputs=2:duration=longest`,
+    ...STEREO_44100,
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -200,26 +243,37 @@ async function blendAmplitude({ originalVocalPath, convertedVocalPath, outputPat
 // Split vocals into 3 frequency bands. User's timbre only in formant band (300-3kHz).
 // AI owns lows + highs for body and air. One perceived voice, not two.
 
-async function blendSpectralCrossover({ originalVocalPath, convertedVocalPath, outputPath, strategyParams = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function blendSpectralCrossover({
+  originalVocalPath,
+  convertedVocalPath,
+  outputPath,
+  strategyParams = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   const lowCrossover = clamp(strategyParams.lowCrossover, 20, 20000, 300);
   const highCrossover = clamp(strategyParams.highCrossover, 20, 20000, 3000);
-  const midBlendRatio = clamp(strategyParams.midBlendRatio, 0, 1, 0.30);
-  const crossoverOrder = strategyParams.crossoverOrder || '4th';
+  const midBlendRatio = clamp(strategyParams.midBlendRatio, 0, 1, 0.3);
+  const crossoverOrder = strategyParams.crossoverOrder || "4th";
   const origMidVol = (1 - midBlendRatio).toFixed(3);
   const convMidVol = midBlendRatio.toFixed(3);
 
   const args = [
-    "-y", "-i", originalVocalPath, "-i", convertedVocalPath,
+    "-y",
+    "-i",
+    originalVocalPath,
+    "-i",
+    convertedVocalPath,
     "-filter_complex",
     `[0:a]${LOUDNORM}[ai_norm];` +
-    `[1:a]${LOUDNORM}[conv_norm];` +
-    `[ai_norm]acrossover=split=${lowCrossover} ${highCrossover}:order=${crossoverOrder}[ai_low][ai_mid][ai_high];` +
-    `[conv_norm]highpass=f=${lowCrossover}:poles=2,lowpass=f=${highCrossover}:poles=2[conv_mid];` +
-    `[ai_mid]volume=${origMidVol}[ai_mid_s];` +
-    `[conv_mid]volume=${convMidVol}[conv_mid_s];` +
-    `[ai_mid_s][conv_mid_s]amix=inputs=2:duration=longest:weights=1 1:normalize=0[blended_mid];` +
-    `[ai_low][blended_mid][ai_high]amix=inputs=3:duration=longest:weights=1 1 1:normalize=0`,
-    ...STEREO_44100, outputPath,
+      `[1:a]${LOUDNORM}[conv_norm];` +
+      `[ai_norm]acrossover=split=${lowCrossover} ${highCrossover}:order=${crossoverOrder}[ai_low][ai_mid][ai_high];` +
+      `[conv_norm]highpass=f=${lowCrossover}:poles=2,lowpass=f=${highCrossover}:poles=2[conv_mid];` +
+      `[ai_mid]volume=${origMidVol}[ai_mid_s];` +
+      `[conv_mid]volume=${convMidVol}[conv_mid_s];` +
+      `[ai_mid_s][conv_mid_s]amix=inputs=2:duration=longest:weights=1 1:normalize=0[blended_mid];` +
+      `[ai_low][blended_mid][ai_high]amix=inputs=3:duration=longest:weights=1 1 1:normalize=0`,
+    ...STEREO_44100,
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -229,26 +283,42 @@ async function blendSpectralCrossover({ originalVocalPath, convertedVocalPath, o
 // Studio technique: heavy-compress the converted vocal, EQ-carve presence,
 // mix at subliminal level (10-15%). One voice with subtle warmth, not two.
 
-async function blendVocalDoubling({ originalVocalPath, convertedVocalPath, outputPath, strategyParams = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function blendVocalDoubling({
+  originalVocalPath,
+  convertedVocalPath,
+  outputPath,
+  strategyParams = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   const doublingLevel = clamp(strategyParams.doublingLevel, 0, 1, 0.12);
-  const presenceCutFreq = clamp(strategyParams.presenceCutFreq, 100, 20000, 4000);
+  const presenceCutFreq = clamp(
+    strategyParams.presenceCutFreq,
+    100,
+    20000,
+    4000,
+  );
   const presenceCutGain = clamp(strategyParams.presenceCutGain, -20, 0, -8);
   const warmthGain = clamp(strategyParams.warmthGain, 0, 12, 2);
   const origVol = (1 - doublingLevel).toFixed(3);
   const convVol = doublingLevel.toFixed(3);
 
   const args = [
-    "-y", "-i", originalVocalPath, "-i", convertedVocalPath,
+    "-y",
+    "-i",
+    originalVocalPath,
+    "-i",
+    convertedVocalPath,
     "-filter_complex",
     `[0:a]${LOUDNORM},volume=${origVol}[ai_scaled];` +
-    `[1:a]${LOUDNORM},` +
-    `acompressor=threshold=0.03:ratio=12:attack=1:release=50:makeup=4:knee=2,` +
-    `equalizer=f=${presenceCutFreq}:t=q:w=1.5:g=${presenceCutGain},` +
-    `equalizer=f=200:t=q:w=0.8:g=${warmthGain},` +
-    `highpass=f=120,lowpass=f=8000,` +
-    `volume=${convVol}[conv_proc];` +
-    `[ai_scaled][conv_proc]amix=inputs=2:duration=longest:weights=1 1:normalize=0`,
-    ...STEREO_44100, outputPath,
+      `[1:a]${LOUDNORM},` +
+      `acompressor=threshold=0.03:ratio=12:attack=1:release=50:makeup=4:knee=2,` +
+      `equalizer=f=${presenceCutFreq}:t=q:w=1.5:g=${presenceCutGain},` +
+      `equalizer=f=200:t=q:w=0.8:g=${warmthGain},` +
+      `highpass=f=120,lowpass=f=8000,` +
+      `volume=${convVol}[conv_proc];` +
+      `[ai_scaled][conv_proc]amix=inputs=2:duration=longest:weights=1 1:normalize=0`,
+    ...STEREO_44100,
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -259,7 +329,13 @@ async function blendVocalDoubling({ originalVocalPath, convertedVocalPath, outpu
 // AI ducks when user is singing, fills gaps when user is silent.
 // Solves the "cliff" problem where even small AI amounts mask the user voice.
 
-async function blendPerceptualPrimary({ originalVocalPath, convertedVocalPath, outputPath, strategyParams = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function blendPerceptualPrimary({
+  originalVocalPath,
+  convertedVocalPath,
+  outputPath,
+  strategyParams = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   // aiInfluence: How much AI vocal bleeds through (0-0.5, default 0.15)
   const aiInfluence = clamp(strategyParams.aiInfluence, 0, 0.5, 0.15);
   // duckingStrength: How aggressively AI ducks when user sings (0-1, default 0.85)
@@ -268,26 +344,31 @@ async function blendPerceptualPrimary({ originalVocalPath, convertedVocalPath, o
   const attackMs = clamp(strategyParams.attackMs, 5, 100, 10);
   // releaseMs: How fast AI returns after user stops (50-500ms, default 150)
   const releaseMs = clamp(strategyParams.releaseMs, 50, 500, 150);
-  
+
   // Compute sidechain threshold - lower = more aggressive ducking
   // Map duckingStrength 0-1 to threshold 0.1-0.01 (inverted, lower threshold = more ducking)
-  const threshold = (0.1 - (duckingStrength * 0.09)).toFixed(3);
+  const threshold = (0.1 - duckingStrength * 0.09).toFixed(3);
   // Ratio: higher = harder ducking
-  const ratio = Math.round(4 + (duckingStrength * 12)); // 4:1 to 16:1
+  const ratio = Math.round(4 + duckingStrength * 12); // 4:1 to 16:1
 
   const args = [
-    "-y", "-i", originalVocalPath, "-i", convertedVocalPath,
+    "-y",
+    "-i",
+    originalVocalPath,
+    "-i",
+    convertedVocalPath,
     "-filter_complex",
     // Normalize both inputs and split user for sidechain + mix
     `[0:a]${LOUDNORM}[ai_norm];` +
-    `[1:a]${LOUDNORM},asplit=2[user_main][user_sc];` +
-    // AI vocal: reduce volume, apply sidechain compression keyed by user vocal
-    // The user_sc copy controls when AI ducks
-    `[ai_norm]volume=${aiInfluence}[ai_quiet];` +
-    `[ai_quiet][user_sc]sidechaincompress=threshold=${threshold}:ratio=${ratio}:attack=${attackMs}:release=${releaseMs}:level_sc=1[ai_ducked];` +
-    // Mix: user_main is primary (full volume), AI fills in ducked
-    `[user_main][ai_ducked]amix=inputs=2:duration=longest:weights=1 ${aiInfluence}:normalize=0`,
-    ...STEREO_44100, outputPath,
+      `[1:a]${LOUDNORM},asplit=2[user_main][user_sc];` +
+      // AI vocal: reduce volume, apply sidechain compression keyed by user vocal
+      // The user_sc copy controls when AI ducks
+      `[ai_norm]volume=${aiInfluence}[ai_quiet];` +
+      `[ai_quiet][user_sc]sidechaincompress=threshold=${threshold}:ratio=${ratio}:attack=${attackMs}:release=${releaseMs}:level_sc=1[ai_ducked];` +
+      // Mix: user_main is primary (full volume), AI fills in ducked
+      `[user_main][ai_ducked]amix=inputs=2:duration=longest:weights=1 ${aiInfluence}:normalize=0`,
+    ...STEREO_44100,
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -308,7 +389,13 @@ function runFFmpegCapture(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
       if (settled) return;
       settled = true;
       ffmpeg.kill("SIGKILL");
-      reject(new Error("E301_FFMPEG_TIMEOUT: FFmpeg capture timed out after " + (timeoutMs / 1000) + "s"));
+      reject(
+        new Error(
+          "E301_FFMPEG_TIMEOUT: FFmpeg capture timed out after " +
+            timeoutMs / 1000 +
+            "s",
+        ),
+      );
     }, timeoutMs);
 
     function settle(fn) {
@@ -321,7 +408,8 @@ function runFFmpegCapture(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
     ffmpeg.stderr.on("data", (data) => {
       stderr += data.toString();
       if (stderr.length > MAX_STDERR_SIZE) {
-        stderr = "[earlier output truncated]\n" + stderr.slice(-MAX_STDERR_SIZE);
+        stderr =
+          "[earlier output truncated]\n" + stderr.slice(-MAX_STDERR_SIZE);
       }
     });
 
@@ -338,7 +426,11 @@ function runFFmpegCapture(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
   });
 }
 
-async function measureBandEnergy(filePath, bands, timeoutMs = DEFAULT_TIMEOUT_MS) {
+async function measureBandEnergy(
+  filePath,
+  bands,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
   const perBandTimeout = Math.max(5000, Math.floor(timeoutMs * 0.8));
   const results = [];
   for (const freq of bands) {
@@ -346,23 +438,35 @@ async function measureBandEnergy(filePath, bands, timeoutMs = DEFAULT_TIMEOUT_MS
     const lowF = Math.max(20, Math.round(freq - bw));
     const highF = Math.round(freq + bw);
     const args = [
-      "-i", filePath,
-      "-af", `highpass=f=${lowF},lowpass=f=${highF},volumedetect`,
-      "-f", "null", "-",
+      "-i",
+      filePath,
+      "-af",
+      `highpass=f=${lowF},lowpass=f=${highF},volumedetect`,
+      "-f",
+      "null",
+      "-",
     ];
     const stderr = await runFFmpegCapture(args, perBandTimeout);
     const match = stderr.match(/mean_volume:\s*([-\d.]+)\s*dB/);
     if (match) {
       results.push(parseFloat(match[1]));
     } else {
-      console.warn(`[ffmpeg] measureBandEnergy: no mean_volume for ${freq}Hz band, defaulting to -60dB`);
+      console.warn(
+        `[ffmpeg] measureBandEnergy: no mean_volume for ${freq}Hz band, defaulting to -60dB`,
+      );
       results.push(-60);
     }
   }
   return results;
 }
 
-async function blendFormantTransfer({ originalVocalPath, convertedVocalPath, outputPath, strategyParams = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function blendFormantTransfer({
+  originalVocalPath,
+  convertedVocalPath,
+  outputPath,
+  strategyParams = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   const transferStrength = clamp(strategyParams.transferStrength, 0, 1, 0.5);
   const maxGainDb = clamp(strategyParams.maxGainDb, 1, 24, 12);
   const bands = [125, 250, 500, 1000, 1500, 2000, 3000, 4000];
@@ -372,18 +476,28 @@ async function blendFormantTransfer({ originalVocalPath, convertedVocalPath, out
     measureBandEnergy(convertedVocalPath, bands, timeoutMs),
   ]);
 
-  const eqChain = bands.map((freq, i) => {
-    const diff = clamp(convEnergy[i] - aiEnergy[i], -maxGainDb, maxGainDb, 0);
-    const gain = (diff * transferStrength).toFixed(1);
-    return Math.abs(diff * transferStrength) >= 0.5
-      ? `equalizer=f=${freq}:t=q:w=0.707:g=${gain}` : null;
-  }).filter(Boolean).join(',');
+  const eqChain = bands
+    .map((freq, i) => {
+      const diff = clamp(convEnergy[i] - aiEnergy[i], -maxGainDb, maxGainDb, 0);
+      const gain = (diff * transferStrength).toFixed(1);
+      return Math.abs(diff * transferStrength) >= 0.5
+        ? `equalizer=f=${freq}:t=q:w=0.707:g=${gain}`
+        : null;
+    })
+    .filter(Boolean)
+    .join(",");
 
-  const filter = eqChain
-    ? `[0:a]${LOUDNORM},${eqChain}`
-    : `[0:a]${LOUDNORM}`;
+  const filter = eqChain ? `[0:a]${LOUDNORM},${eqChain}` : `[0:a]${LOUDNORM}`;
 
-  const args = ["-y", "-i", originalVocalPath, "-filter_complex", filter, ...STEREO_44100, outputPath];
+  const args = [
+    "-y",
+    "-i",
+    originalVocalPath,
+    "-filter_complex",
+    filter,
+    ...STEREO_44100,
+    outputPath,
+  ];
   await runFFmpeg(args, timeoutMs);
 }
 
@@ -394,37 +508,79 @@ async function blendVocals({
   convertedVocalPath,
   outputPath,
   blendRatio = 0.25,
-  strategy = 'amplitude',
+  strategy = "amplitude",
   strategyParams = {},
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
   if (!fs.existsSync(originalVocalPath)) {
-    throw new Error("E301_FFMPEG_ERROR: Original vocal file not found: " + originalVocalPath);
+    throw new Error(
+      "E301_FFMPEG_ERROR: Original vocal file not found: " + originalVocalPath,
+    );
   }
   if (!fs.existsSync(convertedVocalPath)) {
-    throw new Error("E301_FFMPEG_ERROR: Converted vocal file not found: " + convertedVocalPath);
+    throw new Error(
+      "E301_FFMPEG_ERROR: Converted vocal file not found: " +
+        convertedVocalPath,
+    );
   }
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
   switch (strategy) {
-    case 'spectral_crossover':
-      return blendSpectralCrossover({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
-    case 'vocal_doubling':
-      return blendVocalDoubling({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
-    case 'formant_transfer':
-      return blendFormantTransfer({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
-    case 'perceptual_primary':
-      return blendPerceptualPrimary({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
+    case "spectral_crossover":
+      return blendSpectralCrossover({
+        originalVocalPath,
+        convertedVocalPath,
+        outputPath,
+        strategyParams,
+        timeoutMs,
+      });
+    case "vocal_doubling":
+      return blendVocalDoubling({
+        originalVocalPath,
+        convertedVocalPath,
+        outputPath,
+        strategyParams,
+        timeoutMs,
+      });
+    case "formant_transfer":
+      return blendFormantTransfer({
+        originalVocalPath,
+        convertedVocalPath,
+        outputPath,
+        strategyParams,
+        timeoutMs,
+      });
+    case "perceptual_primary":
+      return blendPerceptualPrimary({
+        originalVocalPath,
+        convertedVocalPath,
+        outputPath,
+        strategyParams,
+        timeoutMs,
+      });
     default:
-      if (strategy !== 'amplitude') {
-        console.error(`[ffmpeg] blendVocals: unknown strategy "${strategy}", falling back to amplitude`);
+      if (strategy !== "amplitude") {
+        console.error(
+          `[ffmpeg] blendVocals: unknown strategy "${strategy}", falling back to amplitude`,
+        );
       }
-      return blendAmplitude({ originalVocalPath, convertedVocalPath, outputPath, blendRatio, timeoutMs });
+      return blendAmplitude({
+        originalVocalPath,
+        convertedVocalPath,
+        outputPath,
+        blendRatio,
+        timeoutMs,
+      });
   }
 }
 
-async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = DEFAULT_TIMEOUT_MS) {
+async function encodeToAAC(
+  inputPath,
+  outputPath,
+  bitrate = "128k",
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
   if (!fs.existsSync(inputPath)) {
     throw new Error("E302_ENCODING_ERROR: Input file not found: " + inputPath);
   }
@@ -435,14 +591,56 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = 
   // Raw ADTS AAC has issues with iOS AVPlayer streaming
   const args = [
     "-y",
-    "-i", inputPath,
-    "-c:a", "aac",
-    "-b:a", bitrate,
-    "-ar", "44100",
-    "-ac", "2",
-    "-f", "ipod",  // Force M4A/MP4 container format
-    "-movflags", "+faststart",  // Enable streaming playback
-    outputPath
+    "-i",
+    inputPath,
+    "-c:a",
+    "aac",
+    "-b:a",
+    bitrate,
+    "-ar",
+    "44100",
+    "-ac",
+    "2",
+    "-f",
+    "ipod", // Force M4A/MP4 container format
+    "-movflags",
+    "+faststart", // Enable streaming playback
+    outputPath,
+  ];
+
+  await runFFmpeg(args, timeoutMs);
+}
+
+/**
+ * Transcode an audio file to MP3. Used to produce the download artifact Etsy
+ * buyers receive (the primary master is M4A/AAC). Bitrate defaults to 192k for
+ * a good size/quality balance on a keepsake download.
+ */
+async function encodeToMp3(
+  inputPath,
+  outputPath,
+  bitrate = "192k",
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+  if (!fs.existsSync(inputPath)) {
+    throw new Error("E302_ENCODING_ERROR: Input file not found: " + inputPath);
+  }
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+  const args = [
+    "-y",
+    "-i",
+    inputPath,
+    "-c:a",
+    "libmp3lame",
+    "-b:a",
+    bitrate,
+    "-ar",
+    "44100",
+    "-ac",
+    "2",
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -462,9 +660,16 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = 
  *   Phase 4 (Space):  reverb (aecho — upgrade to SoX/Pedalboard later)
  *   Phase 5 (Final):  lowpass → loudnorm limiter
  */
-async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function polishVocal({
+  inputPath,
+  outputPath,
+  params = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   if (!fs.existsSync(inputPath)) {
-    throw new Error("E301_FFMPEG_ERROR: Input vocal file not found: " + inputPath);
+    throw new Error(
+      "E301_FFMPEG_ERROR: Input vocal file not found: " + inputPath,
+    );
   }
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -525,9 +730,11 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
   // Avoid aeval here: FFmpeg 8 on macOS can segfault on the expanded tanh
   // expression. asoftclip is materially safer across local/Homebrew builds.
   if (saturation > 0) {
-    const threshold = (1.0 - (saturation * 0.6)).toFixed(3);
-    const param = (1.0 + (saturation * 3)).toFixed(3);
-    filters.push(`asoftclip=type=tanh:threshold=${threshold}:output=1:param=${param}`);
+    const threshold = (1.0 - saturation * 0.6).toFixed(3);
+    const param = (1.0 + saturation * 3).toFixed(3);
+    filters.push(
+      `asoftclip=type=tanh:threshold=${threshold}:output=1:param=${param}`,
+    );
   }
 
   // Phase 3 continued: Additive EQ (after compression — this is what adds "polish")
@@ -539,7 +746,9 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
 
   // Phase 4: Reverb (aecho approximation — real reverb via SoX/Pedalboard later)
   if (reverbEnabled) {
-    filters.push(`aecho=0.8:${(1.0 - reverbDecay).toFixed(2)}:${reverbDelay}|${reverbDelay + 12}:${reverbDecay}|${(reverbDecay * 0.7).toFixed(2)}`);
+    filters.push(
+      `aecho=0.8:${(1.0 - reverbDecay).toFixed(2)}:${reverbDelay}|${reverbDelay + 12}:${reverbDecay}|${(reverbDecay * 0.7).toFixed(2)}`,
+    );
   }
 
   // Phase 5: Final safety
@@ -550,9 +759,13 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
   );
 
   const args = [
-    "-y", "-i", inputPath,
-    "-af", filters.join(','),
-    ...STEREO_44100, outputPath,
+    "-y",
+    "-i",
+    inputPath,
+    "-af",
+    filters.join(","),
+    ...STEREO_44100,
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -578,7 +791,9 @@ async function generateShareMp4({
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
   if (!fs.existsSync(artworkPath)) {
-    throw new Error("E301_FFMPEG_ERROR: Artwork file not found: " + artworkPath);
+    throw new Error(
+      "E301_FFMPEG_ERROR: Artwork file not found: " + artworkPath,
+    );
   }
   if (!fs.existsSync(audioPath)) {
     throw new Error("E301_FFMPEG_ERROR: Audio file not found: " + audioPath);
@@ -591,13 +806,20 @@ async function generateShareMp4({
   if (hasMetadata) {
     try {
       await _generateAnimatedShareMp4({
-        artworkPath, audioPath, outputPath,
-        songTitle, recipientName, occasion,
-        maxDuration, timeoutMs,
+        artworkPath,
+        audioPath,
+        outputPath,
+        songTitle,
+        recipientName,
+        occasion,
+        maxDuration,
+        timeoutMs,
       });
       return;
     } catch (err) {
-      console.warn(`[generateShareMp4] Animated version failed, falling back to still: ${err.message}`);
+      console.warn(
+        `[generateShareMp4] Animated version failed, falling back to still: ${err.message}`,
+      );
       // Clean up partial output
       try {
         if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
@@ -610,18 +832,30 @@ async function generateShareMp4({
   // Fallback: still-image approach (original behavior)
   const args = [
     "-y",
-    "-loop", "1",
-    "-i", artworkPath,
-    "-i", audioPath,
-    "-c:v", "libx264",
-    "-tune", "stillimage",
-    "-c:a", "aac",
-    "-b:a", "128k",
-    "-ar", "44100",
-    "-ac", "2",
-    "-pix_fmt", "yuv420p",
-    "-movflags", "+faststart",
-    "-vf", "scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2",
+    "-loop",
+    "1",
+    "-i",
+    artworkPath,
+    "-i",
+    audioPath,
+    "-c:v",
+    "libx264",
+    "-tune",
+    "stillimage",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "128k",
+    "-ar",
+    "44100",
+    "-ac",
+    "2",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    "-vf",
+    "scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2",
     "-shortest",
   ];
   if (Number(maxDuration) > 0) {
@@ -641,11 +875,21 @@ function getWaveColor(occasion) {
 }
 
 async function _generateAnimatedShareMp4({
-  artworkPath, audioPath, outputPath,
-  songTitle, recipientName, occasion,
-  maxDuration, timeoutMs,
+  artworkPath,
+  audioPath,
+  outputPath,
+  songTitle,
+  recipientName,
+  occasion,
+  maxDuration,
+  timeoutMs,
 }) {
-  const fontPath = path.join(process.cwd(), "assets", "fonts", "Inter-SemiBold.ttf");
+  const fontPath = path.join(
+    process.cwd(),
+    "assets",
+    "fonts",
+    "Inter-SemiBold.ttf",
+  );
   const hasFont = fs.existsSync(fontPath);
 
   const waveColor = getWaveColor(occasion);
@@ -663,7 +907,9 @@ async function _generateAnimatedShareMp4({
     // Build filter_complex:
     // [1:a] -> showwaves -> waveform overlay on scaled background image
     // + drawtext for song title and recipient
-    const fontOpt = hasFont ? `fontfile=${fontPath.replace(/:/g, "\\\\:")}:` : "";
+    const fontOpt = hasFont
+      ? `fontfile=${fontPath.replace(/:/g, "\\\\:")}:`
+      : "";
     let filterParts = [
       `[1:a]showwaves=s=1080x160:mode=cline:rate=25:colors=0x${waveColor}@0.8:scale=sqrt[waves]`,
       `[0:v]scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2[bg]`,
@@ -674,17 +920,21 @@ async function _generateAnimatedShareMp4({
     if (titleText) {
       const titleTempPath = writeTempTextFile(titleText);
       tempFiles.push(titleTempPath);
-      const escapedTitlePath = titleTempPath.replace(/:/g, "\\\\:").replace(/'/g, "'\\\\\\\\''");
+      const escapedTitlePath = titleTempPath
+        .replace(/:/g, "\\\\:")
+        .replace(/'/g, "'\\\\\\\\''");
       filterParts.push(
-        `[v1]drawtext=${fontOpt}textfile='${escapedTitlePath}':expansion=none:fontsize=44:fontcolor=white:x=(w-tw)/2:y=60[v2]`
+        `[v1]drawtext=${fontOpt}textfile='${escapedTitlePath}':expansion=none:fontsize=44:fontcolor=white:x=(w-tw)/2:y=60[v2]`,
       );
       // Recipient text
       if (recipientLine) {
         const recipientTempPath = writeTempTextFile(recipientLine);
         tempFiles.push(recipientTempPath);
-        const escapedRecipientPath = recipientTempPath.replace(/:/g, "\\\\:").replace(/'/g, "'\\\\\\\\''");
+        const escapedRecipientPath = recipientTempPath
+          .replace(/:/g, "\\\\:")
+          .replace(/'/g, "'\\\\\\\\''");
         filterParts.push(
-          `[v2]drawtext=${fontOpt}textfile='${escapedRecipientPath}':expansion=none:fontsize=30:fontcolor=0x${waveColor}:x=(w-tw)/2:y=115[out]`
+          `[v2]drawtext=${fontOpt}textfile='${escapedRecipientPath}':expansion=none:fontsize=30:fontcolor=0x${waveColor}:x=(w-tw)/2:y=115[out]`,
         );
       } else {
         filterParts.push(`[v2]copy[out]`);
@@ -697,19 +947,32 @@ async function _generateAnimatedShareMp4({
 
     const args = [
       "-y",
-      "-loop", "1",
-      "-i", artworkPath,
-      "-i", audioPath,
-      "-filter_complex", filterComplex,
-      "-map", "[out]",
-      "-map", "1:a",
-      "-c:v", "libx264",
-      "-c:a", "aac",
-      "-b:a", "128k",
-      "-ar", "44100",
-      "-ac", "2",
-      "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
+      "-loop",
+      "1",
+      "-i",
+      artworkPath,
+      "-i",
+      audioPath,
+      "-filter_complex",
+      filterComplex,
+      "-map",
+      "[out]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-ar",
+      "44100",
+      "-ac",
+      "2",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
       "-shortest",
     ];
     if (Number(maxDuration) > 0) {
@@ -721,7 +984,11 @@ async function _generateAnimatedShareMp4({
   } finally {
     // Clean up temp text files
     for (const tf of tempFiles) {
-      try { fs.unlinkSync(tf); } catch (_) { /* best effort */ }
+      try {
+        fs.unlinkSync(tf);
+      } catch (_) {
+        /* best effort */
+      }
     }
   }
 }
@@ -745,6 +1012,7 @@ module.exports = {
   polishVocal,
   measureBandEnergy,
   encodeToAAC,
+  encodeToMp3,
   generateShareMp4,
   DEFAULT_TIMEOUT_MS,
 };

@@ -22,3 +22,10 @@ Consciously deferred findings — each with why, an un-defer trigger, and status
 - **Un-defer trigger:** guests gain access to anything beyond their own drafts (e.g., payment methods, saved addresses).
 - **Source:** backend security review 2026-07-16, finding P2-1.
 - **Status:** N/A (accepted risk, documented).
+
+## Etsy landing: same-buyer reload shows "already used" instead of forwarding (2026-07-23)
+
+- **Why deferred:** the pre-check GET is deliberately side-effect-free and has no session context, so it cannot distinguish same-buyer from other-buyer. The "cheap" fix (always attempt the idempotent redeem) trades that purity for an always-mutating call and burns a rate-limit token per reload. Buyer's credit is safe either way and /create resumes them.
+- **Un-defer trigger:** reload-confusion shows up in Etsy support message volume.
+- **Source:** etsy-final-review (opus) finding (8), 2026-07-23; builder offered the follow-up in its report.
+- **Status:** scoped-down-v1 (warm "already used → contact via Etsy messages" state shipped).

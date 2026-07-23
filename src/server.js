@@ -68,6 +68,7 @@ const {
 } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerWebFunnelRoutes } = require("./routes/web-funnel");
+const { registerWebEtsyRoutes } = require("./routes/web-etsy");
 const { registerWebCheckoutRoutes } = require("./routes/web-checkout");
 const { createStripeService } = require("./services/stripe-service");
 const {
@@ -777,6 +778,17 @@ function buildServer({
     sendError,
     allowAnonUserId,
     attachUserId: false,
+  });
+
+  // Etsy redemption: a guest-session-resolved buyer trades a printed code for
+  // one gift credit (plan 2026-07-21-001 §0.7.5). Registered here so it can
+  // reuse requireUserId + the shared gift wallet.
+  registerWebEtsyRoutes(app, {
+    db,
+    rateLimitRepository,
+    sendError,
+    requireUserId,
+    giftWalletRepository,
   });
 
   function getDeviceTokenPayload(request, reply, { required = false } = {}) {
@@ -2493,6 +2505,48 @@ function buildServer({
     });
   });
 
+  // MP3 variant of the full song — Etsy buyers download an MP3 (plan
+  // 2026-07-21-001 Task 3). Mirrors the .m4a route exactly (owner-gated),
+  // differing only in the storage key format and content type.
+  app.get("/full/:trackVersionId.mp3", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const trackVersion = await trackVersionRepository.findById(
+      request.params.trackVersionId,
+    );
+    if (!trackVersion) {
+      sendError(
+        reply,
+        404,
+        "TRACK_VERSION_NOT_FOUND",
+        "Track version not found.",
+      );
+      return;
+    }
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
+      return;
+    }
+    const key = trackMasterKey({
+      userId: track.user_id,
+      trackId: track.id,
+      versionNum: trackVersion.version_num,
+      format: "mp3",
+    });
+    await serveTrackAudio(request, reply, {
+      track,
+      trackVersion,
+      s3Key: key,
+      localFileName: "full.mp3",
+      contentType: "audio/mpeg",
+    });
+  });
+
   // Cover image serving - supports 256 and 1024 sizes
   app.get("/cover/:trackVersionId/:size", async (request, reply) => {
     const { trackVersionId, size } = request.params;
@@ -2798,7 +2852,9 @@ function buildServer({
       return { shareId: result.shareId, shareUrl: result.shareUrl };
     },
     finalizeGiftOrder: async ({ order }) => {
-      const reservation = await webGiftReservationRepository.getById(order.gift_reservation_id);
+      const reservation = await webGiftReservationRepository.getById(
+        order.gift_reservation_id,
+      );
       if (!reservation || reservation.user_id !== order.user_id) {
         throw new Error("WEB_GIFT_RESERVATION_NOT_FOUND");
       }
@@ -2813,10 +2869,13 @@ function buildServer({
       );
       const requestedMode = preference.mode || "manual";
       const deliveryMode =
-        automationEnabled || requestedMode === "manual" ? requestedMode : "manual";
-      const channels = deliveryMode === "manual"
-        ? []
-        : parseJson(preference.channels_json, []);
+        automationEnabled || requestedMode === "manual"
+          ? requestedMode
+          : "manual";
+      const channels =
+        deliveryMode === "manual"
+          ? []
+          : parseJson(preference.channels_json, []);
       const created = await db.transaction(async (query) => {
         const orderResult = await query(
           `SELECT * FROM web_orders WHERE id = ?${
@@ -2829,7 +2888,10 @@ function buildServer({
           throw new Error("WEB_ORDER_NOT_FOUND");
         }
         if (lockedOrder.status !== "rendering") {
-          if (lockedOrder.status === "delivered" && lockedOrder.share_token_id) {
+          if (
+            lockedOrder.status === "delivered" &&
+            lockedOrder.share_token_id
+          ) {
             const deliveredGiftResult = await query(
               "SELECT * FROM gift_orders WHERE origin_web_order_id = ? LIMIT 1",
               [order.id],
@@ -2909,9 +2971,13 @@ function buildServer({
           deliveryMode,
           channels: Array.isArray(channels) ? channels : [],
           recipientPhone:
-            deliveryMode === "manual" ? null : preference.recipient_phone || null,
+            deliveryMode === "manual"
+              ? null
+              : preference.recipient_phone || null,
           recipientEmail:
-            deliveryMode === "manual" ? null : preference.recipient_email || null,
+            deliveryMode === "manual"
+              ? null
+              : preference.recipient_email || null,
           senderDisplayName: preference.sender_display_name || order.buyer_name,
           senderTimezone: preference.sender_timezone || "UTC",
           sendAtIso: preference.send_at || nowIso(),
@@ -2963,19 +3029,19 @@ function buildServer({
     getDeliveryState: async ({ order }) => {
       const reservationId = order.gift_reservation_id;
       if (!reservationId) return null;
-      const [preference, gift, walletBalance, automatedDeliveryEnabled] = await Promise.all([
-        webGiftDeliveryPreferenceRepository.findOwned({
-          reservationId,
-          userId: order.user_id,
-        }),
-        webGiftOrderRepository.findById(
-          (
-            await webGiftReservationRepository.getById(reservationId)
-          )?.gift_order_id,
-        ),
-        giftWalletRepository.getBalance(order.user_id),
-        getWebFunnelFlag(db, "web_automated_gift_delivery"),
-      ]);
+      const [preference, gift, walletBalance, automatedDeliveryEnabled] =
+        await Promise.all([
+          webGiftDeliveryPreferenceRepository.findOwned({
+            reservationId,
+            userId: order.user_id,
+          }),
+          webGiftOrderRepository.findById(
+            (await webGiftReservationRepository.getById(reservationId))
+              ?.gift_order_id,
+          ),
+          giftWalletRepository.getBalance(order.user_id),
+          getWebFunnelFlag(db, "web_automated_gift_delivery"),
+        ]);
       const deliveryMode = gift?.delivery_mode || preference?.mode || "manual";
       const rows = gift
         ? await webGiftDispatchRepository.listOutboxRowsForGift({
@@ -3024,21 +3090,23 @@ function buildServer({
         automated_delivery_enabled: Boolean(automatedDeliveryEnabled),
         can_cancel_gift: Boolean(
           gift &&
-            ["scheduled", "dispatch_retry", "ready_to_share"].includes(
-              gift.status,
-            ),
+          ["scheduled", "dispatch_retry", "ready_to_share"].includes(
+            gift.status,
+          ),
         ),
         delivery: {
           mode: deliveryMode,
           revision: Number(preference?.revision || 0),
           can_edit: Boolean(
             !gift ||
-              (gift.delivery_mode === "manual" &&
-                gift.status === "ready_to_share"),
+            (gift.delivery_mode === "manual" &&
+              gift.status === "ready_to_share"),
           ),
           can_stop_any: channels.some((channel) => channel.can_stop),
           sender_display_name:
-            gift?.sender_display_name || preference?.sender_display_name || undefined,
+            gift?.sender_display_name ||
+            preference?.sender_display_name ||
+            undefined,
           send_at: gift?.send_at || preference?.send_at || undefined,
           timezone:
             gift?.sender_timezone || preference?.sender_timezone || undefined,
@@ -3589,10 +3657,9 @@ async function start() {
     googleValidator,
   });
   const runtimeGiftWalletRepository = createGiftWalletRepository(db);
-  const runtimeGiftPurchaseReversalService =
-    createGiftPurchaseReversalService({
-      giftWalletRepository: runtimeGiftWalletRepository,
-    });
+  const runtimeGiftPurchaseReversalService = createGiftPurchaseReversalService({
+    giftWalletRepository: runtimeGiftWalletRepository,
+  });
   const appleWebhookHandler = createAppleWebhookHandler(db, {
     subscriptionManager,
     appleValidator,

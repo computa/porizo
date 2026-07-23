@@ -38,8 +38,13 @@ export function Offer({
       <main className="step step-centered">
         <section className="card status-card">
           <h1>{recipient}'s song is saved.</h1>
-          <p>Purchases are paused right now. Come back soon, or contact support if you need help.</p>
-          <a className="btn-primary" href="/support">Contact support</a>
+          <p>
+            Purchases are paused right now. Come back soon, or contact support
+            if you need help.
+          </p>
+          <a className="btn-primary" href="/support">
+            Contact support
+          </a>
         </section>
       </main>
     );
@@ -48,12 +53,21 @@ export function Offer({
   return (
     <main className="step offer-step">
       <h1 className="q">Unlock {recipient}'s full song</h1>
-      <p className="hint">You've heard the chorus. Here's everything they get:</p>
-      {cancelled && <p className="toast" role="status">Nothing was charged.</p>}
+      <p className="hint">
+        You've heard the chorus. Here's everything they get:
+      </p>
+      {cancelled && (
+        <p className="toast" role="status">
+          Nothing was charged.
+        </p>
+      )}
       <section className="card offer-card">
         {hasCredit ? (
           <div className="wallet-choice">
-            <strong>{walletBalance} gift {walletBalance === 1 ? "credit" : "credits"} available in Porizo</strong>
+            <strong>
+              {walletBalance} gift {walletBalance === 1 ? "credit" : "credits"}{" "}
+              available in Porizo
+            </strong>
             <p>Use your gift credits here or in the Porizo app.</p>
           </div>
         ) : products.length > 1 ? (
@@ -68,14 +82,28 @@ export function Offer({
                   checked={candidate.price_key === product?.price_key}
                   onChange={() => onSelectProduct(candidate.price_key)}
                 />
-                <span>{candidate.token_count} gift {candidate.token_count === 1 ? "credit" : "credits"} · {candidate.localized_price}</span>
+                <span>
+                  {candidate.token_count} gift{" "}
+                  {candidate.token_count === 1 ? "credit" : "credits"} ·{" "}
+                  {candidate.localized_price}
+                </span>
               </label>
             ))}
           </fieldset>
         ) : null}
         <div className="price-row">
-          {hasCredit ? <span className="price">1 gift credit</span> : product ? <span className="price">{product.localized_price}</span> : <span className="price-loading">Loading price…</span>}
-          <span className="price-note">{hasCredit ? `${walletBalance! - 1} left after this song` : `${product?.token_count ?? 1} gift credit${product?.token_count === 1 ? "" : "s"} · no subscription`}</span>
+          {hasCredit ? (
+            <span className="price">1 gift credit</span>
+          ) : product ? (
+            <span className="price">{product.localized_price}</span>
+          ) : (
+            <span className="price-loading">Loading price…</span>
+          )}
+          <span className="price-note">
+            {hasCredit
+              ? `${walletBalance! - 1} left after this song`
+              : `${product?.token_count ?? 1} gift credit${product?.token_count === 1 ? "" : "s"} · no subscription`}
+          </span>
         </div>
         <ul className="bundle">
           {[
@@ -85,21 +113,48 @@ export function Offer({
             "A share video for stories and chats",
             "Kept forever — theirs in the Porizo app, yours to send again",
           ].map((item) => (
-            <li key={item}><CheckIcon /><span>{item}</span></li>
+            <li key={item}>
+              <CheckIcon />
+              <span>{item}</span>
+            </li>
           ))}
         </ul>
-        {error && <p className="error-text" role="alert">{error}</p>}
-        <p className="guarantee">If it doesn't make them feel something, we'll refund it.</p>
+        {error && (
+          <p className="error-text" role="alert">
+            {error}
+          </p>
+        )}
+        <p className="guarantee">
+          If it doesn't make them feel something, we'll refund it.
+        </p>
       </section>
-      <p className="paymarks offer-paymarks">Apple Pay · Google Pay · Card · Secured by Stripe</p>
+      {!hasCredit && (
+        <p className="paymarks offer-paymarks">
+          Apple Pay · Google Pay · Card · Secured by Stripe
+        </p>
+      )}
       {!hasCredit && (
         <p className="account-note">
-          Sign in with your receipt email to use remaining gift credits here or in the Porizo app.
+          Sign in with your receipt email to use remaining gift credits here or
+          in the Porizo app.
         </p>
       )}
       <div className="cta-bar">
-        <button className="btn-primary" type="button" disabled={(!hasCredit && !product) || loading} onClick={hasCredit ? onUseCredit : onCheckout}>
-          {loading ? (hasCredit ? "Applying gift credit…" : "Opening secure checkout…") : hasCredit ? "Use 1 gift credit" : product ? `Unlock for ${product.localized_price}` : "Loading price…"}
+        <button
+          className="btn-primary"
+          type="button"
+          disabled={(!hasCredit && !product) || loading}
+          onClick={hasCredit ? onUseCredit : onCheckout}
+        >
+          {loading
+            ? hasCredit
+              ? "Applying gift credit…"
+              : "Opening secure checkout…"
+            : hasCredit
+              ? "Use 1 gift credit"
+              : product
+                ? `Unlock for ${product.localized_price}`
+                : "Loading price…"}
         </button>
       </div>
     </main>

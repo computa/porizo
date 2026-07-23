@@ -7,7 +7,9 @@ describe("offer", () => {
     render(
       <Offer
         recipient="Sarah"
-        products={[{ price_key: "gift", localized_price: "€17,42", token_count: 1 }]}
+        products={[
+          { price_key: "gift", localized_price: "€17,42", token_count: 1 },
+        ]}
         loading={false}
         onSelectProduct={vi.fn()}
         onCheckout={vi.fn()}
@@ -25,7 +27,9 @@ describe("offer", () => {
     render(
       <Offer
         recipient="Sarah"
-        products={[{ price_key: "bundle", localized_price: "$39.99", token_count: 3 }]}
+        products={[
+          { price_key: "bundle", localized_price: "$39.99", token_count: 3 },
+        ]}
         walletBalance={2}
         loading={false}
         onSelectProduct={vi.fn()}
@@ -34,8 +38,33 @@ describe("offer", () => {
       />,
     );
 
-    expect(screen.getByText("2 gift credits available in Porizo")).toBeVisible();
+    expect(
+      screen.getByText("2 gift credits available in Porizo"),
+    ).toBeVisible();
     screen.getByRole("button", { name: "Use 1 gift credit" }).click();
+    expect(useCredit).toHaveBeenCalledOnce();
+  });
+
+  it("spends an Etsy-redeemed credit with no price shown anywhere on the path", () => {
+    const useCredit = vi.fn();
+    const { container } = render(
+      <Offer
+        recipient="Sarah"
+        products={[]}
+        walletBalance={1}
+        loading={false}
+        onSelectProduct={vi.fn()}
+        onCheckout={vi.fn()}
+        onUseCredit={useCredit}
+      />,
+    );
+
+    expect(screen.getByText("1 gift credit available in Porizo")).toBeVisible();
+    // Pure fulfilment: the Etsy buyer already paid — the credit path must not
+    // surface a currency price or Stripe checkout copy.
+    expect(container.textContent).not.toMatch(/\$|£|€|Stripe/i);
+    const cta = screen.getByRole("button", { name: "Use 1 gift credit" });
+    cta.click();
     expect(useCredit).toHaveBeenCalledOnce();
   });
 
@@ -54,7 +83,9 @@ describe("offer", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Loading price…" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Loading price…" }),
+    ).toBeDisabled();
     expect(screen.getByText("3 gift credits · $39.99")).toBeVisible();
   });
 });

@@ -29,14 +29,10 @@ const defaultOneSignalService = require("../services/onesignal");
 const { registerAdminAnalyticsRoutes } = require("./admin/analytics");
 const { registerAdminAuthRoutes } = require("./admin/auth");
 const { registerAdminBillingRoutes } = require("./admin/billing");
-const {
-  registerAdminBlendAnalysisRoutes,
-} = require("./admin/blend-analysis");
+const { registerAdminBlendAnalysisRoutes } = require("./admin/blend-analysis");
 const { registerAdminBlogRoutes } = require("./admin/blog");
 const { registerAdminDemoShareRoutes } = require("./admin/demo-shares");
-const {
-  registerAdminFeatureFlagRoutes,
-} = require("./admin/feature-flags");
+const { registerAdminFeatureFlagRoutes } = require("./admin/feature-flags");
 const { registerAdminGiftOpsRoutes } = require("./admin/gift-ops");
 const { registerAdminGrowthRoutes } = require("./admin/growth");
 const { registerAdminJobOpsRoutes } = require("./admin/job-ops");
@@ -64,15 +60,10 @@ const {
 } = require("./admin/security-observability");
 const { registerAdminShareRoutes } = require("./admin/shares");
 const { registerAdminStaticUiRoutes } = require("./admin/static-ui");
-const {
-  registerAdminStorySessionRoutes,
-} = require("./admin/story-sessions");
-const {
-  registerAdminTrackTransferRoutes,
-} = require("./admin/track-transfer");
-const {
-  registerAdminWebhookHealthRoutes,
-} = require("./admin/webhook-health");
+const { registerAdminStorySessionRoutes } = require("./admin/story-sessions");
+const { registerAdminTrackTransferRoutes } = require("./admin/track-transfer");
+const { registerAdminWebhookHealthRoutes } = require("./admin/webhook-health");
+const { registerAdminEtsyCodeRoutes } = require("./admin/etsy-codes");
 const { registerClientConfigRoutes } = require("./client-config");
 const { registerAdminUserReadRoutes } = require("./admin/users-read");
 const {
@@ -172,10 +163,10 @@ function registerAdminRoutes(
     adminTrackTransferRepository || createAdminTrackTransferRepository(db);
   const adminBillingRepo =
     adminBillingRepository || createAdminBillingRepository(db);
-  const adminAuthRepo =
-    adminAuthRepository || createAdminAuthRepository(db);
+  const adminAuthRepo = adminAuthRepository || createAdminAuthRepository(db);
   const adminMusicDiagnosticsRepo =
-    adminMusicDiagnosticsRepository || createAdminMusicDiagnosticsRepository(db);
+    adminMusicDiagnosticsRepository ||
+    createAdminMusicDiagnosticsRepository(db);
   adminAuthService.initialize(db);
 
   // SECURITY (WS2 / P1): global admin auth gate. Every /admin/dashboard* route
@@ -473,6 +464,14 @@ function registerAdminRoutes(
     webhookHealthService: adminService.adminWebhookHealthService,
     requireAdminSession,
   });
+
+  // --- Etsy Redemption Codes (Gate A) ---
+
+  registerAdminEtsyCodeRoutes(app, {
+    db,
+    requireAdminSession,
+    sendError,
+  });
   registerAdminGrowthRoutes(app, {
     growthService: adminService.adminGrowthService,
     metricsService: adminService.adminMetricsService,
@@ -505,7 +504,8 @@ function registerAdminRoutes(
     parsePagination,
     requireAdminRole,
     requireAdminSession,
-    securityObservabilityService: adminService.adminSecurityObservabilityService,
+    securityObservabilityService:
+      adminService.adminSecurityObservabilityService,
     systemHealthService: adminService.adminSystemHealthService,
   });
 

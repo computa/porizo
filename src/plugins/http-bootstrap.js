@@ -34,10 +34,13 @@ function registerFormUrlEncodedParser(app) {
   );
 }
 
-function registerWebFunnel(app, {
-  webFunnelRoot = path.join(PROJECT_ROOT, "web-funnel", "dist"),
-  requireWebFunnelBuild = false,
-} = {}) {
+function registerWebFunnel(
+  app,
+  {
+    webFunnelRoot = path.join(PROJECT_ROOT, "web-funnel", "dist"),
+    requireWebFunnelBuild = false,
+  } = {},
+) {
   const shellPath = path.join(webFunnelRoot, "index.html");
   if (!fs.existsSync(shellPath)) {
     if (requireWebFunnelBuild) {
@@ -60,6 +63,10 @@ function registerWebFunnel(app, {
     "/create/",
     "/create/success",
     "/create/success/",
+    // The Etsy fulfilment landing shares the funnel SPA shell; the bundle
+    // routes on pathname to render the landing instead of the /create funnel.
+    "/etsy",
+    "/etsy/",
   ]) {
     app.get(route, sendShell);
   }
@@ -106,9 +113,7 @@ function registerStaticFileServing(
       ["/debug-og.html", "debug-og.html"],
       ["/debug-story.html", "debug-story.html"],
     ]) {
-      app.get(route, async (_request, reply) =>
-        reply.sendFile(fileName),
-      );
+      app.get(route, async (_request, reply) => reply.sendFile(fileName));
     }
   }
 

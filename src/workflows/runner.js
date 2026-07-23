@@ -47,6 +47,7 @@ const {
   blendVocals,
   polishVocal,
   encodeToAAC,
+  encodeToMp3,
 } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
 const { createHLSPlaylist } = require("../utils/hls");
@@ -63,20 +64,13 @@ const { createStepRegistry } = require("./steps");
 const { createGuideVocalSteps } = require("./steps/guide-vocal");
 const { createInstrumentalSteps } = require("./steps/instrumental");
 const { createLyricsSteps } = require("./steps/lyrics");
-const {
-  createMixSteps,
-  hydrateProviderCompleteAudio,
-} = require("./steps/mix");
+const { createMixSteps, hydrateProviderCompleteAudio } = require("./steps/mix");
 const { createMusicPlanSteps } = require("./steps/music-plan");
 const { createModerationSteps } = require("./steps/moderation");
-const {
-  createVoiceConversionSteps,
-} = require("./steps/voice-conversion");
+const { createVoiceConversionSteps } = require("./steps/voice-conversion");
 const { createWatermarkSteps } = require("./steps/watermark");
 const { createReadySteps } = require("./steps/ready");
-const {
-  createSunoTaskOrchestrator,
-} = require("./suno-task-orchestrator");
+const { createSunoTaskOrchestrator } = require("./suno-task-orchestrator");
 const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
@@ -130,10 +124,7 @@ const {
   shouldSkipStep,
   PERSONALIZED_VOICE_MODES,
 } = require("./render-contract");
-const {
-  classifyError,
-  PROVIDER_STEPS,
-} = require("./step-classification");
+const { classifyError, PROVIDER_STEPS } = require("./step-classification");
 const { createOrGetShareToken } = require("../services/share-service");
 const { upsertGiftIncident } = require("../services/gift-delivery-ops");
 const {
@@ -833,6 +824,88 @@ async function applyVocalPolish({ db, outputFile, versionDir, kind }) {
 }
 
 /**
+ * Compute the mp3 storage key that the mp3 serving route reads for this kind.
+ *
+ * The two routes derive their key DIFFERENTLY, so we mirror each exactly:
+ *   GET /full/:id.mp3    -> trackMasterKey({format:"mp3"})           -> .../master.mp3
+ *   GET /preview/:id.mp3 -> trackPreviewKey(...).replace(.m4a,.mp3)  -> .../preview.mp3
+ */
+function trackMp3Key({ track, trackVersion, kind }) {
+  if (kind === "preview") {
+    return trackPreviewKey({
+      userId: track.user_id,
+      trackId: track.id,
+      versionNum: trackVersion.version_num,
+    }).replace(/\.m4a$/, ".mp3");
+  }
+  return trackMasterKey({
+    userId: track.user_id,
+    trackId: track.id,
+    versionNum: trackVersion.version_num,
+    format: "mp3",
+  });
+}
+
+/**
+ * Transcode the finished master to MP3 and upload it under the exact key the
+ * mp3 serving route reads. Etsy buyers download MP3, so this artifact must
+ * exist for every rendered order.
+ *
+ * NON-FATAL: the m4a is the primary artifact; an mp3 transcode/upload failure
+ * must not fail the render (the mp3 can be backfilled). Mirrors the repo's
+ * "a delivery-email failure must not strand a paid, rendered order" philosophy.
+ * Idempotent: skips when the mp3 object already exists.
+ *
+ * @returns {Promise<string|null>} the uploaded key, or null if skipped/failed
+ */
+async function uploadTrackMasterMp3({
+  storageProvider,
+  versionDir,
+  track,
+  trackVersion,
+  kind,
+}) {
+  const audioFileName = kind === "preview" ? "preview.m4a" : "full.m4a";
+  const localAudioPath = path.join(versionDir, audioFileName);
+  const mp3Key = trackMp3Key({ track, trackVersion, kind });
+
+  try {
+    if (!fs.existsSync(localAudioPath)) {
+      return null;
+    }
+
+    if (
+      typeof storageProvider.objectExists === "function" &&
+      (await storageProvider.objectExists({ key: mp3Key }))
+    ) {
+      console.log(
+        `[JobRunner] MP3 already exists, skipping transcode (${kind}): ${mp3Key}`,
+      );
+      return mp3Key;
+    }
+
+    const localMp3Path = path.join(
+      versionDir,
+      kind === "preview" ? "preview.mp3" : "full.mp3",
+    );
+    await encodeToMp3(localAudioPath, localMp3Path);
+    await storageProvider.putFile({
+      key: mp3Key,
+      filePath: localMp3Path,
+      contentType: "audio/mpeg",
+    });
+    console.log(`[JobRunner] Uploaded ${kind} mp3 to S3: ${mp3Key}`);
+    return mp3Key;
+  } catch (mp3Err) {
+    console.error(
+      `[JobRunner] MP3 transcode/upload failed (non-fatal, ${kind}): ${mp3Err.message}. ` +
+        `M4A master is the primary artifact; mp3 (${mp3Key}) can be backfilled.`,
+    );
+    return null;
+  }
+}
+
+/**
  * Upload track outputs to S3 storage provider
  *
  * @param {Object} params - Upload parameters
@@ -880,6 +953,20 @@ async function uploadTrackOutputsToS3({
     });
     uploadedKeys.audioKey = audioKey;
     console.log(`[JobRunner] Uploaded ${kind} audio to S3: ${audioKey}`);
+
+    // Etsy buyers download MP3. Transcode + upload the mp3 variant under the
+    // exact key the mp3 serving route reads. Non-fatal: the m4a above is the
+    // primary artifact and the mp3 can be backfilled.
+    const mp3Key = await uploadTrackMasterMp3({
+      storageProvider,
+      versionDir,
+      track,
+      trackVersion,
+      kind,
+    });
+    if (mp3Key) {
+      uploadedKeys.mp3Key = mp3Key;
+    }
   }
 
   // Upload cover images if they exist
@@ -1490,16 +1577,15 @@ async function startJobRunner({
       path.join(versionDir, "suno_complete.mp3"),
       path.join(versionDir, "elevenlabs_complete.mp3"),
     ];
-    const hasProviderCompleteSourceArtifact = providerCompleteFallbackPaths.some(
-      (candidatePath) => {
+    const hasProviderCompleteSourceArtifact =
+      providerCompleteFallbackPaths.some((candidatePath) => {
         try {
           const stats = fs.statSync(candidatePath);
           return stats.isFile() && stats.size >= 90000;
         } catch (_err) {
           return false;
         }
-      },
-    );
+      });
     const hasProviderCompleteAudio =
       isProviderCompleteAudioPipeline(qualityContract.pipeline) &&
       (Boolean(getProviderAudioUrl(trackVersion)) ||
@@ -1603,9 +1689,7 @@ async function startJobRunner({
     if (!hasOutput) issues.push("missing_output_audio");
 
     const passed =
-      totalScore >= qualityThreshold &&
-      hasOutput &&
-      technicalScore >= 60;
+      totalScore >= qualityThreshold && hasOutput && technicalScore >= 60;
     return {
       passed,
       threshold: qualityThreshold,
@@ -3584,5 +3668,6 @@ module.exports = {
     applyVocalPolish,
     ensureRenderSharePreGeneration,
     resolveSunoPersonaForRenderImpl,
+    uploadTrackMasterMp3,
   },
 };

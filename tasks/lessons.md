@@ -3,10 +3,20 @@
 Patterns and rules to prevent repeated mistakes. Review at session start.
 
 - **External QA must be rebased onto current HEAD before implementation** — When a review cites an older commit, record that baseline and classify every finding as open, implemented-but-unproved, verified-behavior-needing-test, partial, or external with exact current evidence. Do not replay already-landed production fixes; add missing regression proof and change code only where the current behavior still fails.
+- **Payment origin is ledger provenance, not gift ownership** — Stripe and StoreKit grants must enter one fungible gift wallet. Reserve/finalize/cancel against the common reservation transaction; never infer which delivered gift to revoke from a purchase provider or refund notification.
+- **Notification failure is not content failure** — Exhausted SMS/email retries must preserve the generated gift, stable share, and wallet spend. Give the buyer an honest manual fallback and keep delivery stop separate from full gift cancellation.
 
 ---
 
 ## Session Rules
+
+### 2026-07-18 — int4 arithmetic in cleanup SQL crashed prod in a boot-loop (dual-engine divergence, no error boundary)
+
+**Trigger:** Railway "Deploy Crashed!" email for porizo/production. Prod 502'd continuously. Deploy logs: `error: integer out of range` (code `22003`, routine `int4mul`) from `cleanupExpiredWebFunnelState` (`web-funnel-cleanup.js:18`), fired by the `setInterval` at `server.js:3098`. The server booted, served a few requests, then died on the first cleanup tick — boot-loop.
+
+**Mistake:** Two compounding bugs. (1) `DELETE FROM rate_limits WHERE window_start_ms + (window_seconds * 1000) < ?` — `window_seconds` is `int4`, so `window_seconds * 1000` is computed in int4 space _before_ the bigint add. A long-window row (the 10-year lifetime cap, `315360000s`) overflows int4mul (`3.15e11 >> 2.1e9`) every tick. (2) The `setInterval(async () => {...})` callback had **no try/catch**, so that rejection became an `unhandledRejection` → Node 20's default policy terminated the process. The SQLite test suite could NOT catch it: SQLite integers are dynamically 64-bit, so the same query (and the test that literally inserts `window_seconds = 315360000`) passes on SQLite while Postgres throws.
+
+**Rule:** (a) In any SQL that multiplies/adds an `int4` column by a literal that can grow large, force 64-bit: `col * CAST(1000 AS BIGINT)` (portable to SQLite; `::bigint` is Postgres-only). ms-epoch columns are always `bigint` — never let an int4 factor into arithmetic that lands in a bigint column. (b) Every `setInterval`/`setTimeout` background job MUST wrap its body in try/catch and log non-fatally — a maintenance tick must never be able to crash the server. (c) Because tests run on SQLite and prod on Postgres, integer-range/arithmetic bugs are INVISIBLE to `node --test`. Verify range-sensitive SQL read-only against prod Postgres (`echo "SELECT ... <fixed expr> ..." | railway connect postgres`) before trusting it. (d) A green "DEPLOY SUCCESS + health 200" from a monitor proves only the deploy it watched — a LATER deploy (or a runtime timer) can still crash prod; re-check `railway status` / live health, not the last monitor line.
 
 ### 2026-07-17 — "No SELECT..FOR UPDATE" is not proof of a TOCTOU hole under Postgres ON CONFLICT
 
@@ -602,16 +612,25 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Rule:** Turnstile widget mode must match the frontend execution style — invisible-execution frontends need an `invisible` widget. Behind Cloudflare-proxied DNS, `TRUST_CLOUDFLARE_CLIENT_IP=true` is required prod config, not optional hardening. Verify with a REAL browser (simulator Safari works; type the URL manually — universal links hijack porizo.co links into the iOS app).
 
 ## 2026-07-17 — "Recovery" fixes must be verified end-to-end to the data, not to the UI
+
 - **Trigger:** Codex's C1 fix (paid-but-lost-song) reported "recoverable across devices"; verification found it's localStorage-only (same-browser) AND magic-link login never re-owns the guest order, so first-time buyers stay 404'd after signing in.
 - **Mistake:** A recovery UI can render a sign-in prompt, stop the infinite spinner, and pass its own tests while still never reaching the underlying record — because the ownership/merge link is in a different subsystem (orchestrator convergence at paid→rendering, keyed on a pre-verified email) that the login path doesn't touch.
 - **Rule:** For any "recover X" fix, trace the full chain from the new entry point (login/link) to the DB row it must reach, and confirm ownership/merge fires on THAT path — not just that the UI appears and tests pass. Cross-device claims specifically require a server-persisted or URL/cookie-carried handle, never localStorage alone.
 
 ## 2026-07-17 — Guest-order reclaim guardrail is the shell test, not account_status
+
 - **Trigger:** Building login-time guest→order reclaim to close C1. My first filter used `account_status='guest'`.
 - **Mistake:** The paid-transition convergence PROMOTES the buyer guest to `account_status='active'` (web-order-identity.js:60,104) even when it stays a shell. So a `guest`-status filter misses exactly the paid orders that need reclaiming.
 - **Rule:** Identify a reclaim-safe owner by the MERGE-SAFE SHELL test (no active auth provider except an email factor for the email being logged in) — mirroring the login `isSafeEmailShell` rule — never by account_status. This also prevents merging away a real account that has its own login factor.
 
 ## 2026-07-17 — Web funnel must send canonical occasion keys, not display labels
+
 - **Trigger:** Live guest test hung on the preview render; artwork job threw "No defaults defined for occasion: I Love You ❤️".
 - **Mistake:** buildTrackRequest passed state.answers.occasion (the emoji quiz label) straight to POST /tracks. iOS sends enum keys (i_love_you, birthday…); prod data confirmed only 1 label-form track existed — all from the funnel. The render/lyrics path tolerates free-text occasion so it looked fine, but the artwork path requires the exact enum key AND its own defaults-fallback was keyed the same way, so an unknown occasion threw twice and left the artwork barrier unreleased → render loop.
 - **Rule:** Any surface that creates tracks must send the canonical occasion enum key, not a human label. And enum-lookup fallbacks (getDefault, extractArtworkVars) must degrade to `custom` on an unknown key, never throw — a throw in a fire-and-forget/barrier path silently hangs the pipeline.
+
+## 2026-07-18 — Purchase origin must not create a second class of gift credit
+
+- **Trigger:** Planning web recipient delivery on top of the existing iOS gift-order lifecycle.
+- **Mistake:** Proposed `funding_source=web_order` semantics on `gift_orders` to avoid a second debit and an incorrect cancellation refund. That would make a Stripe-bought gift credit behave differently from the same wallet credit bought with StoreKit.
+- **Rule:** Gift credits are fungible across web and app. Payment rails may differ in the immutable purchase ledger, but consumption must converge on the same gift-wallet reservation → gift-funded content → gift finalization lifecycle. Solve double-spend and refund risks by reusing/fixing the shared reservation state machine, not by branching credit semantics on purchase origin.

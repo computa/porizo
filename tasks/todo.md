@@ -1,4 +1,158 @@
-# Checkout crash + buyer-name capture (2026-07-18) [ACTIVE]
+# Etsy buyer landing (/etsy?code=) + offer-step branch (2026-07-23) [DONE — reviewed]
+
+**Final review (opus `etsy-final-review`): VERIFIED SAFE, no P0/P1.** App.tsx
+session-bootstrap extraction confirmed behavior-identical line-by-line (the P1 risk
+area); landing copy policy-compliant (zero prices/links/signup/QR, every dead-end
+points to Etsy order messages); /etsy shell loads assets correctly despite the
+/create/ vite base; flag-off degrades to warm "unavailable"; session-before-redeem
+ordering satisfies the FK contract; paymarks gating blast radius contained (Offer.tsx
+is the only consumer). L1 (countByStatus enum-seeding) FIXED + 17/17 re-verified.
+Reload UX: ship as-is per review — logged in tasks/deferred-register.md with
+un-defer trigger "reload confusion in Etsy support volume". Final gate CLEARED:
+full backend suite **3399 tests, 3375 pass, 0 fail, 24 skipped** (pg-gated,
+pre-existing) — up 15 tests from the pre-round baseline (admin routes + bootstrap),
+zero regressions. Option-2 funnel is CODE-COMPLETE and uncommitted.
+
+**Why:** Option 2 (plan §0.7.5). Etsy buyer lands on /etsy?code=PZ-XXXX-XXXX →
+validate → guest session → redeem (1 gift credit) → hand off to existing /create quiz →
+offer step uses the ALREADY-BUILT gift-credit branch (walletBalance>0 → startWalletOrder).
+Owned files: web-funnel/, public/, src/plugins/http-bootstrap.js (page-serving only).
+HARD: pure fulfilment surface — NO prices, NO upsell, NO nav, NO signup wall, NO QR.
+Do NOT commit.
+
+## Key finding
+
+The offer-step gift-credit branch already exists end-to-end (Offer.tsx `hasCredit`/
+`onUseCredit` → App `startWalletOrder` → POST /web/orders {gift_credit} + Idempotency-Key;
+walletBalance comes from GET /web/products). So task #2 = verify + a targeted test, NOT
+a rebuild. Redeem grants a real gift credit to the guest user; the existing wallet path
+picks it up automatically when /create loads on the same guest session.
+
+## Plan (TDD)
+
+1. [x] Extracted shared guest-session bootstrap (session-bootstrap.ts: TOKEN_KEY,
+       REFRESH_TOKEN_KEY, createGuestSession, exchangeWebSession, readCookie). App.tsx
+       now imports these (consolidated the duplicate rather than forking). 6 tests green.
+2. [x] api/etsy.ts: normalizeCode, landingStateForCode (pre-check), landingStateForError
+       (redeem failure map incl. funnel-disabled NOT_FOUND→unavailable vs bad-code
+       404→invalid), fetchEtsyCodeCheck, redeemLandingState. 17 tests green.
+3. [x] EtsyLanding.tsx (pure fulfilment: no price/nav/upsell/QR; wordmark is plain text,
+       0 links). Warm copy for redeemed/void/invalid/rate_limited/unavailable/error. 10
+       tests green. Wired by EtsyEntry.tsx (real client + guest session + location.assign).
+4. [x] main.tsx routes pathname /etsy → <EtsyEntry/>, else <App/>.
+5. [x] http-bootstrap.js serves shell at /etsy and /etsy/ (page-serving only). Covered in
+       test/http-bootstrap.test.js assertWebFunnelContract. 15 backend tests green.
+6. [x] Offer-branch test: walletBalance>0 + no products renders credit CTA, zero currency
+       shown. FIXED a real bug: paymarks "Secured by Stripe" line was rendering on the
+       credit path — now gated behind !hasCredit (matches account-note).
+7. [x] Full vitest 165/165; build clean (tsc+lint+vite+bundle-check); JS bundle 80,746 B
+       gzip (well under 153,600 limit). Removed two now-unused eslint-disable directives
+       in App.tsx (side effect of consolidating createGuestSession to a stable import).
+
+## Reload/state-persistence decision (document for lead)
+
+The landing redeems ONCE then navigates to /create. If the buyer reloads /etsy?code= after
+redeeming, the pre-check GET shows status="redeemed"; if it was THEIR code on the same
+guest session, redeem is idempotent ({idempotent:true}) so we still forward to /create.
+A different user's redeemed code → warm "already used, contact via Etsy" state. Worst case
+(lost guest session mid-flow) the buyer re-enters the code; idempotency saves them.
+
+---
+
+# Admin Etsy redemption-code endpoints — Gate A instrumentation (2026-07-23) [ACTIVE]
+
+TDD. Owned files only: src/routes/admin.js, src/routes/admin/etsy-codes.js (new),
+src/services/etsy-redemption-service.js (add list/stats), test/ (new). Do NOT commit.
+
+## Endpoints (under /admin/dashboard/* so the global admin auth hook covers them)
+
+- [x] POST /admin/dashboard/etsy/codes/mint {batch_label, count} -> {codes, batch_label}. Validate count 1-1000.
+- [x] GET /admin/dashboard/etsy/codes?batch_label=&status=&limit=&offset= -> {codes[], counts{unredeemed,redeemed,void}, limit, offset}
+- [x] POST /admin/dashboard/etsy/codes/void {code, reason} -> voidCode result; CODE_NOT_VOIDABLE -> 409
+
+## Plan
+
+1. [x] Add listCodes + countByStatus to etsy-redemption-service.js
+2. [x] New src/routes/admin/etsy-codes.js building wallet repo + etsy service from db
+3. [x] Wire registration in admin.js (mirrors webhook-health)
+4. [x] test/admin-etsy-codes-routes.test.js: 9 tests — mint happy + invalid count 400; list
+       filtered w/ counts + status filter; void happy + already-redeemed 409; UNAUTH 401 x3
+5. [x] New test 9/9 green; etsy-redemption service 8/8 green (no regression); eslint clean
+
+---
+
+# Etsy redemption codes — mint/validate/burn (2026-07-21) [ACTIVE]
+
+**Why:** Option 2 decided (owner): Etsy buyer gets a one-time code → `/etsy?code=` →
+existing `/create` quiz → `gift_credit` order path. Codes are the ONLY new backend
+component (plan §0.7.5, `docs/plans/2026-07-21-001-feat-etsy-wedge-listing-plan.md`).
+
+## Plan (TDD)
+
+- [x] Study seams: gift-reservation-service grant path, existing table conventions,
+      how `/web/session` guests work (code must be redeemable as guest)
+- [x] Migration: `etsy_redemption_codes` table (pg + sqlite) — 136 both engines
+- [x] Tests FIRST (`test/services/etsy-redemption.test.js`) — 8 tests, watched them fail,
+      then green. Note: sql.js adapter has no transaction queueing, so the concurrency
+      test asserts the one-credit/one-owner invariant; loser-error-class coverage is
+      pg-gated territory (same convention as gift-wallet-postgres-concurrency.test.js)
+- [x] Service `src/services/etsy-redemption-service.js`: mintBatch / validate / redeem /
+      voidCode — 8/8 green
+- [x] Routes (kraken): POST `/web/etsy/redeem` + GET `/web/etsy/code/:code` in new
+      `src/routes/web-etsy.js`, registered after requireUserId in server.js. Guest-session
+      aware (requireUserId resolves guest token), rate-limited (`etsy_redeem_attempts`,
+      10/hr by ip), gated on `web_funnel_enabled`. Error map: NOT_FOUND→404,
+      ALREADY_REDEEMED→409, VOID→410, no session→401, cap→429. 9/9 green.
+      Plan Task 3: GET `/full/:trackVersionId.mp3` mirroring `/full/.m4a` with mp3 key
+      (`trackMasterKey format:"mp3"`, contentType audio/mpeg, byte-flow asserted). 4/4 green.
+      Tests: `test/routes/web-etsy.test.js` + `test/routes/full-song-mp3.test.js`. Lint clean.
+      NOTE (follow-up, out of scope): render pipeline uploads only `.m4a` masters
+      (`runner.js:869`) — no `master.mp3` object exists in storage, so the mp3 full route
+      (and the pre-existing `/preview/.mp3`) will 502/404 in prod until a transcode+upload
+      step writes the mp3. Route is correct; the artifact is missing.
+- [x] Code review (opus agent): NO P0/P1, 3 LOW — all reconciled. LOW-1 (provision
+      user before redeem) → contract comment on redeem + relayed to route builder,
+      covered by its guest-session route test. LOW-3 → mintBatch now all-or-nothing
+      (collision catch OUTSIDE the txn: pg aborts the whole txn on constraint error,
+      per-row catch inside would break). 8/8 still green after fixes; I re-ran all 21
+      tests across the three files myself: 21/21.
+- [/] Full suite regression run (background bjxvpy2aa) — pending result
+- [x] ⚠️ BLOCKING (plan Task 3b) BUILT (opus `etsy-mp3-artifact`, TDD): runner upload
+      step transcodes finished audio → .mp3 (new `encodeToMp3` in ffmpeg.js, mirrors
+      encodeToAAC; rest of that file's diff is prettier reflow) and uploads under the
+      exact keys both routes read. Tests: route-key == uploaded-key (preview AND full),
+      idempotent skip, NON-FATAL failure, missing-local no-op. I re-ran all four Etsy
+      suites myself: 27/27.
+- [x] 3b review (opus `etsy-3b-review`): **SHIP IT, no P0/P1.** All six risk areas
+      verified against real code: non-fatal wrapper covers every failure source (awaited;
+      m4a committed before mp3 starts — Jul-18 boot-loop class absent); READY barrier
+      can't be failed by mp3 (inline ~2-5s libmp3lame latency accepted for
+      artifact-before-ready correctness); exists-check safe on both providers; encodeToMp3
+      args correct (192k/44.1k/stereo); no temp collisions; tests exercise the REAL
+      runner fn via runner._testing and assert results not just no-throw; worker parity
+      clean. P3 cosmetic log nit only — not acted on.
+      KNOWN BEHAVIOR (deliberate): mp3 production is S3-gated like the whole upload step —
+      local-fs dev never produces .mp3 artifacts; the mp3 routes 404 in local dev.
+- [x] Full suite regression: **3384 tests, 3360 pass, 0 fail, 24 skipped** (pg-gated
+      skips, pre-existing). ~9.5 min run — first attempt hadn't died, it was just slow;
+      redundant rerun stopped. Zero regressions from the whole Etsy slice.
+      Post-deploy verify unchanged: HEAD the real mp3 object key for a fresh render —
+      a verified endpoint is not a verified artifact.
+- [/] Admin mint/list/void endpoints → opus `etsy-admin-build` (TDD; owns admin.js +
+  new tests ONLY; must follow existing admin jwt auth; unauthenticated-rejected is a
+  required test for all three endpoints)
+- [/] `/etsy?code=` landing + offer-step gift-credit branch → opus `etsy-landing-build`
+  (TDD; owns web-funnel/ + public/ + server.js page-serving only). HARD constraints
+  relayed: pure fulfilment surface — no pricing/nav/upsell/QR/signup wall; guest
+  redeemable; warm error states. Leans on redeem same-user idempotency for reload
+  recovery. Review pass (same loop) when both land.
+
+Out of scope here: `/etsy` landing page UI + offer-step branch (next task), listing
+creative, shop setup.
+
+---
+
+# Checkout crash + buyer-name capture (2026-07-18) [DONE — shipped & verified in prod]
 
 **Why:** E2E test-purchase on prod surfaced two real bugs:
 

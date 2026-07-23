@@ -49,11 +49,20 @@ function createWebFunnelFixture() {
   fs.mkdirSync(path.join(root, "audio"));
   fs.writeFileSync(
     path.join(root, "index.html"),
-    '<!doctype html><html><body><main>Who\u2019s this song for?</main></body></html>',
+    "<!doctype html><html><body><main>Who\u2019s this song for?</main></body></html>",
   );
-  fs.writeFileSync(path.join(root, "assets", "app-a1b2c3d4.js"), "window.PORIZO = true;");
-  fs.writeFileSync(path.join(root, "fonts", "brand.woff2"), Buffer.from("font-fixture"));
-  fs.writeFileSync(path.join(root, "audio", "preview.mp3"), Buffer.from("audio-fixture"));
+  fs.writeFileSync(
+    path.join(root, "assets", "app-a1b2c3d4.js"),
+    "window.PORIZO = true;",
+  );
+  fs.writeFileSync(
+    path.join(root, "fonts", "brand.woff2"),
+    Buffer.from("font-fixture"),
+  );
+  fs.writeFileSync(
+    path.join(root, "audio", "preview.mp3"),
+    Buffer.from("audio-fixture"),
+  );
   return root;
 }
 
@@ -78,6 +87,10 @@ async function assertWebFunnelContract({ enableDebugRoutes }) {
     "/create?occasion=Birthday",
     "/create/success?session_id=a.b",
     "/create/success/",
+    // The Etsy fulfilment landing shares the funnel SPA shell.
+    "/etsy",
+    "/etsy/",
+    "/etsy?code=PZ-ABCD-2345",
   ]) {
     const response = await app.inject({ method: "GET", url });
     assert.equal(response.statusCode, 200, url);
@@ -137,12 +150,18 @@ async function assertWebFunnelContract({ enableDebugRoutes }) {
     assert.equal(response.body, "", url);
   }
 
-  const player = await app.inject({ method: "GET", url: "/web-player/index.html" });
+  const player = await app.inject({
+    method: "GET",
+    url: "/web-player/index.html",
+  });
   assert.equal(player.statusCode, 200);
   if (enableDebugRoutes) {
     const debug = await app.inject({ method: "GET", url: "/debug-og.html" });
     assert.equal(debug.statusCode, 200);
-    const icon = await app.inject({ method: "GET", url: "/apple-touch-icon.png" });
+    const icon = await app.inject({
+      method: "GET",
+      url: "/apple-touch-icon.png",
+    });
     assert.equal(icon.statusCode, 200);
     assert.equal(icon.body, "icon-fixture");
   }
@@ -222,8 +241,8 @@ test("HTTP bootstrap serves Apple App Site Association as JSON", async () => {
     "/s/*",
     "/poem/*",
     "/create*",
-      "/verify-email*",
-      "/auth/magic/ios*",
+    "/verify-email*",
+    "/auth/magic/ios*",
   ]);
   assert.deepEqual(response.json().appclips.apps, [
     "5VCH6937XM.porizo.ios.app.PorizoApp.Clip",
@@ -250,9 +269,15 @@ test("HTTP bootstrap applies CORS and Helmet headers", async () => {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.equal(response.headers["access-control-allow-origin"], "https://app.porizo.co");
+    assert.equal(
+      response.headers["access-control-allow-origin"],
+      "https://app.porizo.co",
+    );
     assert.equal(response.headers["x-content-type-options"], "nosniff");
-    assert.equal(response.headers["cross-origin-resource-policy"], "cross-origin");
+    assert.equal(
+      response.headers["cross-origin-resource-policy"],
+      "cross-origin",
+    );
   } finally {
     restoreEnv("CORS_ORIGIN", previousCorsOrigin);
   }
@@ -266,7 +291,8 @@ test("HTTP bootstrap fails production startup when CORS_ORIGIN is missing", asyn
   try {
     app = createFastifyApp();
     assert.throws(
-      () => registerStaticAndSecurityBootstrap(app, { enableDebugRoutes: false }),
+      () =>
+        registerStaticAndSecurityBootstrap(app, { enableDebugRoutes: false }),
       /CORS_ORIGIN must be set in production/,
     );
   } finally {

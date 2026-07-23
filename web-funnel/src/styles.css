@@ -237,6 +237,23 @@
   text-align: center;
 }
 
+/* Etsy fulfilment landing — a pure delivery surface. No storefront chrome:
+   the wordmark is plain text, never a link back into the store. */
+.etsy-landing {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-5);
+}
+
+.etsy-brand {
+  color: var(--ink-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-question);
+}
+
 .status-card,
 .offer-card,
 .link-card,
@@ -519,31 +536,52 @@
 }
 
 @keyframes orbit {
-  to { transform: rotate(1turn); }
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 @keyframes placeholder-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes dim-ground {
-  from { background-color: var(--bg); }
-  to { background-color: var(--ink-deep); }
+  from {
+    background-color: var(--bg);
+  }
+  to {
+    background-color: var(--ink-deep);
+  }
 }
 
 @keyframes lamplight-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes dim-content {
-  0%, 30% { opacity: 0; }
-  100% { opacity: 1; }
+  0%,
+  30% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 @keyframes cta-pulse {
-  50% { box-shadow: var(--shadow-pulse); }
+  50% {
+    box-shadow: var(--shadow-pulse);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
