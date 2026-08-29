@@ -3,7 +3,6 @@ import { registerRoot, Composition } from "remotion";
 import { Video1RememberWhen } from "./videos/Video1RememberWhen";
 import { Video2SayItDifferent } from "./videos/Video2SayItDifferent";
 import { Video3ThatSummer } from "./videos/Video3ThatSummer";
-import { IntroVideo } from "./videos/IntroVideo";
 import { IntroVideoV2 } from "./videos/IntroVideoV2";
 import { Hook25 } from "./videos/Hook25";
 import { Video1RememberWhenV2 } from "./videos/Video1RememberWhenV2";
@@ -59,24 +58,6 @@ const RemotionRoot: React.FC = () => {
       <Composition
         id="Intro-Video-V2-Landscape"
         component={IntroVideoV2}
-        durationInFrames={40 * FPS}
-        fps={FPS}
-        width={dimensions.landscape.width}
-        height={dimensions.landscape.height}
-      />
-
-      {/* ═══ INTRO: App Introduction Video (deprecated — voice-clone copy, do not publish) ═══ */}
-      <Composition
-        id="Intro-Video"
-        component={IntroVideo}
-        durationInFrames={40 * FPS}
-        fps={FPS}
-        width={dimensions.vertical.width}
-        height={dimensions.vertical.height}
-      />
-      <Composition
-        id="Intro-Video-Landscape"
-        component={IntroVideo}
         durationInFrames={40 * FPS}
         fps={FPS}
         width={dimensions.landscape.width}
