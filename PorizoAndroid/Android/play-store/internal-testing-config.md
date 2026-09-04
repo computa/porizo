@@ -73,6 +73,8 @@ Before promoting an internal-testing build:
   `https://www.porizo.co/.well-known/assetlinks.json`, and any fallback share
   host still enabled in the manifest.
 - Play Console products above exist and match backend product configuration.
+- Google OAuth Web Client ID is configured in the Android build and the same
+  value is deployed as backend `GOOGLE_CLIENT_ID`.
 - OneSignal Android/FCM credentials are configured.
 - Physical-device smoke test covers auth, create/render, library playback,
   app-link claim, push token registration, subscription sync, and voice

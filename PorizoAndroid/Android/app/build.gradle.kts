@@ -9,9 +9,20 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val localPropertiesFile = file("keystore.properties")
+val localProperties = Properties().also { properties ->
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use(properties::load)
+    }
+}
+val releaseSigningPropertyNames = listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+val hasReleaseSigningProperties: Boolean =
+    localPropertiesFile.isFile &&
+        releaseSigningPropertyNames.all { name -> !localProperties.getProperty(name).isNullOrBlank() }
 val googleWebClientId: String =
     providers.gradleProperty("porizoGoogleWebClientId")
         .orElse(providers.environmentVariable("PORIZO_GOOGLE_WEB_CLIENT_ID"))
+        .orElse(localProperties.getProperty("porizoGoogleWebClientId") ?: "")
         .orElse("")
         .get()
 val allowDebugReleaseSigning: Boolean =
@@ -60,15 +71,12 @@ android {
     }
 
     signingConfigs {
-        val keystorePropertiesFile = file("keystore.properties")
         create("release") {
-            if (keystorePropertiesFile.isFile) {
-                val keystoreProperties = Properties()
-                keystoreProperties.load(keystorePropertiesFile.inputStream())
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
+            if (hasReleaseSigningProperties) {
+                keyAlias = localProperties.getProperty("keyAlias")
+                keyPassword = localProperties.getProperty("keyPassword")
+                storeFile = file(localProperties.getProperty("storeFile"))
+                storePassword = localProperties.getProperty("storePassword")
             } else {
                 keyAlias = signingConfigs.getByName("debug").keyAlias
                 keyPassword = signingConfigs.getByName("debug").keyPassword
@@ -96,11 +104,17 @@ gradle.taskGraph.whenReady {
     val requestsReleaseArtifact = allTasks.any { task ->
         task.path in setOf(":app:assembleRelease", ":app:bundleRelease")
     }
-    val hasReleaseKeystore = file("keystore.properties").isFile
-    if (requestsReleaseArtifact && !hasReleaseKeystore && !allowDebugReleaseSigning) {
+    if (requestsReleaseArtifact && !hasReleaseSigningProperties && !allowDebugReleaseSigning) {
         throw GradleException(
-            "Release signing requires app/keystore.properties. " +
+            "Release signing requires keyAlias, keyPassword, storeFile, and storePassword in app/keystore.properties. " +
                 "For local packaging smoke tests only, rerun with -PallowDebugReleaseSigning=true.",
+        )
+    }
+    if (requestsReleaseArtifact && googleWebClientId.isBlank()) {
+        throw GradleException(
+            "Release builds require a Google OAuth Web Client ID. " +
+                "Set porizoGoogleWebClientId in app/keystore.properties, pass " +
+                "-PporizoGoogleWebClientId=..., or export PORIZO_GOOGLE_WEB_CLIENT_ID.",
         )
     }
 }

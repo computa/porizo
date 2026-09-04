@@ -29,6 +29,13 @@
   Android, with legacy local token migration.
 - Settings exposes native readiness states for secure storage, voice enrollment recording,
   push, Play Billing, App Links, and release signing before phone QA.
+- Google Sign-In is wired through Android Credential Manager and backend
+  `POST /auth/social`. Debug builds keep running without credentials, but release
+  APK/AAB tasks fail unless a Google OAuth Web Client ID is supplied through
+  `app/keystore.properties` as `porizoGoogleWebClientId`, Gradle property
+  `-PporizoGoogleWebClientId=...`, or `PORIZO_GOOGLE_WEB_CLIENT_ID`.
+- Backend Google Sign-In validation requires the matching OAuth Web Client ID in
+  `GOOGLE_CLIENT_ID`; the Android client ID and backend audience must match.
 - Play Billing 9.1 is wired for subscription product query, purchase launch,
   active-purchase token lookup, backend `POST /billing/receipt/google` sync, and
   entitlement refresh. Real purchases still need Play Console products and a
@@ -58,7 +65,8 @@
 
 - `:app:assembleDebug` succeeds.
 - `aapt dump badging` reports package `com.porizo.app`, label `Porizo`, versionCode `1`, and versionName `0.1.0`.
-- `:app:assembleRelease` and `:app:bundleRelease` succeed on a signing-configured machine.
+- `:app:assembleRelease` and `:app:bundleRelease` succeed on a signing-configured
+  machine with `porizoGoogleWebClientId` or `PORIZO_GOOGLE_WEB_CLIENT_ID` set.
 - ADB lists the physical phone as `device`, not `unauthorized` or empty.
 - Smoke test auth, secure token persistence across restart, create draft recovery,
   render auto-polling, app-link claim routing, share claim errors, billing receipt

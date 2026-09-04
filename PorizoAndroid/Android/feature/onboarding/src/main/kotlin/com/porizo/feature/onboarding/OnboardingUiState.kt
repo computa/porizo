@@ -12,7 +12,10 @@ enum class OnboardingStage {
 
 data class OnboardingSuggestion(
     val title: String,
-    val detail: String,
+    val emotionalAngle: String,
+    val previewLine: String,
+    val detail: String = emotionalAngle,
+    val source: String = "template",
 )
 
 data class OnboardingResult(
@@ -28,7 +31,10 @@ data class OnboardingResult(
 data class OnboardingUiState(
     val stage: OnboardingStage = OnboardingStage.Splash,
     val node: OnboardingNode,
+    val currentNodeId: String,
     val question: String,
+    val supportingText: String? = null,
+    val selectedValues: Set<String> = emptySet(),
     val draftText: String = "",
     val recipientName: String? = null,
     val relationshipType: String? = null,
