@@ -90,6 +90,7 @@ async function deleteStoragePrefix(storageProvider, prefix, seenPrefixes) {
 async function deleteAccountStorageArtifacts({
   storageProvider,
   userId,
+  prefixes: explicitPrefixes = null,
   logger = console,
 } = {}) {
   if (!storageProvider) {
@@ -104,7 +105,9 @@ async function deleteAccountStorageArtifacts({
     throw new Error("Storage provider cannot delete account deletion artifacts");
   }
 
-  const prefixes = buildAccountDeletionStoragePrefixes(userId);
+  const prefixes = Array.isArray(explicitPrefixes)
+    ? explicitPrefixes
+    : buildAccountDeletionStoragePrefixes(userId);
   const seenPrefixes = new Set();
   const deletedKeys = [];
   let prefixesVisited = 0;

@@ -1,5 +1,13 @@
 # Deferred Register
 
+## Etsy mp3 master artifact: live-render verification (2026-07-27)
+
+- **Why deferred:** The mp3-upload path (`uploadTrackMasterMp3`, `/preview|/full/:id.mp3`) is **code-verified with live prod signals** — storage+serving works end-to-end (`/preview/:id.m4a` → 200, audio/mp4, 1.9MB real bytes on a real render), the mp3 route is correctly key-wired (deterministic 404 on missing object, not a 500), and `track_artifacts` exists + is queryable in prod (empty: every existing render predates the mp3 code). The ONE unproven link — that `uploadTrackMasterMp3` produces a _valid playable mp3 object_ — only executes inside the render pipeline, which is Turnstile-gated. No existing artifact to inspect; the render cannot be scripted (real Turnstile) and prod session is minted lazily mid-quiz. Forcing it means a full manual prod browser quiz run; the natural, free, real-path verification is the first real Etsy order.
+- **Un-defer trigger:** first render after 2026-07-27 deploy (first real Etsy order, or any new prod preview/full render) → check `SELECT kind,status,storage_key,byte_length FROM track_artifacts WHERE kind IN ('preview_mp3','full_mp3')` shows a `ready` row, then `GET /preview/:id.mp3` serves 200 audio/mpeg with bytes>0. If it 404s/500s or the row is `failed`, un-defer immediately.
+- **Note:** 92 pre-existing `full_ready` renders have no `.mp3` (predate the code) — but no Etsy buyer hits them: a redemption runs a _fresh_ quiz → _new_ render → mp3 produced. The gap is inert for the wedge.
+- **Source:** Step C of A→B→C launch, 2026-07-27.
+- **Status:** code-verified; live-artifact observation pending first post-deploy render.
+
 Consciously deferred findings — each with why, an un-defer trigger, and status.
 
 ## 2026-07-16 — Rate-limiter concurrency test on real Postgres (review P1-2)

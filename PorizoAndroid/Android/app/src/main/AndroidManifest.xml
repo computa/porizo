@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <application
+        android:name=".PorizoApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Porizo"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="false">
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|mnc|colorMode|density|fontScale|fontWeightAdjustment|keyboard|layoutDirection|locale|mcc|navigation|smallestScreenSize|touchscreen|uiMode"
+            android:exported="true"
+            android:theme="@style/Theme.Porizo"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/s/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/play/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/p/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/poem/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/poem-share/" />
+                <data android:scheme="https" android:host="porizo.co" android:pathPrefix="/receiver-handoff/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/s/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/play/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/p/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/poem/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/poem-share/" />
+                <data android:scheme="https" android:host="www.porizo.co" android:pathPrefix="/receiver-handoff/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/s/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/play/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/p/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/poem/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/poem-share/" />
+                <data android:scheme="https" android:host="porizo.app" android:pathPrefix="/receiver-handoff/" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="auth.porizo.co" android:path="/auth/magic/android" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="porizo" android:host="s" />
+                <data android:scheme="porizo" android:host="share" />
+                <data android:scheme="porizo" android:host="play" />
+                <data android:scheme="porizo" android:host="receiver-handoff" />
+                <data android:scheme="porizo" android:host="poem-share" />
+                <data android:scheme="porizo" android:host="poem" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="porizo" android:host="auth" android:path="/magic/resume" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

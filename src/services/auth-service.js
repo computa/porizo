@@ -13,6 +13,12 @@ const {
   createAccountDeletionRepository,
 } = require("../database/account-deletion-repository");
 const {
+  createAuthCredentialRepository,
+} = require("../database/auth-credential-repository");
+const {
+  createAuthProfileRepository,
+} = require("../database/auth-profile-repository");
+const {
   createAuthSessionRepository,
 } = require("../database/auth-session-repository");
 const {
@@ -28,6 +34,7 @@ const {
   createGdprDataExportRepository,
 } = require("../database/gdpr-data-export-repository");
 const { createGdprAuditRepository } = require("../database/gdpr-audit-repository");
+const { createPreparedDbFromQuery } = require("../utils/db-adapter");
 const {
   revokeAllEnrollmentSessionTokensForUser,
 } = require("./enrollment-session-service");
@@ -39,7 +46,12 @@ const {
   listProviderProfilesForUser,
   softDeleteProviderProfilesForUser,
 } = require("./voice-provider-profile-service");
-const { identityHash } = require("./identity-service");
+const identityService = require("./identity-service");
+const { identityHash } = identityService;
+
+function changeCount(result) {
+  return Number(result?.changes ?? result?.rowCount ?? 0);
+}
 
 // Validate required environment variables
 function getJwtSecret() {
@@ -165,6 +177,16 @@ function getGdprDataExportRepository() {
     gdprDataExportRepository = createGdprDataExportRepository(db);
   }
   return gdprDataExportRepository;
+}
+
+async function runAuthAccountTransaction(callback) {
+  if (!db || typeof db.transaction !== "function") {
+    throw new Error("Auth account mutation requires database transaction support");
+  }
+  return db.transaction(async (query) => {
+    const txDb = createPreparedDbFromQuery(query, db);
+    return callback(txDb);
+  });
 }
 
 // ==================== PASSWORD HASHING ====================
@@ -734,6 +756,51 @@ async function invalidateAllPasswordResetTokens(userId) {
   });
 }
 
+async function completePasswordReset({
+  rawToken,
+  passwordHash,
+  ipAddress = null,
+}) {
+  const tokenHash = hashToken(rawToken);
+
+  return runAuthAccountTransaction(async (txDb) => {
+    const oneTimeTokenRepository = createAuthOneTimeTokenRepository(txDb);
+    const credentialRepository = createAuthCredentialRepository(txDb);
+    const refreshTokenRepository = createAuthRefreshTokenRepository(txDb);
+    const sessionRepository = createAuthSessionRepository(txDb);
+    const securityRepository = createAuthSecurityRepository(txDb);
+
+    const token = await oneTimeTokenRepository.consumeOneTimeToken({
+      tokenType: "password_reset",
+      tokenHash,
+    });
+    const userId = token.user_id;
+
+    const credentialUpdate = await credentialRepository.updatePasswordCredential(
+      userId,
+      passwordHash,
+    );
+    if (changeCount(credentialUpdate) !== 1) {
+      throw new Error("Password credential not found for reset token user");
+    }
+    await oneTimeTokenRepository.invalidateActiveTokensForUser({
+      tokenType: "password_reset",
+      userId,
+    });
+    await refreshTokenRepository.revokeActiveTokensForUser(userId);
+    await refreshTokenRepository.compromiseActiveTokenFamiliesForUser(userId);
+    await sessionRepository.revokeActiveSessionsForUser(userId);
+    await securityRepository.insertAuthEvent({
+      id: generateId("evt"),
+      userId,
+      eventType: "password_reset_completed",
+      ipAddress,
+    });
+
+    return { userId };
+  });
+}
+
 // ==================== EMAIL VERIFICATION TOKENS ====================
 
 /**
@@ -791,6 +858,47 @@ async function markEmailVerificationTokenUsed(tokenId) {
   await getAuthOneTimeTokenRepository().markTokenUsed({
     tokenType: "email_verification",
     tokenId,
+  });
+}
+
+async function completeEmailVerification({
+  rawToken,
+  ipAddress = null,
+}) {
+  const tokenHash = hashToken(rawToken);
+
+  return runAuthAccountTransaction(async (txDb) => {
+    const oneTimeTokenRepository = createAuthOneTimeTokenRepository(txDb);
+    const profileRepository = createAuthProfileRepository(txDb);
+    const securityRepository = createAuthSecurityRepository(txDb);
+
+    const token = await oneTimeTokenRepository.consumeOneTimeToken({
+      tokenType: "email_verification",
+      tokenHash,
+    });
+    const userId = token.user_id;
+    const emailToVerify =
+      token.email_normalized ||
+      (await profileRepository.findUserEmail(userId))?.email;
+
+    if (emailToVerify) {
+      await identityService.verifyContact(
+        txDb,
+        userId,
+        "email",
+        emailToVerify,
+        "email_token",
+      );
+    }
+
+    await securityRepository.insertAuthEvent({
+      id: generateId("evt"),
+      userId,
+      eventType: "email_verified",
+      ipAddress,
+    });
+
+    return { userId, email: emailToVerify || null };
   });
 }
 
@@ -1239,12 +1347,14 @@ module.exports = {
   // Password reset
   createPasswordResetToken,
   verifyPasswordResetToken,
+  completePasswordReset,
   markPasswordResetTokenUsed,
   invalidateAllPasswordResetTokens,
 
   // Email verification
   createEmailVerificationToken,
   verifyEmailVerificationToken,
+  completeEmailVerification,
   markEmailVerificationTokenUsed,
   invalidateEmailVerificationTokens,
 

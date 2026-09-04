@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warm Canvas coral, matching the iOS AppIcon background (#D8643F). -->
+    <color name="porizo_icon_background">#D8643F</color>
+</resources>

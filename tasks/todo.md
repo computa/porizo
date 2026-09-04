@@ -762,3 +762,68 @@ Turnstile) AND prod session is minted lazily mid-quiz. Only a full prod browser 
 triggers a render. Options given to owner: (1) drive full prod quiz now (~cents), (2)
 defer to first real order/preview (recommended — free, real path), (3) wait. Code +
 infra verified; only the live-artifact observation remains.
+---
+
+# ACTIVE TASK: Android UF1 foundation + retoken loop (Gate A spike) — started 2026-07-02
+
+**Target:** `PorizoAndroid/` Skip app on `emulator-5554`.
+**Plan:** `docs/plans/2026-07-01-001-feat-android-design-replica-fidelity-plan.md` (UF1).
+**Loop:** implement → build/install on emulator → screenshot-review → curate issues → fix → verify.
+
+## Verified ground truth (2026-07-02)
+
+- Spike = 10 Swift files; 29 View structs in one 2773-line `ContentView.swift`. Zero `DesignTokens`/`Fraunces`/`.ttf` (clean slate).
+- **CRITICAL:** iOS `DesignTokens.swift` colors are asset-catalog-backed (`Color("Colors/Gold")`), NOT hex literals. Skip does NOT read iOS asset catalogs → must port RESOLVED hex from `PorizoApp/Assets.xcassets/Colors/*.colorset` (27 colorsets, each with light+dark appearance). e.g. Gold = light #E07850 / dark #E88A65.
+- `skip 1.9.4` on PATH; `emulator-5554` live.
+
+## Plan
+
+- [ ] 1. Extract all 27 colorsets' light+dark hex (subagent) → color table
+- [ ] 2. Create `Sources/PorizoSkipSpike/DesignTokens.swift` (Skip-compatible: hex init + light/dark, spacing, radius, Fraunces font helpers, shadow tokens)
+- [ ] 3. Source 4 Fraunces static weights → `Android/app/src/main/res/font/fraunces_{regular,medium,semibold,bold}.ttf`
+- [ ] 4. Wire `Font.custom("Fraunces", …)`; normalize 3 shadow systems into named tokens
+- [ ] 5. Retoken existing spike screens to consume DesignTokens
+- [ ] 6. `skip export --debug --android`; install APK on `emulator-5554`
+- [ ] 7. Screenshot-review every screen
+- [ ] 8. Curate issues (missing tokens, wrong colors, font not loading, SF Symbol triangles)
+- [ ] 9. Fix all curated issues
+- [ ] 10. Verify: rebuild, re-screenshot, confirm each fix; token snapshot assertions
+
+## Progress (loop turn 1)
+
+- [x] 1-7 tokens+font+retoken+build+install+screenshot (Explore/Settings, Create, Recipient)
+- [x] 8 Curated: I1(HIGH) Fraunces sans-serif — ROOT CAUSE (skip-ui Font.swift:206): Font.custom("Fraunces") getIdentifier can't match res/font/fraunces_*.ttf. I2(HIGH) SF Symbols render as ▲ (15 symbols) — DEFERRED to own loop. I3(MED) accents blue not coral. I4(LOW) chips flat — deferred.
+- [x] 9 FIXED I3 (coral): .tint(gold) at app root + hue port. FIXED crash: fraunces.xml font-family crashed getFont() on API36 → removed, point #if SKIP name at single "fraunces_regular".
+- [x] 10 VERIFY (SCREENSHOT-CONFIRMED on com.porizo.app, NOT com.porizo.skipfusespike):
+  - ✅ I3 CORAL: hero gradient coral, all CTAs/links/tab-selection coral, NO mustard anywhere. BIG win.
+  - ✅ ICONS: real glyphs render (home/play/pencil/lock/gear/waveform) — SF-symbol triangles GONE on tabs.
+  - ✅ CRASH fixed: app runs, 5 tabs functional.
+  - ❌ I1 FRAUNCES: still sans-serif. ROOT CAUSE PROVEN: variable Fraunces .ttf loads via getFont (no crash/warning) but Compose renders default≈sans. This IS the plan's UF2 answer: variable-file Fraunces does NOT render as serif via Skip. NEEDS real static Fraunces-Regular.ttf (Google Fonts, network-gated) — no fonttools locally to instance it.
+  - I5 (NEW) hero text clipped by fixed .frame(height:154). FIX1 (minHeight+fixedSize) removed clip but caused title/subtitle OVERLAP (caught by screenshot). FIX2 ✅ VERIFIED: gradient as .background of content (content-driven height, .bottomLeading frame) — no clip, no overlap, subtitle spaced correctly.
+
+## I1 Fraunces — KNOWN LIMITATION (3 verified attempts, STOPPED per user 2026-07-02)
+
+Fraunces will not render as serif via SkipUI `Font.custom` on Android. Evidence:
+
+1. Variable .ttf (360KB): loads, renders sans.
+2. res/font/fraunces.xml font-family (4 weights): CRASHES getFont() NotFoundException on API36.
+3. Real STATIC fraunces_regular.ttf (71KB, from Google Fonts CSS API, verified in APK): resolves, NO warning, STILL sans-serif.
+   Root cause deep: Font.kt findNamedFont→getFont(fid)→FontFamily(customTypeface); .weight() (Font.kt:104) preserves fontFamily; family IS passed to Compose. Yet renders system font. Likely Skip 1.9.4 / Compose FontFamily(Typeface) bug.
+   ✅ FIXED (2026-07-02 turn 3) via KTD-F5 ComposeView escape hatch. SCREENSHOT-CONFIRMED: "Explore" renders Fraunces SERIF (vs sans hero right below it = proof). Root cause CONFIRMED: SkipUI Font.custom does NOT honor FontFamily(Typeface); raw Compose FontFamily(Font(R.font.fraunces_regular)) DOES.
+
+FIX PATTERN (working):
+
+- Android/app/src/main/kotlin/Main.kt: `FrauncesTextComposer: skip.ui.ContentComposer` renders Compose Text with FontFamily(Font(R.font.fraunces_regular)). Color = Color(colorArgb.toInt()) [NOT toULong — different bit packing]. No Int64(bitPattern:) [not in Kotlin].
+- Sources/PorizoSkipSpike/FrauncesTitle.swift: #if SKIP → ComposeView{FrauncesTextComposer(...)}; #else → SwiftUI Font.custom. Color passed as FrauncesTitleColor enum → ARGB Int64 literal (no SwiftUI Color bridging).
+- All 4 title sites converted: Explore, hero "Every moment...", "Create", PorizoScreenHeader(title) [drives all main headers]. Verifying (bg brqf1l5hm).
+- Bugs hit + fixed: Int64(bitPattern:) unresolved in Kotlin; Color(ULong) wrong packing; DesignTokens unresolved in #if SKIP Color compare. Also: Gradle assemble can FAIL while skip export exits 0 → ALWAYS grep BUILD FAILED before install.
+
+## I2 SF Symbols — RESOLVED (verified 2026-07-02)
+
+VERIFIED FIXED: forced-rendered all 5 tabs, logcat shows ZERO "Unable to find system image" warnings. Every SF symbol our app uses is in Skip's ~65-name composeSymbolName→Material table. Claim screen shows coral heart + coral share icons (were triangles on the FIRST build only — a stale-build artifact, gone after rebuilds). Not claiming the auth/subscription SHEETS (not opened), but their symbols (envelope/checkmark.circle/person/lock/bell/cart) are all in the known table.
+Mechanism (for reference): Skip maps SF→Material via composeSymbolName (Image.kt:762); unmapped → ⚠️ Icons.Default.Warning (Image.kt:510); OR bundle an asset named after the symbol (Image.kt:503 checks Bundle.main first).
+
+## Guardrails
+
+- Do NOT commit/push unless asked. Skip does not read iOS asset catalogs — port resolved hex, both appearances.
+- I2 (SF Symbols) is next loop: per-symbol Android vector/glyph mapping.

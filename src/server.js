@@ -54,6 +54,9 @@ const {
   createGoogleReceiptValidator,
 } = require("./services/google-receipt-validator");
 const {
+  createPlayIntegrityVerifier,
+} = require("./services/play-integrity-verifier");
+const {
   createAppleWebhookHandler,
 } = require("./services/apple-webhook-handler");
 const { createPlanConfigService } = require("./services/plan-config");
@@ -122,6 +125,7 @@ const { registerEnrollmentRoutes } = require("./routes/enrollment");
 const { registerPoemRoutes } = require("./routes/poems");
 const { registerTrackRoutes } = require("./routes/tracks");
 const { registerSharingRoutes } = require("./routes/sharing");
+const { registerDeviceTrustRoutes } = require("./routes/device-trust");
 const {
   registerArtworkRoutes,
   buildSignedArtworkUrl,
@@ -1006,6 +1010,19 @@ function buildServer({
     sendError,
     allowAnonUserId,
     attachUserId: false,
+  });
+  const playIntegrityVerifier =
+    billingServices?.playIntegrityVerifier ||
+    createPlayIntegrityVerifier({
+      packageName:
+        appConfig.GOOGLE_PLAY_PACKAGE_NAME || appConfig.ANDROID_PACKAGE_NAME,
+      credentials: appConfig.GOOGLE_PLAY_CREDENTIALS_JSON,
+    });
+  registerDeviceTrustRoutes(app, {
+    appConfig,
+    requireUserId,
+    sendError,
+    playIntegrityVerifier,
   });
 
   // Etsy redemption: a guest-session-resolved buyer trades a printed code for

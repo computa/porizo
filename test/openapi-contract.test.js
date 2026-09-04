@@ -61,6 +61,9 @@ describe("runtime OpenAPI contract", () => {
     assert.ok(paths["/poems"]);
     assert.ok(paths["/story/start"]);
     assert.ok(paths["/billing/receipt/apple/consumable"]);
+    assert.ok(paths["/billing/receipt/google/consumable"]);
+    assert.ok(paths["/device/integrity/nonce"]);
+    assert.ok(paths["/device/integrity/verify"]);
     assert.ok(document.components.schemas.ErrorEnvelope);
     assert.ok(document.components.securitySchemes.bearerAuth);
   });

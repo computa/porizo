@@ -16,6 +16,7 @@ export default [
       ".venv/",
       "backup/",
       "build/",
+      "PorizoAndroid/Android/**/build/",
       "data/",
       "test-output/",
       "web-funnel/",

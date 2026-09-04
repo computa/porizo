@@ -90,6 +90,24 @@ function getAppleClientIdsFromEnv() {
 }
 
 /**
+ * Parse Google client IDs from environment.
+ * Supports GOOGLE_CLIENT_IDS or a comma-separated/single GOOGLE_CLIENT_ID.
+ * @returns {string[]} Non-empty client IDs
+ */
+function getGoogleClientIdsFromEnv() {
+  const multi = process.env.GOOGLE_CLIENT_IDS;
+  const single = process.env.GOOGLE_CLIENT_ID;
+
+  return [multi, single]
+    .filter(Boolean)
+    .join(",")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+/**
  * SHA-256 hash helper (hex).
  */
 function sha256Hex(value) {
@@ -242,9 +260,17 @@ async function verifyAppleToken(idToken, options = {}) {
  * @throws {Error} If token is invalid, expired, or forged
  */
 async function verifyGoogleToken(idToken, options = {}) {
-  const clientId = options.clientId || process.env.GOOGLE_CLIENT_ID;
+  const clientIds = (() => {
+    if (Array.isArray(options.clientIds)) {
+      return options.clientIds.filter(Boolean);
+    }
+    if (typeof options.clientId === "string" && options.clientId.trim()) {
+      return [options.clientId.trim()];
+    }
+    return getGoogleClientIdsFromEnv();
+  })();
 
-  if (!clientId) {
+  if (clientIds.length === 0) {
     throw new Error("GOOGLE_CLIENT_ID not configured");
   }
 
@@ -265,11 +291,17 @@ async function verifyGoogleToken(idToken, options = {}) {
     ) {
       throw new Error("INVALID_TOKEN: Invalid issuer");
     }
-    if (!audienceMatches(payload.aud, [clientId])) {
+    if (!audienceMatches(payload.aud, clientIds)) {
       throw new Error("INVALID_TOKEN: Invalid audience");
     }
     if (!payload.sub) {
       throw new Error("INVALID_TOKEN: Missing subject claim");
+    }
+    if (options.rawNonce) {
+      const tokenNonce = payload.nonce ? String(payload.nonce) : "";
+      if (!tokenNonce || tokenNonce !== String(options.rawNonce)) {
+        throw new Error("INVALID_NONCE");
+      }
     }
 
     return {
@@ -280,6 +312,7 @@ async function verifyGoogleToken(idToken, options = {}) {
       picture: payload.picture,
       iat: payload.iat,
       exp: payload.exp,
+      nonceVerified: Boolean(options.rawNonce),
     };
   }
 
@@ -296,11 +329,17 @@ async function verifyGoogleToken(idToken, options = {}) {
   const payload = jwt.verify(idToken, publicKey, {
     algorithms: ["RS256"],
     issuer: ["accounts.google.com", "https://accounts.google.com"],
-    audience: clientId,
+    audience: clientIds.length === 1 ? clientIds[0] : clientIds,
   });
 
   if (!payload.sub) {
     throw new Error("INVALID_TOKEN: Missing subject claim");
+  }
+  if (options.rawNonce) {
+    const tokenNonce = payload.nonce ? String(payload.nonce) : "";
+    if (!tokenNonce || tokenNonce !== String(options.rawNonce)) {
+      throw new Error("INVALID_NONCE");
+    }
   }
 
   return {
@@ -311,6 +350,7 @@ async function verifyGoogleToken(idToken, options = {}) {
     picture: payload.picture,
     iat: payload.iat,
     exp: payload.exp,
+    nonceVerified: Boolean(options.rawNonce),
   };
 }
 
@@ -445,7 +485,7 @@ function isProviderConfigured(provider) {
     case "apple":
       return getAppleClientIdsFromEnv().length > 0;
     case "google":
-      return !!process.env.GOOGLE_CLIENT_ID;
+      return getGoogleClientIdsFromEnv().length > 0;
     case "facebook":
       return !!process.env.FACEBOOK_APP_ID && !!process.env.FACEBOOK_APP_SECRET;
     default:
@@ -461,4 +501,5 @@ module.exports = {
   exchangeFacebookAuthorizationCode,
   verifySocialToken,
   isProviderConfigured,
+  getGoogleClientIdsFromEnv,
 };

@@ -211,6 +211,12 @@ marketing/email/.state/
 # Superpowers brainstorming session artifacts
 .superpowers/
 
+# Impeccable local hook/session cache
+.impeccable/
+
+# Android Skip Gate A generated spike workspace (throwaway, not merged)
+spikes/skip-fuse-spike/
+
 # Father's Day IAE raw intermediate
 marketing/appstore/aso/fathers-day-event-card-raw*.png
 

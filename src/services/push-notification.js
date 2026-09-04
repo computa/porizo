@@ -11,9 +11,12 @@
  *   APNS_PRIVATE_KEY - APNs auth key (.p8 contents)
  *   APNS_BUNDLE_ID - App bundle ID (default: porizo.ios.app.PorizoApp)
  *   APNS_PRODUCTION - Set to "true" for production APNs server
+ *   ONESIGNAL_APP_ID - OneSignal app id for Android notifications
+ *   ONESIGNAL_REST_API_KEY - OneSignal REST API key for Android notifications
  */
 
 const apn = require("@parse/node-apn");
+const oneSignal = require("./onesignal");
 
 // Configuration (loaded from environment)
 function getConfig() {
@@ -23,7 +26,13 @@ function getConfig() {
   const privateKey = normalizePrivateKey(process.env.APNS_PRIVATE_KEY);
   const production = process.env.APNS_PRODUCTION === "true";
 
-  return { keyId, teamId, bundleId, privateKey, production };
+  return {
+    keyId,
+    teamId,
+    bundleId,
+    privateKey,
+    production,
+  };
 }
 
 /**
@@ -35,11 +44,15 @@ function normalizePrivateKey(rawKey) {
 }
 
 /**
- * Check if APNs is configured
+ * Check if at least one push provider is configured.
  */
-function isConfigured() {
+function isApnsConfigured() {
   const { keyId, teamId, privateKey } = getConfig();
   return Boolean(keyId && teamId && privateKey);
+}
+
+function isConfigured() {
+  return isApnsConfigured() || oneSignal.isConfigured();
 }
 
 // APNs provider (lazy-initialized with credential rotation)
@@ -93,6 +106,8 @@ function getProvider() {
  * @returns {Promise<{success: boolean, error?: string, response?: object}>}
  */
 const APNS_TOKEN_RE = /^[0-9a-fA-F]{64}$/;
+const ONESIGNAL_SUBSCRIPTION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function sendSilentPush(pushToken, payload) {
   if (!pushToken) {
@@ -100,14 +115,20 @@ async function sendSilentPush(pushToken, payload) {
   }
 
   if (!APNS_TOKEN_RE.test(pushToken)) {
-    console.warn(
-      "[PushNotification] Invalid APNs token format:",
-      pushToken?.slice(0, 8),
-    );
-    return { success: false, error: "INVALID_PUSH_TOKEN" };
+    if (ONESIGNAL_SUBSCRIPTION_ID_RE.test(pushToken)) {
+      return sendOneSignalPush(pushToken, {
+        payload,
+        heading: "Porizo",
+        message: "Your song is ready.",
+      });
+    }
+    console.warn("[PushNotification] Unsupported push token format:", {
+      prefix: pushToken?.slice(0, 8),
+    });
+    return { success: false, error: "UNSUPPORTED_PUSH_TOKEN_FORMAT" };
   }
 
-  if (!isConfigured()) {
+  if (!isApnsConfigured()) {
     console.warn(
       "[PushNotification] APNs not configured - skipping notification",
     );
@@ -165,6 +186,43 @@ async function sendSilentPush(pushToken, payload) {
   }
 }
 
+async function sendOneSignalPush(
+  subscriptionId,
+  { payload, heading, message } = {},
+) {
+  if (!subscriptionId) {
+    return { success: false, error: "MISSING_ONESIGNAL_SUBSCRIPTION_ID" };
+  }
+  if (!oneSignal.isConfigured()) {
+    console.warn(
+      "[PushNotification] OneSignal not configured - skipping Android notification",
+    );
+    return { success: false, error: "ONESIGNAL_NOT_CONFIGURED" };
+  }
+
+  try {
+    const response = await oneSignal.sendToSubscriptions({
+      subscriptionIds: [subscriptionId],
+      title: heading || "Porizo",
+      body: message || "Gift activity updated.",
+      data: payload || {},
+      name: `transactional_${payload?.type || "unknown"}`,
+    });
+    console.log("[PushNotification] Sent OneSignal push:", {
+      subscriptionId: subscriptionId.substring(0, 8) + "...",
+      type: payload?.type || "unknown",
+    });
+    return { success: true, response };
+  } catch (error) {
+    console.error("[PushNotification] OneSignal exception:", error.message);
+    return {
+      success: false,
+      error: error.response?.errors || error.response?.error || error.message,
+      response: error.response,
+    };
+  }
+}
+
 /**
  * Send render complete notification
  *
@@ -187,7 +245,7 @@ async function sendRenderComplete(pushToken, trackId, trackTitle) {
 
   if (!isConfigured()) {
     console.warn(
-      "[PushNotification] APNs not configured - skipping render_complete notification",
+      "[PushNotification] No push provider configured - skipping render_complete notification",
     );
     return { success: false, error: "APNS_NOT_CONFIGURED" };
   }
@@ -235,14 +293,32 @@ async function sendRecipientPlayed(
   }
 
   if (!APNS_TOKEN_RE.test(pushToken)) {
-    return { success: false, error: "INVALID_PUSH_TOKEN" };
+    if (ONESIGNAL_SUBSCRIPTION_ID_RE.test(pushToken)) {
+      const safeTitle = (trackTitle || "").slice(0, 80);
+      const safeRecipient = (recipientName || "").slice(0, 40).trim();
+      const alertBody = safeRecipient
+        ? `${safeRecipient} just finished listening to "${safeTitle}"`
+        : `Your recipient just finished listening to "${safeTitle}"`;
+      return sendOneSignalPush(pushToken, {
+        payload: {
+          type: "recipient_played",
+          trackId: trackId,
+          trackTitle: safeTitle,
+          recipientName: safeRecipient || null,
+          timestamp: new Date().toISOString(),
+        },
+        heading: "They played your song",
+        message: alertBody,
+      });
+    }
+    return { success: false, error: "UNSUPPORTED_PUSH_TOKEN_FORMAT" };
   }
 
   if (!trackId) {
     return { success: false, error: "MISSING_TRACK_ID" };
   }
 
-  if (!isConfigured()) {
+  if (!isApnsConfigured()) {
     console.warn(
       "[PushNotification] APNs not configured - skipping recipient_played notification",
     );

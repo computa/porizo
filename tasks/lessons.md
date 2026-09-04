@@ -641,3 +641,14 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 - **Trigger:** Ambrose clarified that the Etsy remediation scope means all 15 P0–P2 findings, not only the purchase-to-code integration gap.
 - **Mistake:** I initially foregrounded the architectural P0 decision strongly enough that it sounded like the remaining correctness, operations, security, commerce-free, pricing, rate-limit, and error-taxonomy findings might be deferred.
 - **Rule:** When a user supplies a numbered review and asks to implement “all issues,” preserve the numbered list as the acceptance contract. Architectural corrections may change the implementation shape, but may not silently narrow scope. Map every finding to a requirement, regression proof, implementation unit, and final verification result.
+## 2026-07-02 — Skip `skip export` exit 0 does NOT prove your Swift edits are in the APK (stale transpile) + APK reinstall can no-op
+
+**Trigger:** UF1 Android replica loop — fixed Fraunces font name + added a global `.tint`, rebuilt with `skip export --debug --android` (exit 0), reinstalled, re-screenshotted. The screenshots were byte-identical to pre-fix. I nearly reported "verify failed, fix didn't work" and started re-editing.
+
+**Mistake:** Two compounding traps. (1) **Stale transpile:** `skip export` incrementally reuses `skipstone` transpiled Kotlin. My edited `DesignTokens.swift`/`PorizoSkipSpikeApp.swift` did NOT re-transpile — the generated `.build/plugins/outputs/.../*.kt` timestamps proved it (`DesignTokens.kt` was from the _previous_ build, `PorizoSkipSpikeApp.kt` was from the day before). The APK "built successfully" around stale Kotlin, so my fixes were physically absent. (2) **No-op reinstall:** `adb install -r -g` returned `Success` but `dumpsys package … lastUpdateTime` didn't advance (same versionName `0.0.1` → treated as already-installed), so the emulator kept running the old APK. Both made an unchanged screen look like "the fix didn't work" when the fix was never actually deployed.
+
+**Rule:**
+
+1. After `skip export`, PROVE your edit transpiled before screenshotting: `grep` the generated Kotlin (`.build/plugins/outputs/<proj>/<Module>/destination/skipstone/.../src/main/kotlin/.../*.kt`) for a token unique to your change, and check its mtime is newer than your Swift edit. If not, force a clean transpile: `rm -rf .build/plugins/outputs/.../skipstone` (+ `touch` the edited `.swift`) and rebuild.
+2. For emulator install, prefer `adb uninstall <pkg>` then `adb install -g` (clean), OR bump `CURRENT_PROJECT_VERSION` in `Skip.env`, so the new APK actually replaces the running one. Confirm with `dumpsys package <pkg> | grep lastUpdateTime` advancing.
+3. "Build exit 0 + install Success" is NOT verification. The screenshot of freshly-loaded code is. An unchanged screenshot means "not deployed" at least as often as "fix wrong" — check deployment before re-editing.

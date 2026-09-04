@@ -4,6 +4,7 @@
  * Tests authentication guards on webhook endpoints.
  * Google Play webhook requires GOOGLE_WEBHOOK_SECRET via query param or Bearer token.
  */
+process.env.NODE_ENV = "test";
 
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
@@ -151,7 +152,9 @@ describe("Google Webhook Authentication", async () => {
       const response = await app.inject({
         method: "POST",
         url: `/billing/webhooks/google?token=${VALID_SECRET}`,
-        payload: buildGooglePubSubBody(),
+        payload: buildGooglePubSubBody({
+          purchaseToken: "tok_deferred_reconcile_query",
+        }),
       });
 
       // Should pass auth and reach business logic.
@@ -159,6 +162,19 @@ describe("Google Webhook Authentication", async () => {
       assert.equal(response.statusCode, 200);
       const body = JSON.parse(response.body);
       assert.equal(body.received, true);
+      assert.equal(body.deferred, true);
+      const row = db
+        .prepare(
+          `SELECT status, notification_type, payload_json
+           FROM webhook_notifications
+           WHERE platform = 'google'
+           ORDER BY created_at DESC
+           LIMIT 1`,
+        )
+        .get();
+      assert.equal(row.status, "deferred");
+      assert.equal(row.notification_type, "4");
+      assert.match(row.payload_json, /tok_deferred_reconcile_query/);
     });
 
     it("accepts request with valid Bearer token", async () => {

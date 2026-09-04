@@ -33,6 +33,13 @@ song gift. We are renting that intent for ~12% of revenue.
 Everything below was read from Etsy's own policy pages on 2026-07-21, or from this
 repo's source. Practitioner/blog claims are marked. Anything unconfirmed says so.
 
+> **CORRECTION 2026-08-03 (observed live in Etsy AU onboarding):** there is a
+> **one-time US$19 shop set-up fee**, charged at shop opening. It is NOT in the
+> fee math below and was not in the original Gate A arithmetic. Effect: the first
+> sale is essentially consumed by it; **10 sales ≈ $155 net, not $174**. Gate A
+> pass/fail thresholds are unchanged in kind, but record this as real CAC.
+> (Separate from, and in addition to, the US$0.20 per-listing fee.)
+
 ### Unit economics — VERIFIED
 
 Rates: listing **$0.20** · transaction **6.5%** · AU payment processing **3% + A$0.25**
@@ -618,24 +625,24 @@ the main idea · obvious AI-stock couples.
       obeys the central-4:5 safe zone.
 
       | # | Content | Why |
-                                                                          | --- | --- | --- |
-                                                                          | **1** | **Reaction/emotion shot + minimal player UI + ≤4 words**, showing a REAL named song | Carries ~90% of click decision; must survive the crop at ~177×221px. **Etsy policy: image 1 for a personalized item must show a finished, customized item — never a blank template or "Your Text Here" mockup** |
-                                                                          | 2 | _(video occupies this slot automatically)_ | Silent, no autoplay |
-                                                                          | 3 | **Deliverable made tangible** — phone-in-hand, lyric card | Answers audio's #1 objection: "what do I actually receive?" |
-                                                                          | 4 | **How it works — 3 steps max, ≤6 words each, icons** | Both competitors drown this in text; brevity is our opening |
-                                                                          | 5 | **ONE review, huge type, 5 stars** _(hold until real reviews exist — never fake)_ | A single blown-up review outperformed a six-review grid |
-                                                                          | 6 | **What's included / format** — MP3, length, artwork, lyric sheet | Replaces "size guide" for a digital item |
-                                                                          | 7 | **Speed** — "ready in minutes" | Our wedge vs 24h+ human songwriters |
-                                                                          | 8 | **Occasion grid** — birthday / anniversary / wedding / Mother's Day | Serves browse intent; uses existing themes |
-                                                                          | 9 | **Gift-presentation shot** | Makes the intangible feel like a gift, not a file |
-                                                                          | 10 | **Guarantee / revisions** | Closes risk |
+                                                                              | --- | --- | --- |
+                                                                              | **1** | **Reaction/emotion shot + minimal player UI + ≤4 words**, showing a REAL named song | Carries ~90% of click decision; must survive the crop at ~177×221px. **Etsy policy: image 1 for a personalized item must show a finished, customized item — never a blank template or "Your Text Here" mockup** |
+                                                                              | 2 | _(video occupies this slot automatically)_ | Silent, no autoplay |
+                                                                              | 3 | **Deliverable made tangible** — phone-in-hand, lyric card | Answers audio's #1 objection: "what do I actually receive?" |
+                                                                              | 4 | **How it works — 3 steps max, ≤6 words each, icons** | Both competitors drown this in text; brevity is our opening |
+                                                                              | 5 | **ONE review, huge type, 5 stars** _(hold until real reviews exist — never fake)_ | A single blown-up review outperformed a six-review grid |
+                                                                              | 6 | **What's included / format** — MP3, length, artwork, lyric sheet | Replaces "size guide" for a digital item |
+                                                                              | 7 | **Speed** — "ready in minutes" | Our wedge vs 24h+ human songwriters |
+                                                                              | 8 | **Occasion grid** — birthday / anniversary / wedding / Mother's Day | Serves browse intent; uses existing themes |
+                                                                              | 9 | **Gift-presentation shot** | Makes the intangible feel like a gift, not a file |
+                                                                              | 10 | **Guarantee / revisions** | Closes risk |
 
-                                                                          ⚠️ UNVERIFIED: the widely-repeated "listings with 7+ photos rank better" claim has
-                                                                          **no Etsy source**. Fill all 10 for objection-handling, not for a ranking signal.
+                                                                              ⚠️ UNVERIFIED: the widely-repeated "listings with 7+ photos rank better" claim has
+                                                                              **no Etsy source**. Fill all 10 for objection-handling, not for a ranking signal.
 
-                                                                          **Typography floor** (judged at ~177×221px, an ~11× downscale from 2000px):
-                                                                          headline cap-height **≥160px (~8% of height), ≤4 words**; sub-line ≥100px, ≤6 words;
-                                                                          anything under ~100px turns to mush. White type on a darkened photo with a scrim.
+                                                                              **Typography floor** (judged at ~177×221px, an ~11× downscale from 2000px):
+                                                                              headline cap-height **≥160px (~8% of height), ≤4 words**; sub-line ≥100px, ≤6 words;
+                                                                              anything under ~100px turns to mush. White type on a darkened photo with a scrim.
 
 - [ ] **7. Silent listing video** _(M)_ — **3–15s**, 1080×1080 square, MP4, <100MB, recut
       from the "Thank you mom" lyric-reveal. **Must be fully legible with zero sound and

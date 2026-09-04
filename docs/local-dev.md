@@ -45,11 +45,12 @@ Magic-login development variables:
   move the secret into the query string or log complete callback URLs.
 
 ## Auth Providers (Google + Facebook)
-Google and Facebook sign-in are enabled when both the API and iOS app have the required env values.
+Google and Facebook sign-in are enabled when the API and client app have the
+required env/build values.
 
 ### API env vars
 Set these in `.env` (see `.env.example`):
-- `GOOGLE_CLIENT_ID` (OAuth client ID for iOS)
+- `GOOGLE_CLIENT_ID` (OAuth Web Client ID used as the accepted Google token audience)
 - `GOOGLE_CLIENT_SECRET` (optional for public client + PKCE)
 - `GOOGLE_REDIRECT_URI` (must match iOS; default example: `porizo-oauth://auth/google`)
 - `FACEBOOK_APP_ID`
@@ -71,6 +72,17 @@ Set these in Xcode (Build Settings → User-Defined) or Scheme Environment Varia
 
 If these are not set, the Google/Facebook buttons are hidden in the auth screen.
 Meta app-events are configured in the checked-in build settings for this repo. TikTok Share/OpenSDK and TikTok Business attribution stay disabled until you provide real TikTok credentials. Instagram app install ads use the Meta SDK path; there is no separate Instagram iOS SDK in this project.
+
+### Android build values
+Set the same Google OAuth Web Client ID used by backend `GOOGLE_CLIENT_ID` in one
+of these Android build inputs:
+- `PORIZO_GOOGLE_WEB_CLIENT_ID=...`
+- `-PporizoGoogleWebClientId=...`
+- `PorizoAndroid/Android/app/keystore.properties` with `porizoGoogleWebClientId=...`
+
+Debug builds keep running without this value and show phone sign-in as the
+working fallback. Release APK/AAB tasks fail when it is missing so Google
+Sign-In cannot silently ship disabled.
 
 ## Sample Flow
 ```
