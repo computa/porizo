@@ -113,6 +113,12 @@ test("accepts the direct payment shape as well as official results wrapper", asy
   assert.equal((await service.exportOrder("123")).items.length, 1);
 });
 
+test("accepts Etsy's uppercase settled payment status", async () => {
+  const { service, payment } = fixture();
+  payment.status = "SETTLED";
+  assert.equal((await service.exportOrder("123")).receipt_id, "123");
+});
+
 test("only exports allowed listings and rejects missing eligible items", async () => {
   const { service, receipt, transaction } = fixture();
   receipt.transactions.push({ listing_id: 800, quantity: 1, transaction_id: 457 });

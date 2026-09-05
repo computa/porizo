@@ -97,7 +97,7 @@ function checkPayment(payload, shopId, receiptId) {
   if (id(payment.receipt_id) !== receiptId || id(payment.shop_id) !== shopId) {
     fail("ETSY_PAYMENT_MISMATCH", "Etsy payment does not match the shop and order.");
   }
-  if (payment.status !== "settled") fail("ETSY_PAYMENT_UNVERIFIED", "Etsy payment must be settled before generation.");
+  if (String(payment.status).toLowerCase() !== "settled") fail("ETSY_PAYMENT_UNVERIFIED", "Etsy payment must be settled before generation.");
   if (!Array.isArray(payment.payment_adjustments)) fail("ETSY_PAYMENT_UNVERIFIED", "Etsy refund evidence is unavailable.");
   if (payment.payment_adjustments.length > 0) fail("ETSY_ORDER_REFUNDED", "Adjusted Etsy payments require operator review.");
 }
