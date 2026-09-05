@@ -33,15 +33,17 @@ function createEtsyArtifactService({
       .get(trackVersionId);
   }
 
-  async function repairForOrder(order, { force = false } = {}) {
-    const unit = order?.etsyUnitId
+  async function unitForOrder(order) {
+    return order?.mtoItemId
+      ? await db.prepare("SELECT * FROM etsy_mto_items WHERE id = ?").get(order.mtoItemId)
+      : order?.etsyUnitId
       ? await db
           .prepare("SELECT * FROM etsy_order_units WHERE id = ?")
           .get(order.etsyUnitId)
       : await etsyOrderService.findUnitForWebOrder(order?.id);
-    if (!unit) return { required: false, ready: true };
+  }
 
-    let artifact = await artifactFor(unit.track_version_id);
+  function repairDeferral(artifact, force) {
     if (readyArtifact(artifact)) {
       return { required: true, ready: true, artifact };
     }
@@ -59,7 +61,10 @@ function createEtsyArtifactService({
     ) {
       return { required: true, ready: false, retryAt: artifact.next_attempt_at };
     }
-    const now = nowIso();
+    return null;
+  }
+
+  async function claimArtifact(unit, now) {
     await db
       .prepare(
         `INSERT INTO track_artifacts
@@ -93,39 +98,31 @@ function createEtsyArtifactService({
         new Date(Date.now() - 5 * 60_000).toISOString(),
         now,
       );
-    const claimedRows = claimed?.rowCount ?? claimed?.changes ?? 0;
-    if (claimedRows !== 1) {
-      return { required: true, ready: false, busy: true };
-    }
+    return (claimed?.rowCount ?? claimed?.changes ?? 0) === 1;
+  }
 
-    const row = await db
+  async function recordMissingTrack(unit, now) {
+    const retryAt = new Date(Date.now() + 60_000).toISOString();
+    await db
       .prepare(
-        `SELECT t.id, t.user_id, tv.id AS version_id, tv.version_num
-           FROM tracks t
-           JOIN track_versions tv ON tv.track_id = t.id
-          WHERE t.id = ? AND tv.id = ?`,
-      )
-      .get(unit.track_id, unit.track_version_id);
-    if (!row) {
-      const retryAt = new Date(Date.now() + 60_000).toISOString();
-      await db
-        .prepare(
-          `UPDATE track_artifacts
+        `UPDATE track_artifacts
               SET status = 'failed', processing_started_at = NULL,
                   attempt_count = attempt_count + 1,
                   next_attempt_at = ?, last_error = 'TRACK_NOT_FOUND',
                   updated_at = ?
             WHERE track_version_id = ? AND kind = 'full_mp3'
               AND status = 'processing' AND processing_started_at = ?`,
-        )
-        .run(retryAt, nowIso(), unit.track_version_id, now);
-      return {
-        required: true,
-        ready: false,
-        error: "TRACK_NOT_FOUND",
-        retryAt,
-      };
-    }
+      )
+      .run(retryAt, nowIso(), unit.track_version_id, now);
+    return {
+      required: true,
+      ready: false,
+      error: "TRACK_NOT_FOUND",
+      retryAt,
+    };
+  }
+
+  async function convertArtifact(row, order, unit, now) {
     const track = { id: row.id, user_id: row.user_id };
     const trackVersion = { id: row.version_id, version_num: row.version_num };
     const versionDir = getVersionDir(storageDir, track, trackVersion);
@@ -153,56 +150,63 @@ function createEtsyArtifactService({
         expectedProcessingStartedAt: now,
       });
     } catch (error) {
-      logger.error?.(
-        { code: error?.code, webOrderId: order?.id, etsyUnitId: unit.id },
-        "Etsy MP3 artifact repair failed",
-      );
-      const failedAt = nowIso();
-      const failed = await db
-        .prepare(
-          `UPDATE track_artifacts
+      return recordRepairFailure(error, order, unit, now);
+    }
+    return finishRepair(unit, now);
+  }
+
+  async function recordRepairFailure(error, order, unit, now) {
+    logger.error?.(
+      { code: error?.code, webOrderId: order?.id, etsyUnitId: unit.id },
+      "Etsy MP3 artifact repair failed",
+    );
+    const failedAt = nowIso();
+    const failed = await db
+      .prepare(
+        `UPDATE track_artifacts
               SET status = 'failed', processing_started_at = NULL,
                   attempt_count = attempt_count + 1,
                   next_attempt_at = ?, last_error = ?, updated_at = ?
             WHERE track_version_id = ? AND kind = 'full_mp3'
               AND status = 'processing' AND processing_started_at = ?`,
-        )
-        .run(
-          new Date(Date.now() + 60_000).toISOString(),
-          String(error?.code || error?.message || "MP3_REPAIR_FAILED").slice(
-            0,
-            500,
-          ),
-          failedAt,
-          trackVersion.id,
-          now,
-        );
-      if ((failed?.rowCount ?? failed?.changes ?? 0) !== 1) {
-        return { required: true, ready: false, staleLease: true };
-      }
-      artifact = await artifactFor(unit.track_version_id);
-      const failedAttempts = Number(artifact?.attempt_count || 0);
-      if (failedAttempts >= MAX_ARTIFACT_ATTEMPTS) {
-        await db
-          .prepare(
-            `UPDATE track_artifacts
+      )
+      .run(
+        new Date(Date.now() + 60_000).toISOString(),
+        String(error?.code || error?.message || "MP3_REPAIR_FAILED").slice(
+          0,
+          500,
+        ),
+        failedAt,
+        unit.track_version_id,
+        now,
+      );
+    if ((failed?.rowCount ?? failed?.changes ?? 0) !== 1) {
+      return { required: true, ready: false, staleLease: true };
+    }
+    let artifact = await artifactFor(unit.track_version_id);
+    const failedAttempts = Number(artifact?.attempt_count || 0);
+    if (failedAttempts >= MAX_ARTIFACT_ATTEMPTS) {
+      await db
+        .prepare(
+          `UPDATE track_artifacts
                 SET next_attempt_at = NULL, exhausted_at = ?, updated_at = ?
               WHERE track_version_id = ? AND kind = 'full_mp3'
                 AND status = 'failed' AND updated_at = ?`,
-          )
-          .run(failedAt, failedAt, trackVersion.id, failedAt);
-        artifact = await artifactFor(unit.track_version_id);
-      }
-      return {
-        required: true,
-        ready: false,
-        exhausted: failedAttempts >= MAX_ARTIFACT_ATTEMPTS,
-        retryAt: artifact?.next_attempt_at || undefined,
-        artifact,
-      };
+        )
+        .run(failedAt, failedAt, unit.track_version_id, failedAt);
+      artifact = await artifactFor(unit.track_version_id);
     }
+    return {
+      required: true,
+      ready: false,
+      exhausted: failedAttempts >= MAX_ARTIFACT_ATTEMPTS,
+      retryAt: artifact?.next_attempt_at || undefined,
+      artifact,
+    };
+  }
 
-    artifact = await artifactFor(unit.track_version_id);
+  async function finishRepair(unit, now) {
+    const artifact = await artifactFor(unit.track_version_id);
     if (readyArtifact(artifact)) {
       await db
         .prepare(
@@ -241,6 +245,27 @@ function createEtsyArtifactService({
       exhausted,
       artifact: await artifactFor(unit.track_version_id),
     };
+  }
+
+  async function repairForOrder(order, { force = false } = {}) {
+    const unit = await unitForOrder(order);
+    if (!unit) return { required: false, ready: true };
+    const deferred = repairDeferral(await artifactFor(unit.track_version_id), force);
+    if (deferred) return deferred;
+    const now = nowIso();
+    if (!await claimArtifact(unit, now)) {
+      return { required: true, ready: false, busy: true };
+    }
+    const row = await db
+      .prepare(
+        `SELECT t.id, t.user_id, tv.id AS version_id, tv.version_num
+           FROM tracks t
+           JOIN track_versions tv ON tv.track_id = t.id
+          WHERE t.id = ? AND tv.id = ?`,
+      )
+      .get(unit.track_id, unit.track_version_id);
+    if (!row) return recordMissingTrack(unit, now);
+    return convertArtifact(row, order, unit, now);
   }
 
   async function retryForOrder(order) {

@@ -64,6 +64,7 @@ const { registerAdminStorySessionRoutes } = require("./admin/story-sessions");
 const { registerAdminTrackTransferRoutes } = require("./admin/track-transfer");
 const { registerAdminWebhookHealthRoutes } = require("./admin/webhook-health");
 const { registerAdminEtsyCodeRoutes } = require("./admin/etsy-codes");
+const { registerAdminEtsyMtoRoutes } = require("./admin/etsy-mto");
 const { registerClientConfigRoutes } = require("./client-config");
 const { registerAdminUserReadRoutes } = require("./admin/users-read");
 const {
@@ -147,6 +148,10 @@ function registerAdminRoutes(
     adminAuthRepository,
     adminMusicDiagnosticsRepository,
     clientConfigService,
+    etsyMtoRepository,
+    etsyMtoService,
+    etsyOAuthAuthorization,
+    storageProvider,
   },
 ) {
   // ============ ADMIN DASHBOARD API ============
@@ -474,6 +479,17 @@ function registerAdminRoutes(
     etsyOrderService: app.etsyOrderService,
     etsyArtifactService: app.etsyArtifactService,
     etsyClient: app.etsyClient,
+    sendError,
+  });
+  registerAdminEtsyMtoRoutes(app, {
+    repository: etsyMtoRepository,
+    service: etsyMtoService,
+    pipeline: app.etsyMtoPipeline,
+    orderFiles: app.etsyOrderFiles,
+    storageProvider,
+    requireAdminRole,
+    auditService: adminService.adminAuditService,
+    etsyOAuthAuthorization,
     sendError,
   });
   registerAdminGrowthRoutes(app, {

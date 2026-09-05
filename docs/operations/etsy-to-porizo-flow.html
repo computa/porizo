@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etsy to Porizo made-to-order flow</title>
+  <style>
+    :root { color-scheme: light dark; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+    body { margin: 0; background: #101215; color: #eff2f5; }
+    main { max-width: 1060px; margin: 0 auto; padding: 48px 24px 72px; }
+    h1 { margin: 0; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: clamp(2rem, 5vw, 3.6rem); letter-spacing: -.05em; }
+    .lede { max-width: 720px; color: #b9c0c9; font-size: 1.1rem; line-height: 1.6; }
+    .boundary { margin: 32px 0; padding: 16px 18px; border: 1px solid #805139; background: #271b17; color: #ffd9c3; }
+    .flow { display: grid; gap: 14px; }
+    .step { display: grid; grid-template-columns: 68px 1fr auto; gap: 18px; align-items: center; padding: 22px; background: #1a1f25; border: 1px solid #303946; border-radius: 14px; }
+    .number { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: #39485b; color: #dcecff; font-weight: 800; }
+    .etsy .number { background: #9d4a25; color: #fff1e9; }
+    .porizo .number { background: #365f8b; color: #eaf4ff; }
+    .manual .number { background: #79562b; color: #fff6df; }
+    h2 { margin: 0 0 5px; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 1.08rem; }
+    p { margin: 0; color: #b9c0c9; line-height: 1.5; }
+    .owner { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #cbd5e1; }
+    .arrow { margin: -2px 0 -2px 33px; width: 2px; height: 22px; background: #617083; position: relative; }
+    .arrow::after { content: ""; position: absolute; left: -4px; bottom: 0; border: 5px solid transparent; border-top-color: #617083; transform: translateY(8px); }
+    .states { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 30px; }
+    .state { padding: 8px 11px; border-radius: 999px; border: 1px solid #405168; color: #c9dcf4; font: 600 .78rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .warning { margin-top: 32px; padding: 20px; border-radius: 14px; background: #22242a; border: 1px solid #514439; }
+    .warning strong { color: #ffd6a1; }
+    @media (max-width: 620px) { .step { grid-template-columns: 52px 1fr; } .owner { grid-column: 2; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Etsy → Porizo → Etsy</h1>
+    <p class="lede">A made-to-order song starts and ends on Etsy. Porizo is the internal production queue. It never becomes the buyer's delivery channel.</p>
+    <div class="boundary"><strong>The hard boundary.</strong> Only Etsy sends the buyer the final download link. Porizo records the operator's completion attestation after the Etsy upload.</div>
+
+    <section class="flow" aria-label="Made-to-order fulfilment flow">
+      <article class="step etsy"><div class="number">1</div><div><h2>Buyer buys and personalizes on Etsy</h2><p>The buyer enters recipient name, occasion, memory, relationship, and style at Etsy checkout.</p></div><span class="owner">Etsy + buyer</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step manual"><div class="number">2</div><div><h2>Operator verifies the paid Etsy unit</h2><p>In Shop Manager, confirm the shop, listing, receipt, transaction, quantity ordinal, and paid status. Then record the restricted evidence reference.</p></div><span class="owner">Operator</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step porizo"><div class="number">3</div><div><h2>Operator creates the MTO unit in Porizo</h2><p>Porizo stores the Etsy unit identity, creates an AI-voice track and version, generates lyrics, and waits for lyric approval.</p></div><span class="owner">Porizo</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step porizo"><div class="number">4</div><div><h2>Approve lyrics and render</h2><p>Approval starts a zero-wallet full render. The MTO marker prevents Porizo share tokens, buyer emails, and public play links.</p></div><span class="owner">Porizo + operator</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step porizo"><div class="number">5</div><div><h2>Verify and download the MP3</h2><p>Porizo promotes the unit only after a verified full MP3 exists with a storage key, SHA-256 hash, and Etsy-safe size.</p></div><span class="owner">Porizo + operator</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step etsy"><div class="number">6</div><div><h2>Upload and complete the exact Etsy order</h2><p>The operator opens Shop Manager, uploads the downloaded MP3, and completes the order. This remains a manual Etsy action.</p></div><span class="owner">Operator + Etsy</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step manual"><div class="number">7</div><div><h2>Record the Etsy completion attestation</h2><p>The operator retypes the receipt and records restricted completion evidence. Porizo pins the artifact and version that were uploaded.</p></div><span class="owner">Porizo + operator</span></article>
+      <div class="arrow" aria-hidden="true"></div>
+      <article class="step etsy"><div class="number">8</div><div><h2>Etsy gives the buyer the download</h2><p>Etsy emails its native download link to the buyer. The paid buyer-account test must prove this final step before launch.</p></div><span class="owner">Etsy</span></article>
+    </section>
+
+    <div class="states" aria-label="Porizo production states">
+      <span class="state">received</span><span class="state">verified_paid</span><span class="state">lyrics_review</span><span class="state">rendering</span><span class="state">ready_for_etsy_upload</span><span class="state">etsy_completion_attested</span>
+    </div>
+
+    <div class="warning"><strong>What Porizo does not do.</strong> It does not issue an Etsy redemption code, consume a buyer credit, send the buyer an email, create a public share URL, upload to Etsy by API, or claim that an attestation proves Etsy delivery.</div>
+  </main>
+</body>
+</html>

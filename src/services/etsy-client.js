@@ -42,11 +42,18 @@ function createEtsyClient({
   }
 
   async function resolveTokens() {
-    const stored = tokenProvider ? await tokenProvider() : null;
+    if (tokenProvider) {
+      const stored = await tokenProvider();
+      return {
+        accessToken: stored?.accessToken || null,
+        refreshToken: stored?.refreshToken || null,
+        tokenVersion: Number(stored?.tokenVersion || 0),
+      };
+    }
     return {
-      accessToken: stored?.accessToken || accessToken,
-      refreshToken: stored?.refreshToken || refreshToken,
-      tokenVersion: Number(stored?.tokenVersion || 0),
+      accessToken,
+      refreshToken,
+      tokenVersion: 0,
     };
   }
 
@@ -131,6 +138,9 @@ function createEtsyClient({
     const combinedSignal = controller.signal;
     try {
       let tokens = await resolveTokens();
+      if (!tokens.accessToken) {
+        throw new EtsyConfigurationError("ETSY_API_UNCONFIGURED");
+      }
       const perform = (token) =>
         fetcher(`https://openapi.etsy.com/v3/application${path}`, {
           headers: {

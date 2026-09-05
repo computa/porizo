@@ -17,6 +17,7 @@ import { Marketing } from "./pages/Marketing";
 import { Blog } from "./pages/Blog";
 import { Story } from "./pages/Story";
 import { Gifts } from "./pages/Gifts";
+import { EtsyMto } from "./pages/EtsyMto";
 import { SystemHealth } from "./pages/security/SystemHealth";
 import { SecurityLogs } from "./pages/security/SecurityLogs";
 import { AuditLogs } from "./pages/security/AuditLogs";
@@ -47,6 +48,7 @@ function App() {
           <Route path="/growth" element={<Growth />} />
           <Route path="/shares" element={<Shares />} />
           <Route path="/gifts" element={<Gifts />} />
+          <Route path="/etsy" element={<EtsyMto />} />
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/blog" element={<Blog />} />
           {/* Security Section */}

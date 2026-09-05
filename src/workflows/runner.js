@@ -219,6 +219,9 @@ async function ensureRenderSharePreGeneration({
   createShareToken = createOrGetShareToken,
   createIncident = upsertGiftIncident,
 }) {
+  if (trackReady.etsy_mto_item_id) {
+    return { ok: true, skipped: "etsy_mto" };
+  }
   try {
     await createShareToken({
       db,

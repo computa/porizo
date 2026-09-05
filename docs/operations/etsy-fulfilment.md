@@ -1,180 +1,69 @@
-# Etsy fulfilment operations
+# Etsy made-to-order fulfilment
 
-## Launch state
+## Delivery contract
 
-`etsy_fulfilment_mode` is the only runtime authority:
+Etsy supports made-to-order digital listings: the seller attaches the finished file when completing the order. The earlier instant-download-only conclusion was incorrect. Porizo's listing is made-to-order; there is no instant-download option. A real paid order and buyer download remain required operational evidence, not something local fixture tests prove.
 
-- `off`: no Etsy buyer entry, code claim, provider webhook, OAuth bootstrap,
-  receipt reconciliation, or provider fulfilment worker.
-- `code`: manual, receipt-assigned codes at `/etsy/code`; provider automation
-  remains dark.
-- `api`: receipt entry and provider automation; `/etsy/code` remains available
-  so previously issued codes never strand.
+Porizo creates the song. Etsy delivers the final MP3. Porizo never sends an Etsy buyer a redemption code, a Porizo share link, a Porizo email, or a Porizo download link.
 
-Invalid or unreadable values fail closed to `off`. The migration-137 Etsy
-booleans are inert compatibility data and must not be used as operational
-controls.
+## Before opening the listing
 
-Launch the wedge in `code` only after:
+- Set `ETSY_MTO_OWNER_ID` to an active system account that can render with `ai_voice`.
+- Set `ETSY_SHOP_ID` and `ETSY_LISTING_IDS` to the live shop and the eligible made-to-order listing.
+- Keep the retired `etsy_fulfilment_mode` flag `off`. Import refuses to run alongside the old code/API redemption flow.
+- Configure the existing authenticated Etsy API client (`ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, OAuth credentials with receipt/payment read access). Missing configuration disables this workflow with an explicit error, not the rest of Porizo.
+- Confirm the listing uses the five checkout fields in `marketing/appstore/etsy/listing-copy.md`.
+- Run one paid buyer-account test before launch. Verify the Etsy personalization fields, the uploaded MP3, and the buyer Etsy Downloads page.
 
-- The listing is made-to-order and states the manual delivery SLA.
-- The generic instruction file points to `/etsy/code` and contains no code.
-- An operator has tested issue, reveal, delivery marking, verified-email claim,
-  cross-device sign-in, MP3 download, cancellation, and audit.
-- Each paid Etsy receipt is assigned exactly one code through the audited
-  superadmin endpoint. Generic bearer-code batches remain retired.
-- The listing price, currency, active state, digital format, SLA, revision
-  promise, and refund promise match the approved listing manifest.
+## Per-order runbook
 
-Do not switch to `api` until all of these are proven:
+### Connection configuration
 
-- A real Seller App receipt includes `buyer_email`.
-- Etsy has confirmed that the generic instruction file plus transaction-only
-  claim/final-download emails comply with seller policy.
-- `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `ETSY_ACCESS_TOKEN`,
-  `ETSY_REFRESH_TOKEN`, `ETSY_SHOP_ID`, `ETSY_LISTING_IDS`,
-  `ETSY_WEBHOOK_SECRET`, and
-  `ETSY_DATA_ENCRYPTION_KEY`, `ETSY_DATA_ENCRYPTION_KEY_ID`, and
-  `ETSY_DATA_ENCRYPTION_KEYRING` are configured.
-- Webhook signature, duplicate delivery, reconciliation, claim on a second
-  device, MP3 download, cancellation, and audit have passed with a real order.
+The approved own-shop seller app is **Porizo Order Fulfilment** (`porizo-order-fulfilment`). It is authorized for `shops_r transactions_r` only. Shop ID: `67327622`; eligible listing ID: `4569202477`. No order-writing or listing-writing scope is granted.
 
-An event is acknowledged only after its verified webhook ID and body digest are
-durably inserted. Processing failures stay retryable. Never fetch a webhook's
-arbitrary `resource_url`; construct the receipt URL from configured shop and
-receipt IDs.
+Configure `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `ETSY_SHOP_ID`, `ETSY_LISTING_IDS`, `ETSY_ACCESS_TOKEN`, `ETSY_REFRESH_TOKEN`, `ETSY_TOKEN_GENERATION`, `ETSY_DATA_ENCRYPTION_KEY`, and `ETSY_DATA_ENCRYPTION_KEY_ID`. Initial token generation is `1`; increase it only for a newly authorized replacement connection, not routine refreshes. Keep the encryption key stable so existing encrypted records remain readable.
 
-`ETSY_KEYSTRING` is the OAuth `client_id`. API requests send
-`x-api-key: <ETSY_KEYSTRING>:<ETSY_SHARED_SECRET>`; never put the shared secret
-in an OAuth token request. `ETSY_WEBHOOK_SECRET` must be Etsy's canonical
-base64 `whsec_` value decoding to at least 32 bytes.
+On first use, Porizo bootstraps the OAuth tokens into encrypted `etsy_connections` storage regardless of the fulfilment mode. Thereafter the connected database row is authoritative. Refreshes are coordinated and persisted; missing or reconnect-required rows cannot silently fall back to environment tokens.
 
-Initial OAuth authorization is currently an operator-controlled credential
-bootstrap, not an in-product connect screen. Store the access and refresh tokens
-in the production secret manager, set `ETSY_TOKEN_GENERATION` to a positive
-strictly increasing integer, and restart once to seed the encrypted
-`etsy_connections` row, then remove plaintext values from the runtime
-environment where the hosting platform permits it. Refresh-token rotation uses
-a database lease and version fence so only one replica calls Etsy; a stale
-`invalid_grant` cannot disconnect a newer token generation. A genuine
-`reconnect_required` state requires the operator to obtain new credentials and
-advance `ETSY_TOKEN_GENERATION` before restart. A process carrying an old
-generation cannot reconnect or overwrite the newer credential lineage.
+The authorized credential bundle is stored locally in macOS Keychain under service `com.porizo.etsy.connection`, account `porizo`. Do not print it, commit it, or copy it into a ticket. Railway production variables were prepared with `--skip-deploys`; the running deployment has not picked them up. `ETSY_MTO_OWNER_ID` still needs an explicitly selected active generation account before release.
 
-Rotate the Etsy data key without an unreadable-data window: retain the old
-`ETSY_DATA_ENCRYPTION_KEY_ID` and key in the JSON
-`ETSY_DATA_ENCRYPTION_KEYRING`, install the new key under a new current ID,
-then deploy. Decryption and buyer-email lookup accept both lineages while all
-new writes use the new key. Keep the prior key in the production secret manager
-until a verified re-encryption/backfill reports zero envelopes with its ID;
-removing a still-referenced key is a release-blocking error.
+Authorization uses Etsy's authorization-code flow with PKCE and single-use state. The registered local operator callback is `https://localhost:9443/etsy/callback`. It is not a deployed Porizo callback endpoint. During the initial supervised grant, the callback URL was captured locally, its state and destination checked, and its one-use code exchanged directly with Etsy. Repeat authorization if Etsy revokes the grant; never reuse the authorization code.
 
-Run the count and backfill through Railway so production database access stays
-inside the service environment:
+**Verification on 2026-09-05:** live shop and receipt-list reads passed through Porizo's server with mode `off`. Live 401 recovery, token refresh, encrypted persistence, and server restart using stored credentials also passed. Etsy returned zero receipts. Actual receipt/payment export, five-field personalization mapping, song generation, MP3 upload, and buyer download still require a real paid order; fixtures do not prove these live contracts.
 
-```sh
-railway run npm run etsy:key:scan
-railway run npm run etsy:key:rotate
-railway run npm run etsy:key:scan
-```
+The live listing personalization API confirms all five required questions in the expected order, 15 occasions, 24 styles, and a 1000-character memory. Every occasion/style combination passes local catalog normalization. Etsy returns HTML-encoded text in this API (for example `Recipient&#39;s name`); the transaction parser decodes labels and answers once, before matching fields and checking canonical values. Uploaded canonical JSON is not decoded again. Etsy documents transaction personalization in `variations` with `property_id: 54` in its [personalization migration guide](https://developers.etsy.com/documentation/tutorials/personalization-migration/).
 
-Do not remove a previous key until the final scan reports
-`old_envelope_count: 0`.
+### Fulfil an order
 
-Outside `api`, the Etsy provider webhook returns 404 before ingestion and no
-provider worker runs. Switching away from `api` is therefore an emergency stop,
-not a lossless pause: reconcile the disabled interval from Etsy before declaring
-the system current. Webhook requests larger than 256 KiB are rejected before
-JSON parsing.
+1. In Etsy Shop Manager, confirm the order is paid, not canceled or refunded, and belongs to the eligible listing.
+2. In Admin at `/admin/etsy`, enter the receipt ID and choose **Download order JSON**. This is Porizo's authenticated Etsy API exporter, not an Etsy-native JSON download button and not the sales CSV report.
+3. Upload that JSON, review all five answers, and acknowledge **Import and generate songs**. Export, preview, and confirmation check current Etsy payment and personalization. The server persists the units before returning, then automatically creates lyrics and enqueues rendering. You can close the browser. Reimporting the same unit does not create another song.
+4. When the unit becomes `ready_for_etsy_upload`, download the MP3 from Admin.
+5. Open the exact Etsy order in Shop Manager. Choose Complete order, upload the MP3, and complete the Etsy order.
+6. Return to Admin. Enter the receipt again, acknowledge the upload, add the restricted Etsy completion evidence reference, and record the completion attestation.
 
-## Manual code mode
+`etsy_completion_attested` records a human statement. It is not proof that Etsy delivered the file. The buyer Etsy Downloads screen in the paid test order is the launch proof.
 
-1. Verify the Etsy receipt is paid and not canceled.
-2. Issue one code with
-   `POST /admin/dashboard/etsy/codes/issue`, including `receipt_id`,
-   `listing_id`, `batch_label`, and a fresh `Idempotency-Key`. The endpoint is
-   superadmin-only, returns the bearer code once, and creates an assignment
-   record.
-3. Send the code through the buyer's Etsy order messages. If the response was
-   lost before delivery, a superadmin may use the audited one-time operational
-   reveal endpoint while the assignment is still `assigned`.
-4. Mark delivery with
-   `POST /admin/dashboard/etsy/codes/:receiptId/delivered`, a delivery evidence
-   reference, and a fresh `Idempotency-Key`. Delivered codes cannot be revealed
-   through the admin API.
-5. The buyer opens `/etsy/code`, types the code separately, and verifies an
-   email. The server holds the pending code claim; the email link contains no
-   code and may be opened on another device.
-6. Verification atomically resolves the canonical account, burns the code, and
-   grants one shared gift-wallet credit. That credit is fungible across web and
-   the app.
+Download and attestation recheck Etsy eligibility and compare current personalization. Download verifies the stored bytes against the MP3 artifact size and SHA-256. Listen to the downloaded song before uploading it to Etsy. No automatic Etsy upload is performed.
 
-Never send `/etsy?code=...`, store a code in browser storage, or paste one into
-the generic Etsy file. Never issue an unassigned batch for live orders.
+## JSON and production limits
 
-## Automated mode
+- Schema version 1; maximum 128 KiB and 20 eligible transactions per receipt. Unrelated listings are excluded.
+- Each transaction must have quantity 1. Quantity greater than 1 is rejected because one set of personalization answers cannot safely identify several songs. Export never invents per-recipient briefs.
+- Exactly five configured labels are required. Short answers allow 256 characters; the specific memory allows 1000. Occasion and song style must match the supported catalog. Unknown, duplicated, missing, stale, or edited answers fail closed.
+- The file includes the five checkout answers, not later Etsy Messages. Additional story details or changed instructions sent through messages require operator handling; they are not silently merged into an already imported brief.
+- Export requires a settled payment with no adjustments, an eligible paid receipt, and the configured shop/listings. Uploaded JSON is not payment proof by itself: import re-fetches Etsy.
+- Production sweeps run every five seconds independently of the browser. Database uniqueness and per-item claims prevent normal duplicate generation. Known render jobs resume after a restart; uncertain interrupted lyric/provider work is held for review.
+- The queue exposes only error codes, not provider errors containing buyer stories. Protect exported files as buyer data; do not commit them.
 
-1. Upload the generic instruction file generated from
-   `marketing/etsy/fulfilment-instructions.html`. It contains no receipt,
-   redemption code, token, or buyer data.
-2. `order.paid` creates an order and one unit per quantity.
-3. Buyer opens `/etsy`, enters the receipt number, and signs in through the
-   verified email flow using the email on the Etsy receipt.
-4. Claim grants the shared gift wallet and creates an Etsy fulfilment journey.
-5. The normal gift lifecycle creates the song. Etsy delivery remains pending
-   until the durable MP3 artifact passes integrity checks.
-6. Final transaction-only email and Success expose the authenticated MP3.
+## Handling failures
 
-Do not advertise instant song completion. Publish only a claim-link and final
-song SLA measured by production-like dry runs.
+- If render or MP3 preparation fails, leave the unit out of `ready_for_etsy_upload`. Resolve the production failure before attempting Etsy completion.
+- `needs_attention` is intentionally not a one-click paid retry. Inspect the linked track/version/job first; do not import under a fabricated receipt to bypass it. An interrupted external operation may already have incurred cost.
+- If Etsy upload fails, leave the unit ready and retry only in Etsy Shop Manager.
+- Cancel or refund in Etsy first. Do not use Porizo to issue money refunds.
+- Keep buyer stories, receipt data, audio, and screenshots in the approved restricted evidence location. Do not add them to the repository or a support ticket.
 
-## Refunds and cancellation
+## Retired contract
 
-`order.canceled` triggers an authoritative receipt/payment refetch. Deduplicate
-payment adjustment and item IDs. Reverse only deterministically mapped units.
-Fee-only, failed, partial, or ambiguous adjustments enter manual review rather
-than guessing. Unspent credits are removed; spent credits use the shared
-purchase-reversal debt semantics.
-
-The application does not issue money refunds. Refund money in Etsy Shop Manager
-first. The retired `/refund` admin route returns `410`; after Etsy confirms the
-refund or cancellation, a superadmin may call the audited `local-reversal`
-operation with a reason and Etsy evidence reference. Its response explicitly
-reports `money_refunded: false`.
-
-In code mode, void an unredeemed assignment before marking the Etsy refund
-complete. A redeemed assignment retains its receipt, owner, grant transaction,
-and delivery state for support and accounting; never delete or reassign it.
-
-## MP3 incidents
-
-`track_artifacts` is the source of truth. A failed artifact is not delivered.
-Retry/backfill must be idempotent and verify object existence, byte length, and
-SHA-256. Admin retry/replay is superadmin-only and audited. The buyer sees
-“still preparing” rather than a broken download.
-
-The current render master is AAC/M4A, so the advertised MP3 is an explicit
-compatibility transcode rather than a lossless-source encode. Launch approval
-therefore requires a listening check on a real production artifact at the
-configured MP3 bitrate; do not describe the download as lossless. Artifact
-leases prevent duplicate repair across replicas, and exhausted retries remain
-an incident until an audited replay succeeds.
-
-`mp3_ready_email` delivery is a durable leased outbox. Failed sends retry with
-bounded backoff and a stable provider idempotency key. After eight attempts the
-row becomes `uncertain` and stops retrying automatically so an ambiguous send
-cannot spam the buyer; operations must reconcile it manually.
-
-Every manual MP3 replay and reconciliation call must include a fresh
-`Idempotency-Key` (8–128 characters). Retrying the same HTTP operation reuses
-that key and one audit intent; a later deliberate replay uses a new key and
-therefore creates a distinct audit record.
-
-## Privacy
-
-Buyer email is transaction-only. It is encrypted at rest and separately
-HMAC-indexed. Redact encrypted contact after the approved fulfilment/support
-retention window while retaining non-PII receipt, grant, reversal, and audit
-identifiers required for accounting. Include Etsy order/unit/artifact state in
-account export; deletion tombstones ownership without destroying the immutable
-financial ledger.
+The old code-redemption workflow is not part of this launch. Do not issue codes, direct buyers to `/etsy` or `/etsy/code`, grant Porizo credits, or send Porizo delivery email for Etsy orders.

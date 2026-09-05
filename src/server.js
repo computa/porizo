@@ -91,7 +91,6 @@ const {
   createEtsyCodeClaimService,
 } = require("./services/etsy-code-claim-service");
 const {
-  getEtsyFulfilmentMode,
   runEtsyFulfilmentSweep,
 } = require("./services/etsy-fulfilment-mode");
 const { createEtsyClient } = require("./services/etsy-client");
@@ -101,8 +100,18 @@ const {
   createEtsyOAuthCoordinator,
 } = require("./services/etsy-oauth-coordinator");
 const {
+  createEtsyOAuthAuthorization,
+} = require("./services/etsy-oauth-authorization");
+const { registerEtsyOAuthRoutes } = require("./routes/etsy-oauth");
+const {
   createEtsyArtifactService,
 } = require("./services/etsy-artifact-service");
+const { registerEtsyMtoPipeline } = require("./services/etsy-mto-bootstrap");
+const { generateLyrics } = require("./writer/songwriter");
+const {
+  moderationCheck,
+  validateGeneratedLyrics,
+} = require("./providers/moderation");
 const {
   createOrGetShareToken: createGiftShareToken,
 } = require("./services/share-service");
@@ -541,7 +550,6 @@ function buildServer({
   app.decorate("etsyOrderService", etsyOrderService);
   let etsyConnectionBootstrap;
   async function ensureEtsyConnectionBootstrap() {
-    if ((await getEtsyFulfilmentMode(db)) !== "api") return;
     if (!etsyConnectionBootstrap) {
       etsyConnectionBootstrap =
         process.env.ETSY_SHOP_ID &&
@@ -564,7 +572,6 @@ function buildServer({
   });
   const etsyClient = createEtsyClient({
     tokenProvider: async () => {
-      if ((await getEtsyFulfilmentMode(db)) !== "api") return null;
       await ensureEtsyConnectionBootstrap();
       const connection = await db
         .prepare(
@@ -624,6 +631,12 @@ function buildServer({
     onReconnectRequired: etsyOAuthCoordinator.markReconnectRequired,
   });
   app.decorate("etsyClient", etsyClient);
+  const etsyOAuthAuthorization = createEtsyOAuthAuthorization({
+    db,
+    shopId: process.env.ETSY_SHOP_ID,
+    keystring: process.env.ETSY_KEYSTRING,
+    redirectUri: process.env.ETSY_OAUTH_REDIRECT_URI,
+  });
   const etsyArtifactService = createEtsyArtifactService({
     db,
     storageProvider,
@@ -767,6 +780,7 @@ function buildServer({
   const trackLibraryRepository = createTrackLibraryRepository(db);
   const trackVersionRepository = createTrackVersionRepository(db);
   const jobDurabilityRepository = createJobDurabilityRepository(db);
+  const { etsyMtoRepository, etsyMtoService } = registerEtsyMtoPipeline({ app, db, appConfig, etsyClient, etsyArtifactService, trackVersionRepository, newUuid, nowIso, toJson, computeParamsHash, publicBaseUrl, generateLyrics, extractLyricsText, moderationCheck, validateGeneratedLyrics });
 
   // Initialize events service for unified telemetry
   const eventsService = createEventsService(db);
@@ -802,6 +816,8 @@ function buildServer({
     }
     reply.code(statusCode).send(payload);
   }
+
+  registerEtsyOAuthRoutes(app, { authorization: etsyOAuthAuthorization, sendError });
 
   registerWebFunnelRoutes(app, {
     db,
@@ -3612,6 +3628,10 @@ function buildServer({
     subscriptionManager,
     planConfigService,
     emailService,
+    etsyMtoRepository,
+    etsyMtoService,
+    etsyOAuthAuthorization,
+    storageProvider,
     ...(oneSignalService ? { oneSignalService } : {}),
   }));
 

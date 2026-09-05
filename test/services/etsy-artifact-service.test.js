@@ -136,4 +136,20 @@ describe("Etsy MP3 artifact repair", () => {
     assert.equal(results[0].etsyUnitId, "native_unit");
     assert.equal(results[0].ready, true);
   });
+
+  it("repairs a JSON-imported MTO item without a legacy Etsy unit", async () => {
+    const now = new Date().toISOString();
+    await db.prepare("INSERT INTO etsy_mto_orders (id,shop_id,receipt_id,created_at,updated_at) VALUES ('mto-order','99','123',?,?)").run(now, now);
+    await db.prepare("INSERT INTO etsy_mto_items (id,etsy_mto_order_id,transaction_id,ordinal,listing_id,brief_json,raw_personalization_hash,state,track_id,track_version_id,created_at,updated_at) VALUES ('mto-item','mto-order','456',0,'789','{}','hash','rendering','artifact_track','artifact_version',?,?)").run(now, now);
+    const service = createEtsyArtifactService({
+      db, storageDir, storageProvider: { downloadToFile: async () => {} },
+      etsyOrderService: { findUnitForWebOrder: async () => { throw new Error("Must not resolve a web order"); } },
+      uploadMp3: async ({ trackVersion }) => {
+        await db.prepare("UPDATE track_artifacts SET status='ready',storage_key='mto.mp3',sha256=?,byte_length=4096 WHERE track_version_id=?").run("c".repeat(64), trackVersion.id);
+      },
+    });
+    const result = await service.repairForOrder({ mtoItemId: "mto-item" });
+    assert.equal(result.ready, true);
+    assert.equal(result.artifact.storage_key, "mto.mp3");
+  });
 });
