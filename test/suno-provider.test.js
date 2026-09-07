@@ -340,6 +340,63 @@ describe("Suno Provider", () => {
   });
 
   describe("generateMusicWithSuno", () => {
+    test("waits for terminal audio success before downloading a provisional URL", async (t) => {
+      const { generateMusicWithSuno } = require("../src/providers/suno");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-suno-provisional-"));
+      const providerMp3Path = path.join(tmpDir, "provider.mp3");
+      writeValidMp3(providerMp3Path, 9);
+      const providerBytes = fs.readFileSync(providerMp3Path);
+      const originalFetch = global.fetch;
+      t.after(() => {
+        global.fetch = originalFetch;
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      });
+
+      let pollCount = 0;
+      const downloadedUrls = [];
+      global.fetch = async (url) => {
+        if (url === "https://api.sunoapi.org/api/v1/generate") {
+          return Response.json({ code: 200, data: { taskId: "task_123" } });
+        }
+        if (url.startsWith("https://api.sunoapi.org/api/v1/generate/record-info")) {
+          pollCount += 1;
+          const provisional = pollCount === 1;
+          return Response.json({
+            data: {
+              status: provisional ? "TEXT_SUCCESS" : "SUCCESS",
+              response: {
+                sunoData: [{
+                  sourceAudioUrl: provisional
+                    ? "https://cdn.example.com/provisional.mp3"
+                    : "https://cdn.example.com/ready.mp3",
+                  duration: 9,
+                  modelName: "V5",
+                }],
+              },
+            },
+          });
+        }
+        downloadedUrls.push(url);
+        return new Response(providerBytes, { status: 200 });
+      };
+
+      const result = await generateMusicWithSuno({
+        baseUrl: "https://api.sunoapi.org",
+        apiKey: "test-key",
+        storageDir: tmpDir,
+        track: { id: "track_1", user_id: "user_1", title: "Demo" },
+        trackVersion: { version_num: 1 },
+        lyrics: { title: "Demo", sections: [{ name: "chorus", lines: ["A test song"] }] },
+        musicPlan: { style: "pop", duration_sec: 60 },
+        timeoutMs: 1,
+        kind: "preview",
+      });
+
+      assert.equal(result.raw.task_id, "task_123");
+      assert.equal(pollCount, 2);
+      assert.deepEqual(downloadedUrls, ["https://cdn.example.com/ready.mp3"]);
+    });
+
     test("throws error when API key is missing", async () => {
       const { generateMusicWithSuno } = require("../src/providers/suno");
 
