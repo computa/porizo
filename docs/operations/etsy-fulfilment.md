@@ -59,7 +59,7 @@ Download and attestation recheck Etsy eligibility and compare current personaliz
 ## Handling failures
 
 - If render or MP3 preparation fails, leave the unit out of `ready_for_etsy_upload`. Resolve the production failure before attempting Etsy completion.
-- `needs_attention` is intentionally not a one-click paid retry. Inspect the linked track/version/job first; do not import under a fabricated receipt to bypass it. An interrupted external operation may already have incurred cost.
+- `needs_attention` is intentionally not a blind paid retry. Inspect the linked track/version/job first; do not import under a fabricated receipt to bypass it. For `ETSY_RENDER_FAILED` only, Admin exposes **Retry failed render**, which atomically requeues the linked failed job and restores its existing MTO item. It never creates a song, version, or new charge. Other attention errors require operator investigation.
 - If Etsy upload fails, leave the unit ready and retry only in Etsy Shop Manager.
 - Cancel or refund in Etsy first. Do not use Porizo to issue money refunds.
 - Keep buyer stories, receipt data, audio, and screenshots in the approved restricted evidence location. Do not add them to the repository or a support ticket.

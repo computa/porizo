@@ -115,3 +115,39 @@ test("failed render job moves the unit to attention without another provider sub
   assert.equal(item.last_error, "ETSY_RENDER_FAILED");
   assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM jobs").get().n, 1);
 });
+
+test("retrying a failed render resumes its linked job without creating a new song", async (t) => {
+  const f = await fixture(t);
+  await f.app.etsyMtoPipeline.importOrder(JSON.stringify(await f.app.etsyOrderFiles.exportOrder("123")), true, "retry-render-import");
+  await f.app.etsyMtoPipeline.processDue();
+  const before = (await f.repository.listItems())[0];
+  const job = f.db.prepare("SELECT * FROM jobs WHERE track_version_id = ?").get(before.track_version_id);
+  f.db.prepare("UPDATE jobs SET status = 'failed', step = 'generate_audio', step_index = 4, attempts = 3, error_code = 'SUNO_AUDIO_FETCH_FAILED', error_message = 'provider failed', completed_at = ?, next_attempt_at = ?, locked_by = 'worker', locked_at = ? WHERE id = ?").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString(), job.id);
+  f.db.prepare("UPDATE track_versions SET status = 'failed' WHERE id = ?").run(before.track_version_id);
+  await f.app.etsyMtoPipeline.processDue();
+
+  const response = await f.app.inject({ method: "POST", url: `/admin/dashboard/etsy/mto/${before.id}/retry-render`, headers: { "idempotency-key": "retry-render-operation" } });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().item.state, "rendering");
+  assert.equal(response.json().job.id, job.id);
+  const after = await f.repository.findItemById({ itemId: before.id });
+  const retriedJob = f.db.prepare("SELECT * FROM jobs WHERE id = ?").get(job.id);
+  assert.equal(after.state, "rendering");
+  assert.equal(after.last_error, null);
+  assert.equal(f.db.prepare("SELECT status FROM track_versions WHERE id = ?").get(before.track_version_id).status, "processing");
+  assert.equal(f.db.prepare("SELECT status FROM tracks WHERE id = ?").get(before.track_id).status, "rendering");
+  assert.equal(retriedJob.status, "queued");
+  assert.equal(retriedJob.step, "queued");
+  assert.equal(retriedJob.step_index, 0);
+  assert.equal(retriedJob.attempts, 0);
+  assert.equal(retriedJob.error_code, null);
+  assert.equal(retriedJob.error_message, null);
+  assert.equal(retriedJob.next_attempt_at, null);
+  assert.equal(retriedJob.locked_by, null);
+  assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE track_version_id = ?").get(before.track_version_id).n, 1);
+
+  const replay = await f.app.inject({ method: "POST", url: `/admin/dashboard/etsy/mto/${before.id}/retry-render`, headers: { "idempotency-key": "retry-render-operation" } });
+  assert.equal(replay.statusCode, 200, replay.body);
+  assert.equal(replay.json().job.id, job.id);
+  assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM etsy_mto_events WHERE etsy_mto_item_id = ? AND event_type = 'render_retry'").get(before.id).n, 1);
+});

@@ -106,6 +106,21 @@ function registerAdminEtsyMtoRoutes(
     }
   });
 
+  app.post("/admin/dashboard/etsy/mto/:itemId/retry-render", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
+    reply.header("Cache-Control", "no-store");
+    const key = operationKey(request, reply, sendError);
+    if (!key) return;
+    try {
+      const result = await pipeline.retryFailedRender(request.params.itemId, key);
+      await audit(admin.adminId, key, "etsy_mto_render_retried", result.item.id, { job_id: result.job.id });
+      return reply.send({ item: result.item, job: result.job });
+    } catch (error) {
+      return sendError(reply, statusFor(error), error.code || "ETSY_RENDER_RETRY_FAILED", error.message);
+    }
+  });
+
   app.get("/admin/dashboard/etsy/mto/:itemId/mp3", async (request, reply) => {
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;

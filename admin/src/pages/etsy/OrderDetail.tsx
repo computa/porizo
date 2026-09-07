@@ -37,12 +37,20 @@ export function OrderDetail({ item, onUpdated }: { item: EtsyMtoItem; onUpdated:
     await onUpdated();
   }
 
+  async function retryFailedRender() {
+    await post(`/etsy/mto/${encodeURIComponent(item.id)}/retry-render`, {}, operationHeaders());
+    await onUpdated();
+  }
+
   return <section className={panelClass} aria-label={`Order ${item.receipt_id} details`}>
     <h2 className="font-semibold text-white">Order {item.receipt_id} · unit {item.ordinal + 1}</h2>
     <p className="text-sm text-slate-400">Transaction {item.transaction_id} · {item.state.replaceAll("_", " ")} · {item.financial_state}</p>
     <Brief brief={item.brief} />
     {item.last_error && <p role="alert" className="rounded bg-rose-950 p-3 text-rose-200">{item.last_error}</p>}
-    {item.state === "needs_attention" && <p className="text-amber-200">Generation needs operator attention. Check the error before retrying; do not create another order to bypass this state.</p>}
+    {item.state === "needs_attention" && <div className="space-y-3 text-amber-200">
+      <p>Generation needs operator attention. Check the error before retrying; do not create another order to bypass this state.</p>
+      {item.last_error === "ETSY_RENDER_FAILED" && <button disabled={busy} onClick={() => void run(retryFailedRender)} className={buttonClass}>Retry failed render</button>}
+    </div>}
     {item.lyrics && <details><summary className="cursor-pointer font-medium">Generated lyrics</summary><p className="mt-3 whitespace-pre-wrap break-words text-sm">{item.lyrics}</p></details>}
     {error && <p role="alert" className="rounded bg-rose-950 p-3 text-rose-200">{error}</p>}
     {item.state === "ready_for_etsy_upload" && <div className="space-y-4 border-t border-slate-700 pt-4">

@@ -210,6 +210,73 @@ function createEtsyMtoRepository(db) {
     ).run(error, now, itemId, token);
   }
 
+  async function retryFailedRender({ itemId, idempotencyKey, requestHash, eventId, updatedAt }) {
+    return db.transaction(async (query) => {
+      const tx = runner(query);
+      const item = await tx.prepare(
+        `SELECT i.*, o.shop_id, o.receipt_id, o.financial_state, o.state AS order_state
+           FROM etsy_mto_items i
+           JOIN etsy_mto_orders o ON o.id = i.etsy_mto_order_id
+          WHERE i.id = ?`,
+      ).get(itemId);
+      if (!item) throw Object.assign(new Error("Etsy item was not found."), { code: "ETSY_MTO_NOT_FOUND" });
+
+      const existing = await tx.prepare(
+        "SELECT * FROM etsy_mto_events WHERE etsy_mto_item_id = ? AND idempotency_key = ?",
+      ).get(itemId, idempotencyKey);
+      if (existing) {
+        if (existing.event_type !== "render_retry" || existing.request_hash !== requestHash) {
+          throw Object.assign(new Error("The idempotency key was reused with different input."), { code: "ETSY_IDEMPOTENCY_CONFLICT" });
+        }
+        const job = await tx.prepare(
+          `SELECT j.* FROM jobs j
+           JOIN track_versions v ON v.full_job_id = j.id
+           WHERE v.id = ? AND j.workflow_type = 'full_render'`,
+        ).get(item.track_version_id);
+        return { item, job, idempotent: true };
+      }
+
+      if (item.state !== "needs_attention" || item.last_error !== "ETSY_RENDER_FAILED" || !item.track_id || !item.track_version_id) {
+        throw Object.assign(new Error("Only a failed Etsy render can be retried."), { code: "ETSY_RENDER_RETRY_CONFLICT" });
+      }
+
+      const job = await tx.prepare(
+        `SELECT j.* FROM jobs j
+         JOIN track_versions v ON v.full_job_id = j.id
+         WHERE v.id = ? AND j.workflow_type = 'full_render' AND j.status = 'failed'`,
+      ).get(item.track_version_id);
+      if (!job) throw Object.assign(new Error("The linked render job is not failed."), { code: "ETSY_RENDER_RETRY_CONFLICT" });
+
+      await tx.prepare(
+        "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status = 'failed'",
+      ).run(updatedAt, job.id);
+      await tx.prepare("UPDATE track_versions SET status = 'processing' WHERE id = ?").run(item.track_version_id);
+      await tx.prepare("UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?").run(updatedAt, item.track_id);
+      await tx.prepare(
+        "UPDATE etsy_mto_items SET state = 'rendering', last_error = NULL, lease_token = NULL, lease_until = NULL, updated_at = ? WHERE id = ? AND state = 'needs_attention'",
+      ).run(updatedAt, itemId);
+      await tx.prepare(
+        "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE job_id = ? AND reprocessed_at IS NULL",
+      ).run(updatedAt, job.id, job.id);
+      const event = await tx.prepare(
+        `INSERT INTO etsy_mto_events (
+           id, etsy_mto_item_id, event_type, idempotency_key, request_hash, created_at
+         ) VALUES (?, ?, 'render_retry', ?, ?, ?)`,
+      ).run(eventId, itemId, idempotencyKey, requestHash, updatedAt);
+      if ((event.rowCount ?? event.changes) !== 1) throw Object.assign(new Error("The render retry changed concurrently."), { code: "ETSY_RENDER_RETRY_CONFLICT" });
+      return {
+        item: await tx.prepare(
+          `SELECT i.*, o.shop_id, o.receipt_id, o.financial_state, o.state AS order_state
+             FROM etsy_mto_items i
+             JOIN etsy_mto_orders o ON o.id = i.etsy_mto_order_id
+            WHERE i.id = ?`,
+        ).get(itemId),
+        job: await tx.prepare("SELECT * FROM jobs WHERE id = ?").get(job.id),
+        idempotent: false,
+      };
+    });
+  }
+
   async function readLyrics(itemId) {
     const row = await db.prepare(
       `SELECT v.lyrics_json FROM etsy_mto_items i
@@ -235,6 +302,7 @@ function createEtsyMtoRepository(db) {
     claimItem,
     releaseItem,
     failItem,
+    retryFailedRender,
     readLyrics,
   };
 }

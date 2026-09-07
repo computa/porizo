@@ -24,6 +24,10 @@ describe("admin Etsy MTO routes", () => {
           calls.push({ file, acknowledged, key });
           return { items: [{ id: "mto_1", state: "received" }] };
         },
+        retryFailedRender: async (itemId, key) => {
+          calls.push({ itemId, key, retry: true });
+          return { item: { id: itemId, state: "rendering" }, job: { id: "job_1" } };
+        },
       },
       service: {
         intake: async (input) => {
@@ -98,5 +102,17 @@ describe("admin Etsy MTO routes", () => {
     assert.equal(response.statusCode, 200);
     assert.equal(calls.length, 0);
     assert.equal((await app.inject({ method: "POST", url: "/admin/dashboard/etsy/mto", headers, payload: {} })).statusCode, 404);
+  });
+
+  test("retries a failed render through the protected MTO operation", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/etsy/mto/mto_1/retry-render",
+      headers: { authorization: "Bearer allowed", "idempotency-key": "retry-render-1" },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.deepEqual(response.json(), { item: { id: "mto_1", state: "rendering" }, job: { id: "job_1" } });
+    assert.deepEqual(calls, [{ itemId: "mto_1", key: "retry-render-1", retry: true }]);
   });
 });

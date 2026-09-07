@@ -118,7 +118,22 @@ function createEtsyMtoPipeline({ repository, orderFiles, production, assertConfi
     for (const item of due.slice(0, 10)) await processItem(item);
   }
 
-  return { preview, importOrder, processDue, verifyItem };
+  async function retryFailedRender(itemId, idempotencyKey) {
+    const item = await repository.findItemById({ itemId });
+    if (!item) throw Object.assign(new Error("Etsy item was not found."), { code: "ETSY_MTO_NOT_FOUND" });
+    const requestHash = briefHash({ operation: "retry_render" });
+    const existing = await repository.findEventByIdempotencyKey({ itemId, idempotencyKey });
+    if (!existing) await verifyItem(item);
+    return repository.retryFailedRender({
+      itemId,
+      idempotencyKey,
+      requestHash,
+      eventId: crypto.randomUUID(),
+      updatedAt: now(),
+    });
+  }
+
+  return { preview, importOrder, processDue, verifyItem, retryFailedRender };
 }
 
 module.exports = { createEtsyMtoPipeline, briefHash };
