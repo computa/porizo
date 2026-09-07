@@ -874,6 +874,94 @@ async function validateDownloadedSunoAudio({ filePath, kind }) {
   };
 }
 
+function resolveSunoPollOutcome({ status, response }) {
+  const statusInfo = classifySunoStatus(status);
+  if (statusInfo.phase === "audio_success") {
+    const readiness = inspectSunoAudioReadiness(response);
+    return readiness.ready
+      ? { done: true, response, status }
+      : { done: false, response, status, incompleteReason: readiness.reason };
+  }
+  if (statusInfo.phase === "provisional_success") {
+    return { done: false, response, status, incompleteReason: "provisional" };
+  }
+  if (statusInfo.phase === "failed") {
+    const errorMsg = response?.data?.errorMessage || "Unknown error";
+    return {
+      done: false,
+      failed: true,
+      error: `E302_SUNO_ERROR: Generation failed - ${errorMsg}`,
+    };
+  }
+  return { done: false, response, status };
+}
+
+async function waitForSunoAudio({
+  baseUrl,
+  apiKey,
+  taskId,
+  timeoutMs,
+  onHeartbeat,
+}) {
+  const pollingConfig = createPollingConfig("suno");
+  const averageIntervalMs =
+    (pollingConfig.initialIntervalMs + pollingConfig.maxIntervalMs) / 2;
+  const maxAttempts = timeoutMs
+    ? Math.max(5, Math.ceil(timeoutMs / averageIntervalMs))
+    : pollingConfig.maxAttempts;
+  let incompleteReason = null;
+  let incompleteStatus = null;
+
+  try {
+    const pollResult = await pollWithBackoff(
+      async () => {
+        const outcome = resolveSunoPollOutcome(
+          await pollSunoTaskOnce({
+            baseUrl,
+            apiKey,
+            taskId,
+            timeoutMs: 30000,
+            onHeartbeat,
+          }),
+        );
+        if (outcome.incompleteReason) {
+          incompleteReason = outcome.incompleteReason;
+          incompleteStatus = outcome.status;
+        }
+        return outcome;
+      },
+      {
+        ...pollingConfig,
+        maxAttempts,
+        onPoll: (attempt, interval) => {
+          console.log(
+            `[Suno] Polling task ${taskId}, attempt ${attempt}/${maxAttempts}, next interval: ${interval}ms`,
+          );
+        },
+      },
+    );
+    return pollResult.response;
+  } catch (pollErr) {
+    if (pollErr?.message?.includes("E302_SUNO_")) throw pollErr;
+    const message = pollErr?.message ?? String(pollErr || "unknown error");
+    const timedOut =
+      message.includes("exceeded") || message.includes("Polling timeout");
+    if (timedOut && incompleteReason) {
+      const detail = {
+        no_audio_data: "No audio data in response",
+        no_audio_url: "No audio URL in response",
+        provisional: "Audio result never reached terminal success",
+      }[incompleteReason] || "No audio URL in response";
+      throw new Error(
+        `E302_SUNO_INCOMPLETE_OUTPUT: status=${incompleteStatus || "unknown"}, ${detail}`,
+      );
+    }
+    throw new Error(
+      `E302_SUNO_ERROR: task=${taskId}, ${timedOut ? "Generation timed out" : message}`,
+    );
+  }
+}
+
 async function generateMusicWithSuno({
   baseUrl,
   apiKey,
@@ -907,90 +995,13 @@ async function generateMusicWithSuno({
     sunoPersona,
   });
 
-  // Use exponential backoff polling
-  const pollingConfig = createPollingConfig("suno");
-  let statusResponse;
-  let sawSuccessWithoutAudio = false;
-  let lastSuccessWithoutAudioReason = null;
-  let lastSuccessStatus = null;
-
-  // Derive max attempts from timeoutMs if provided
-  // Average interval approximation: (initial + max) / 2 = (5000 + 30000) / 2 = 17500ms
-  const avgIntervalMs =
-    (pollingConfig.initialIntervalMs + pollingConfig.maxIntervalMs) / 2;
-  const derivedMaxAttempts = timeoutMs
-    ? Math.max(5, Math.ceil(timeoutMs / avgIntervalMs))
-    : pollingConfig.maxAttempts;
-
-  try {
-    const pollResult = await pollWithBackoff(
-      async () => {
-        const result = await pollSunoTaskOnce({
-          baseUrl,
-          apiKey,
-          taskId,
-          timeoutMs: 30000,
-          onHeartbeat,
-        });
-        const status = result.status;
-        const statusInfo = classifySunoStatus(status);
-
-        if (
-          statusInfo.phase === "audio_success" ||
-          statusInfo.phase === "provisional_success"
-        ) {
-          const readiness = inspectSunoAudioReadiness(result.response);
-          if (readiness.ready) {
-            return { done: true, response: result.response, status };
-          }
-          sawSuccessWithoutAudio = true;
-          lastSuccessWithoutAudioReason = readiness.reason;
-          lastSuccessStatus = status;
-          return { done: false, response: result.response, status };
-        }
-        if (statusInfo.phase === "failed") {
-          const errorMsg =
-            result.response?.data?.errorMessage || "Unknown error";
-          return {
-            done: false,
-            failed: true,
-            error: `E302_SUNO_ERROR: Generation failed - ${errorMsg}`,
-          };
-        }
-        return { done: false, response: result.response, status };
-      },
-      {
-        ...pollingConfig,
-        maxAttempts: derivedMaxAttempts,
-        onPoll: (attempt, interval) => {
-          console.log(
-            `[Suno] Polling task ${taskId}, attempt ${attempt}/${derivedMaxAttempts}, next interval: ${interval}ms`,
-          );
-        },
-      },
-    );
-    statusResponse = pollResult.response;
-  } catch (pollErr) {
-    // Re-throw if already a Suno error (preserves original context)
-    if (pollErr?.message?.includes("E302_SUNO_")) {
-      throw pollErr;
-    }
-    const errMessage = pollErr?.message ?? String(pollErr || "unknown error");
-    const isTimeout =
-      errMessage.includes("exceeded") || errMessage.includes("Polling timeout");
-    if (isTimeout && sawSuccessWithoutAudio) {
-      const detail =
-        lastSuccessWithoutAudioReason === "no_audio_data"
-          ? "No audio data in response"
-          : "No audio URL in response";
-      throw new Error(
-        `E302_SUNO_INCOMPLETE_OUTPUT: status=${lastSuccessStatus || "unknown"}, ${detail}`,
-      );
-    }
-    throw new Error(
-      `E302_SUNO_ERROR: task=${taskId}, ${isTimeout ? "Generation timed out" : errMessage}`,
-    );
-  }
+  const statusResponse = await waitForSunoAudio({
+    baseUrl,
+    apiKey,
+    taskId,
+    timeoutMs,
+    onHeartbeat,
+  });
 
   logSunoCreditUsage(taskId, statusResponse);
 
