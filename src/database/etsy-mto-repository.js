@@ -243,12 +243,12 @@ function createEtsyMtoRepository(db) {
       const job = await tx.prepare(
         `SELECT j.* FROM jobs j
          JOIN track_versions v ON v.full_job_id = j.id
-         WHERE v.id = ? AND j.workflow_type = 'full_render' AND j.status = 'failed'`,
+         WHERE v.id = ? AND j.workflow_type = 'full_render' AND j.status IN ('failed', 'dead_letter')`,
       ).get(item.track_version_id);
       if (!job) throw Object.assign(new Error("The linked render job is not failed."), { code: "ETSY_RENDER_RETRY_CONFLICT" });
 
       await tx.prepare(
-        "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status = 'failed'",
+        "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter')",
       ).run(updatedAt, job.id);
       await tx.prepare("UPDATE track_versions SET status = 'processing' WHERE id = ?").run(item.track_version_id);
       await tx.prepare("UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?").run(updatedAt, item.track_id);

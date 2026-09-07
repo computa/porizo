@@ -122,7 +122,7 @@ test("retrying a failed render resumes its linked job without creating a new son
   await f.app.etsyMtoPipeline.processDue();
   const before = (await f.repository.listItems())[0];
   const job = f.db.prepare("SELECT * FROM jobs WHERE track_version_id = ?").get(before.track_version_id);
-  f.db.prepare("UPDATE jobs SET status = 'failed', step = 'generate_audio', step_index = 4, attempts = 3, error_code = 'SUNO_AUDIO_FETCH_FAILED', error_message = 'provider failed', completed_at = ?, next_attempt_at = ?, locked_by = 'worker', locked_at = ? WHERE id = ?").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString(), job.id);
+  f.db.prepare("UPDATE jobs SET status = 'dead_letter', step = 'generate_audio', step_index = 4, attempts = 3, error_code = 'SUNO_AUDIO_FETCH_FAILED', error_message = 'provider failed', completed_at = ?, next_attempt_at = ?, locked_by = 'worker', locked_at = ? WHERE id = ?").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString(), job.id);
   f.db.prepare("UPDATE track_versions SET status = 'failed' WHERE id = ?").run(before.track_version_id);
   await f.app.etsyMtoPipeline.processDue();
 
