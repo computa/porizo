@@ -8,6 +8,10 @@ const { beforeEach, afterEach, describe, test } = require("node:test");
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
 const { AttributionService } = require("../src/services/attribution-service");
+const {
+  insertAppleAdsAttribution,
+  insertUser,
+} = require("./helpers/admin-attribution-fixtures");
 
 function buildTestApp(db) {
   return buildServer({
@@ -34,48 +38,12 @@ async function loginAdmin(app) {
     url: "/admin/auth/login",
     payload: { email: "admin@porizo.app", password: "admin123" },
   });
-  assert.equal(response.statusCode, 200, `admin login failed: ${response.body}`);
-  return response.json().token;
-}
-
-async function insertUser(db, userId) {
-  await db.prepare(
-    "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')"
-  ).run(userId, new Date().toISOString());
-}
-
-async function insertAppleAdsAttribution(db, {
-  id,
-  userId,
-  status,
-  campaignId = null,
-  adGroupId = null,
-  keywordId = null,
-  country = null,
-  clickDate = null,
-  createdAt = new Date().toISOString(),
-}) {
-  await db.prepare(`
-    INSERT INTO apple_ads_attribution (
-      id, user_id, attribution_token_sha256, token_length, status, api_status_code,
-      campaign_id, ad_group_id, keyword_id, country_or_region, click_date, created_at, updated_at, resolved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    userId,
-    `${id}_token_hash`,
-    64,
-    status,
-    status === "resolved" ? 200 : (status === "not_found" ? 404 : null),
-    campaignId,
-    adGroupId,
-    keywordId,
-    country,
-    clickDate,
-    createdAt,
-    createdAt,
-    status === "pending" ? null : createdAt
+  assert.equal(
+    response.statusCode,
+    200,
+    `admin login failed: ${response.body}`,
   );
+  return response.json().token;
 }
 
 describe("admin attribution contract", () => {
@@ -171,12 +139,16 @@ describe("admin attribution contract", () => {
     const userId = "admin_attr_gift_spent";
     const now = new Date().toISOString();
     await insertUser(db, userId);
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO entitlements (
         user_id, tier, songs_remaining, songs_allowance, songs_used_total,
         gift_songs_used_total, updated_at
       ) VALUES (?, 'free', 0, 2, 3, 2, ?)
-    `).run(userId, now);
+    `,
+      )
+      .run(userId, now);
 
     const response = await app.inject({
       method: "GET",
@@ -206,7 +178,10 @@ describe("admin attribution contract", () => {
       headers: adminHeaders,
     });
     assert.equal(organicResponse.statusCode, 200, organicResponse.body);
-    assert.equal(organicResponse.json().users[0].acquisition_source, "Organic / direct");
+    assert.equal(
+      organicResponse.json().users[0].acquisition_source,
+      "Organic / direct",
+    );
     assert.equal(organicResponse.json().users[0].attribution_status, "organic");
 
     const unknownResponse = await app.inject({
@@ -222,9 +197,11 @@ describe("admin attribution contract", () => {
   test("stored non-Apple source overrides resolved Apple Ads display attribution", async () => {
     const userId = "admin_attr_founder_override";
     await insertUser(db, userId);
-    await db.prepare(
-      "UPDATE users SET acquisition_source = ?, acquisition_campaign = ?, acquisition_country = ? WHERE id = ?"
-    ).run("Founder outreach", "friends_test", "US", userId);
+    await db
+      .prepare(
+        "UPDATE users SET acquisition_source = ?, acquisition_campaign = ?, acquisition_country = ? WHERE id = ?",
+      )
+      .run("Founder outreach", "friends_test", "US", userId);
     await insertAppleAdsAttribution(db, {
       id: "aaa_admin_attr_founder_override",
       userId,
@@ -250,12 +227,14 @@ describe("admin attribution contract", () => {
   test("matched download registration attribution overrides a stored Apple Ads install source", async () => {
     const userId = "admin_attr_download_over_apple";
     await insertUser(db, userId);
-    await db.prepare(
-      `UPDATE users
+    await db
+      .prepare(
+        `UPDATE users
        SET acquisition_source = ?, acquisition_medium = ?, acquisition_campaign = ?,
            acquisition_content = ?, acquisition_term = ?, acquisition_country = ?
-       WHERE id = ?`
-    ).run("Apple Ads", "cpc", "321", "654", "987", "US", userId);
+       WHERE id = ?`,
+      )
+      .run("Apple Ads", "cpc", "321", "654", "987", "US", userId);
     await insertAppleAdsAttribution(db, {
       id: "aaa_admin_attr_download_over_apple",
       userId,
@@ -278,25 +257,29 @@ describe("admin attribution contract", () => {
       referrer_url: "https://porizo.co/birthday-song-maker",
       created_at: now,
     };
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO download_events (
         id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
         utm_content, utm_term, country, referrer_url, matched_user_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      download.id,
-      "203.0.113.44",
-      "test-agent",
-      download.utm_source,
-      download.utm_medium,
-      download.utm_campaign,
-      download.utm_content,
-      download.utm_term,
-      download.country,
-      download.referrer_url,
-      userId,
-      download.created_at
-    );
+    `,
+      )
+      .run(
+        download.id,
+        "203.0.113.44",
+        "test-agent",
+        download.utm_source,
+        download.utm_medium,
+        download.utm_campaign,
+        download.utm_content,
+        download.utm_term,
+        download.country,
+        download.referrer_url,
+        userId,
+        download.created_at,
+      );
 
     const response = await app.inject({
       method: "GET",
@@ -312,16 +295,26 @@ describe("admin attribution contract", () => {
     assert.equal(user.acquisition_content, "hero");
     assert.equal(user.acquisition_term, null);
     assert.equal(user.acquisition_country, "AU");
-    assert.equal(user.acquisition_referrer, "https://porizo.co/birthday-song-maker");
+    assert.equal(
+      user.acquisition_referrer,
+      "https://porizo.co/birthday-song-maker",
+    );
     assert.equal(user.attribution_confidence, "download_event_over_apple_ads");
 
     const attributionService = new AttributionService(db);
-    await attributionService.backfillUserAcquisitionFromDownload(userId, download);
-    const stored = await db.prepare(`
+    await attributionService.backfillUserAcquisitionFromDownload(
+      userId,
+      download,
+    );
+    const stored = await db
+      .prepare(
+        `
       SELECT acquisition_source, acquisition_medium, acquisition_campaign, acquisition_country
       FROM users
       WHERE id = ?
-    `).get(userId);
+    `,
+      )
+      .get(userId);
     assert.equal(stored.acquisition_source, "seo");
     assert.equal(stored.acquisition_medium, "landing_page");
     assert.equal(stored.acquisition_campaign, "birthday_song_gift");
@@ -348,13 +341,17 @@ describe("admin attribution contract", () => {
     });
     assert.equal(updateResponse.statusCode, 200, updateResponse.body);
 
-    const auditRow = await db.prepare(`
+    const auditRow = await db
+      .prepare(
+        `
       SELECT action, resource_type, resource_id, metadata_json
       FROM audit_logs
       WHERE action = ? AND resource_id = ?
       ORDER BY created_at DESC
       LIMIT 1
-    `).get("admin_update_user_attribution", userId);
+    `,
+      )
+      .get("admin_update_user_attribution", userId);
 
     assert.ok(auditRow, "expected attribution override audit log");
     assert.equal(auditRow.resource_type, "user");
@@ -373,7 +370,10 @@ describe("admin attribution contract", () => {
     assert.equal(metadata.next.acquisition_content, "may_followup");
     assert.equal(metadata.next.acquisition_term, "song_gift");
     assert.equal(metadata.next.acquisition_country, "US");
-    assert.equal(metadata.next.acquisition_referrer, "https://porizo.co/mothers-day-song");
+    assert.equal(
+      metadata.next.acquisition_referrer,
+      "https://porizo.co/mothers-day-song",
+    );
     assert.deepEqual(metadata.changedFields, {
       acquisition_source: "Founder outreach",
       acquisition_medium: "email",
@@ -441,62 +441,74 @@ describe("admin attribution contract", () => {
     const now = new Date().toISOString();
     const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
 
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO download_events (
         id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
         utm_content, country, referrer_url, matched_user_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      "dl_seo_mothers_1",
-      "203.0.113.10",
-      "test-agent",
-      "seo",
-      "landing_page",
-      "mothers_day_song",
-      "hero",
-      "AU",
-      "https://porizo.co/mothers-day-song",
-      userId,
-      now
-    );
+    `,
+      )
+      .run(
+        "dl_seo_mothers_1",
+        "203.0.113.10",
+        "test-agent",
+        "seo",
+        "landing_page",
+        "mothers_day_song",
+        "hero",
+        "AU",
+        "https://porizo.co/mothers-day-song",
+        userId,
+        now,
+      );
 
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO download_events (
         id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
         utm_content, country, referrer_url, matched_user_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      "dl_seo_mothers_2",
-      "203.0.113.11",
-      "test-agent",
-      "seo",
-      "landing_page",
-      "mothers_day_song",
-      "nav",
-      "AU",
-      "https://porizo.co/mothers-day-song",
-      null,
-      now
-    );
+    `,
+      )
+      .run(
+        "dl_seo_mothers_2",
+        "203.0.113.11",
+        "test-agent",
+        "seo",
+        "landing_page",
+        "mothers_day_song",
+        "nav",
+        "AU",
+        "https://porizo.co/mothers-day-song",
+        null,
+        now,
+      );
 
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO download_events (
         id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
         utm_content, country, referrer_url, matched_user_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      "dl_old_custom",
-      "203.0.113.12",
-      "test-agent",
-      "seo",
-      "landing_page",
-      "custom_song_gift",
-      "hero",
-      "US",
-      "https://porizo.co/custom-song-gift",
-      null,
-      old
-    );
+    `,
+      )
+      .run(
+        "dl_old_custom",
+        "203.0.113.12",
+        "test-agent",
+        "seo",
+        "landing_page",
+        "custom_song_gift",
+        "hero",
+        "US",
+        "https://porizo.co/custom-song-gift",
+        null,
+        old,
+      );
 
     const response = await app.inject({
       method: "GET",
@@ -510,7 +522,9 @@ describe("admin attribution contract", () => {
     assert.equal(body.downloadsWithAttribution, 2);
     assert.equal(body.attributedRegistrations, 1);
 
-    const campaign = body.byCampaign.find((row) => row.utm_campaign === "mothers_day_song");
+    const campaign = body.byCampaign.find(
+      (row) => row.utm_campaign === "mothers_day_song",
+    );
     assert.ok(campaign, "expected mothers_day_song campaign row");
     assert.equal(campaign.download_count, 2);
     assert.equal(campaign.registration_count, 1);
@@ -519,7 +533,7 @@ describe("admin attribution contract", () => {
     assert.equal(
       body.byCampaign.some((row) => row.utm_campaign === "custom_song_gift"),
       false,
-      "old download should not be included in a 30-day report"
+      "old download should not be included in a 30-day report",
     );
   });
 
@@ -541,17 +555,19 @@ describe("admin attribution contract", () => {
       url: "/admin/dashboard/growth/apple-ads-keyword-map",
       headers: adminHeaders,
       payload: {
-        keywords: [{
-          keyword_id: "987",
-          campaign_id: "321",
-          campaign_name: "Porizo - Category US",
-          ad_group_id: "654",
-          ad_group_name: "High-Intent Keywords",
-          keyword_text: "gift song",
-          match_type: "EXACT",
-          bid_amount: "1.80",
-          status: "ENABLED",
-        }],
+        keywords: [
+          {
+            keyword_id: "987",
+            campaign_id: "321",
+            campaign_name: "Porizo - Category US",
+            ad_group_id: "654",
+            ad_group_name: "High-Intent Keywords",
+            keyword_text: "gift song",
+            match_type: "EXACT",
+            bid_amount: "1.80",
+            status: "ENABLED",
+          },
+        ],
       },
     });
     assert.equal(syncResponse.statusCode, 200, syncResponse.body);

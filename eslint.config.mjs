@@ -36,6 +36,7 @@ export default [
       },
     },
     rules: {
+      complexity: ["error", { max: 170, variant: "classic" }],
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrors: "none" }],
     },
   },

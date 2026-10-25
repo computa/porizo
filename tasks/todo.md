@@ -827,3 +827,90 @@ Mechanism (for reference): Skip maps SF→Material via composeSymbolName (Image.
 
 - Do NOT commit/push unless asked. Skip does not read iOS asset catalogs — port resolved hex, both appearances.
 - I2 (SF Symbols) is next loop: per-symbol Android vector/glyph mapping.
+
+## 2026-10-25 — Signup identity visibility and name completion
+
+Branch `fix/signup-identity-visibility`. Isolated worktree `/private/tmp/porizo-signup-identity-20261025`. Expected 45–75 minutes. Auth/profile risk is high; no deployment or production repair authorized.
+
+- [x] Ground. Trace production HTTP/auth logs and identity/contact data; 17 guests and four nameless Apple accounts confirmed.
+- [x] Sketch. Compare two bounded designs for classification and name completion.
+- [x] Agree. Synthesize the smallest design preserving auth/contact invariants.
+- [x] Implement. Add classification/email state, name completion/editing, and audit metadata with focused regression checks.
+- [x] Scrap. Not needed; integration preserved the selected identity model.
+- [x] Run affected backend/admin/iOS validation and available full gates. XCTest runtime remains blocked by host DTServiceHub.
+- [x] Review integrated implementation, fix findings, rerun invalidated checks, and hand off.
+
+Throughput checkpoint:
+- Blocking first steps. Scope preflight, design synthesis, dependency/toolchain baseline before writes.
+- Independent workstreams. Admin read-model/UI, iOS profile UI, and backend audit metadata use disjoint paths.
+- Shared mutable state. Root owns contracts, task log, dependency setup, integrated validation and review.
+- Smallest safe decomposition. Two bounded implementation delegates; root integrates backend auditing and verifies.
+
+Owned paths include admin user read routes/service/repository/UI; auth and web guest routes; iOS profile/root/account views and tests; targeted identity/admin tests; identity documentation and lint configuration if needed for required complexity gate. Original dirty checkout remains untouched.
+
+Design synthesis and plan review:
+- Selected candidate B: derive registered status from active sign-in identity; deleted takes precedence, guests stay guests, other records are unclaimed. Candidate A's active-status-only filter would misclassify promoted purchase shells.
+- Counter buckets are exclusive; conversion is paid registered / live registered. Canonical contact state is explicit, with legacy mirrors labelled legacy rather than trusted.
+- iOS derives missing name from the validated profile and uses a separate dismissible name editor; authentication policy remains unchanged. No additional response boolean or old completion gate.
+- Guest creation uses a distinct auth event with matching SQLite/PostgreSQL migration. Never reuse signup_success for guests. Signup metadata records only method and name_supplied.
+- Plan review risks addressed: duplicate provider joins, stale account-save responses, double auditing on reuse/retry, unverified contacts mistaken for verified, and deleted rows in default totals.
+- Project Environment: Argent inspector confirmed is_react_native=false, is_native_ios=true; iOS deployment target17.0. Stable Xcode26.6 selected explicitly over default beta27. Backend Node24.22.1, native SwiftUI, admin React/Vite.
+
+Integrated review and validation record:
+- Independent review found four introduced issues: cross-account profile retry, Unicode length mismatch, nil JSON encoding assertion, and exact-ID deep links restricted to registered. All four fixed; final independent review reports no actionable issues.
+- Profile mutation now requires expected_user_id and rejects ACCOUNT_CHANGED before writes. B-token/A-target regression plus matching save pass; all four existing API test callers updated.
+- Authorized unrelated build repair: useApi.post accepts operation headers, preserving Etsy idempotency headers and fixing three committed TypeScript call errors. Original dirty checkout already contained the same change and remains untouched.
+- Focused initial admin 22/22; attribution fixture regression repair 10/10; auth/audit 63/63; profile-binding/auth identity 68/68; affected PG integration 42/42; migration parity passes.
+- Admin production TypeScript/Vite build passes. Generated public/admin bundles are intentional runtime artifacts because Dockerfile serves checked-in admin assets without rebuilding them.
+- Stable Xcode26.6 simulator Debug build and build-for-testing pass; stable Release simulator build passes. XCTest runtime failed to attach via DTServiceHub on the existing review simulator; a separate booted simulator is being checked.
+- Native complexity gates pass at measured initial clean-branch maxima backend170/admin65/Swift32, enforced by ESLint/SwiftLint in local scripts and CI. Changed-file ESLint and full SwiftLint pass. Two existing backend lint failures remain in buyer-mp3-package.js (no-control-regex) and workflows/runner.js (unused encodeToMp3); unrelated files were not repaired.
+- Real local admin UI verified registered default, separate guest filter, unverified email, and Unlocked label. Argent iOS fixtures verified empty/disabled save, input enabling save, retained text on recoverable error, dismissible prompt, and prefilled edit. Fixtures did not contact production.
+
+Final gate status:
+- First full npm test completed 3,548 tests in 922s: 3,517 passed, six failed, with the rest skipped/todo. All six failures were admin-attribution fixtures now corrected and passing in the 10-case focused suite. Final full rerun passed against the integrated fixes: 3,549 tests, 3,524 passed, zero failures, 25 skipped, in 745s.
+- Release build passed under stable Xcode26.6 in 303s. XCTest test-without-building could not attach through DTServiceHub on either F240AEC5-3FED-43B8-BA56-147651EDAD9B or the separately booted 3E64A816-229F-4181-8E7B-00975A19A6D4. Both attempts stopped after the repeated service error; this is blocked runtime evidence, not a passing test gate.
+- Native executable proof compiles actual ProfileName.swift and AuthUser.swift with stable swiftc and checks validation, emoji/combining limits, response-account guards, and missing-name decoding.
+
+Handoff (2026-10-25 13:59 AWST, about 37 minutes wall time):
+- Completed all four implementation areas and fixed all four independent review findings. Final narrow independent review reports no actionable issues.
+- Final full npm test: 3,524 passed, zero failed, 25 skipped across 3,549 tests/699 suites.
+- Final admin production build, affected PostgreSQL integration (42 tests plus final 9-case SQL recheck), migration parity, changed-file ESLint, complexity ceilings, SwiftLint (291 files), execution-policy check, scope preflight, and diff whitespace checks pass. Stable Swift executable proof passes 14 assertions against actual source.
+- Stable Xcode Debug build, test compilation, and Release simulator build pass. XCTest execution remains blocked by host DTServiceHub on two simulators; no passing XCTest runtime claim. Two pre-existing unrelated backend lint errors remain and block release gates.
+- Local QA server stopped. Argent services stopped only for the two simulator IDs used. Captured simulator proof images are in /private/tmp/porizo-signup-proof/. No Metro was started.
+- Worktree /private/tmp/porizo-signup-identity-20261025, branch fix/signup-identity-visibility, base 2da66ae1. No commit, push, deployment, TestFlight upload, or production data migration. Original checkout and unrelated work preserved.
+- Principles applied: Model the Domain produced one registration classification for list, count and stats. Prove It Works required live local admin and Argent simulator evidence in addition to builds and tests.
+
+Continuation — remaining validation cleanup:
+- User authorized continuing after handoff. Scope is the two reported lint failures and bounded diagnosis of the XCTest host issue. No production deployment or global Xcode changes.
+- Filename sanitization uses Unicode control-character matching instead of a lint-forbidden literal control range. Removed unused encodeToMp3 import.
+- XCTest first-launch status under stable26.6 is already complete. A read-only diagnostic lane is inspecting the service attachment failure while focused validation continues.
+
+Continuation handoff (2026-10-25T14:08+08:00):
+- Both reported backend lint failures are fixed. ESLint src exits0 with no output. Native complexity gates and SwiftLint291 files pass. Filename checks cover reserved/control characters and Unicode; six affected MP3 workflow tests pass. The earlier full backend run remains 3,524 passed/zero failed/25 skipped; only the affected MP3 tests were rerun after this cleanup.
+- Confirmed host blocker from unified kernel logs: at2026-10-25 14:04:41 AMFI rejects /Applications/Xcode-27-beta.app/Contents/SharedFrameworks/DVTInstrumentsFoundation.framework/Versions/A/Resources/DTServiceHub with “com.apple.DTServiceHub disallowed without correct com.apple.private.amfi.version-restriction entitlement version”. Stable26.6 receives the same rejection. macOS is27.2 build26B118.
+- Stable first-launch setup is complete, app/test bundle signatures verify, and the xctestrun has no hard-coded Xcode path. Explicit Beta test-without-building also fails before test execution. Direct xctestrun invocation would select the same rejected host hub, so further launcher retries were stopped.
+- XCTest remains host-blocked. An Apple-compatible toolchain/OS pairing or approved host remediation is required; no app-code edit can correct the rejected Apple helper entitlement. No signing/security bypass, global Xcode change, commit, push or deployment.
+
+Current-toolchain continuation:
+- Verified Apple’s current release matrix: Xcode27.1 is stable, Xcode26.6 supports macOS26.x only. Earlier use of26.6 as the current stable lane was stale; correcting the toolchain, not app code. Sources: https://developer.apple.com/xcode/system-requirements/ and https://developer.apple.com/news/releases/. Native App Store confirms27.1.
+- Started App Store re-download of Xcode27.1 using the existing signed-in account. Global xcode-select remains unchanged. Only this session’s generated /private/tmp/porizo-signup-release-derived cache was removed for disk space; prior passing build logs retained. Existing Debug/test products and source remain.
+
+User-authorized Xcode cleanup (2026-10-25):
+- Installed official App Store Xcode27.1 (27A9275) and completed required component setup. Switched global Command Line Tools through Xcode Locations; xcode-select -p and xcodebuild -version verify /Applications/Xcode.app and27.1.
+- Closed obsolete Simulator/Device Hub GUIs, verified no old-toolchain processes, then removed exact /Applications/Xcode-26.6.app and /Applications/Xcode-27-beta.app. Project files, archives, signing settings and simulator data preserved. Free space after cleanup is25,095,980KiB (about24GiB); both old bundles are absent.
+- First Argent boot under new toolchain failed with SimLaunchHostService connection invalid (NSPOSIXErrorDomain53). XCTest has not yet rerun successfully; retain host-validation blocker until simulator service recovery is verified. No reboot or machine-wide simulator reset performed.
+
+Merge-to-main continuation:
+- User authorized merge, then explicitly required splitting files to satisfy global 5,000-token precommit gate. No bypass authorized or used.
+- Clean landing worktree /private/tmp/porizo-signup-main-20261025 branch fix/signup-identity-main starts at origin/main86dfaf2e. Applied only signup patch; excludes unrelated2da66ae1 Etsy MP3 feature and its lint cleanup.
+- Plan: extract coherent iOS/admin/backend-test groups, run focused checks, stable-Xcode iOS gate, affected integration/final checks, independent integrated review, commit exact task files and merge PR with expected-head guard.
+- Three independent bounded split lanes own iOS, admin, backend auth/tests;10minute expected/20minute hard limit. Root owns integration, runtime validation and merge.
+
+Merge validation after required file splits:
+- Extracted root configuration/deep-link helpers, account/settings views, admin user detail sections/types, magic-login transaction logic and focused test groups. Growing hand-written files now shrink or stay equal against main; new source modules are below20,000bytes. Genuine Vite-generated bundles retain a first-line generated marker via output banner and legalComments:inline. Global pre-commit size hook passes without bypass.
+- Independent final reviewer returned PASS. Magic transaction AST and extracted root helper bodies match the reviewed implementation; moved test inventories are unchanged. Root corrected the settings fallback during integration.
+- Xcode27.1 now boots simulator3E64A816-229F-4181-8E7B-00975A19A6D4 and executes XCTest. Focused identity21/21 passed; final signed full configured suite317passed/2skipped/0failed across319tests. Initial unsigned invocation failed Keychain tests because CODE_SIGNING_ALLOWED=NO; that invocation was stopped and superseded by the signed passing run.
+- Final stable-Xcode27.1 Release simulator build passed in141seconds. Full PostgreSQL default suite1,034passed/0failed in155seconds, using a dedicated local database that was dropped afterward.
+- Admin TypeScript/Vite production build, ESLint src, complexity ceilings, SwiftLint296files, migration parity, execution-policy verification, strict staged-scope preflight and whitespace checks pass. Complexity-only lint retains three unrelated unused-disable warnings and zero errors.
+- Rebuilt iOS fixture checked empty Save, entering a name, retained text on recoverable save error, dismissible prompt and extracted settings sign-in row. Captured /private/tmp/porizo-signup-proof/name-save-error-main.png. Argent services stopped only for the used simulator.
+- Final full Node suite passed3,524tests with0failed and25skipped across3,549tests/699suites in663seconds. All local merge gates are green. Original checkout and unrelated dirty work remain untouched.

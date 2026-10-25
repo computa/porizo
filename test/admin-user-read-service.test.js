@@ -18,6 +18,9 @@ function createServiceFixture({ repository = {}, attributionService = {} } = {})
         paidUsers: 0,
         trialUsers: 0,
         freeUsers: 0,
+        guestUsers: 0,
+        unclaimedUsers: 0,
+        deletedUsers: 0,
       };
     },
     async getUserById() {
@@ -97,6 +100,7 @@ describe("AdminUserReadService", () => {
       userId: "service_user",
       riskLevel: "medium",
       tier: "plus",
+      registrationStatus: "registered",
       trackId: "service_track",
       shareId: "service_share",
       recipientName: "Ada",
@@ -126,6 +130,9 @@ describe("AdminUserReadService", () => {
             paidUsers: 2,
             trialUsers: 1,
             freeUsers: 3,
+            guestUsers: 4,
+            unclaimedUsers: 5,
+            deletedUsers: 6,
           };
         },
       },
@@ -136,6 +143,9 @@ describe("AdminUserReadService", () => {
       paidUsers: 2,
       trialUsers: 1,
       freeUsers: 3,
+      guestUsers: 4,
+      unclaimedUsers: 5,
+      deletedUsers: 6,
       conversionRate: "33.3",
     });
   });
@@ -148,6 +158,9 @@ describe("AdminUserReadService", () => {
       paidUsers: 0,
       trialUsers: 0,
       freeUsers: 0,
+      guestUsers: 0,
+      unclaimedUsers: 0,
+      deletedUsers: 0,
       conversionRate: "0.0",
     });
   });

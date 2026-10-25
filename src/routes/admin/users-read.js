@@ -1,5 +1,13 @@
 "use strict";
 
+const REGISTRATION_STATUSES = new Set([
+  "registered",
+  "guest",
+  "unclaimed",
+  "deleted",
+  "all",
+]);
+
 function registerAdminUserReadRoutes(
   app,
   { userReadService, parsePagination, requireAdminSession, sendError },
@@ -7,13 +15,31 @@ function registerAdminUserReadRoutes(
   app.get("/admin/dashboard/users", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const { email, userId, riskLevel, tier, trackId, shareId, recipientName } =
-      request.query;
+    const {
+      email,
+      userId,
+      riskLevel,
+      tier,
+      registrationStatus = "registered",
+      trackId,
+      shareId,
+      recipientName,
+    } = request.query;
+    if (!REGISTRATION_STATUSES.has(registrationStatus)) {
+      sendError(
+        reply,
+        400,
+        "INVALID_FILTER",
+        "registrationStatus must be registered, guest, unclaimed, deleted, or all",
+      );
+      return;
+    }
     const result = await userReadService.searchUsers({
       email,
       userId,
       riskLevel,
       tier,
+      registrationStatus,
       trackId,
       shareId,
       recipientName,

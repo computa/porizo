@@ -4,11 +4,87 @@ function escapeLikePattern(str) {
   return String(str).replace(/[%_\\]/g, "\\$&");
 }
 
+const REGISTRATION_STATUS_SQL = `CASE
+  WHEN u.deleted_at IS NOT NULL THEN 'deleted'
+  WHEN EXISTS (
+    SELECT 1 FROM user_auth_providers registration_provider
+    WHERE registration_provider.user_id = u.id
+      AND registration_provider.status = 'active'
+  ) THEN 'registered'
+  WHEN u.account_status = 'guest' THEN 'guest'
+  ELSE 'unclaimed'
+END`;
+
+const CANONICAL_EMAIL_SQL = `(SELECT contact.value_display
+  FROM user_contacts contact
+  WHERE contact.user_id = u.id AND contact.type = 'email'
+  ORDER BY
+    CASE WHEN contact.verified_at IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN contact.is_primary THEN 0 ELSE 1 END,
+    contact.created_at,
+    contact.id
+  LIMIT 1)`;
+
+const CANONICAL_EMAIL_VERIFIED_AT_SQL = `(SELECT contact.verified_at
+  FROM user_contacts contact
+  WHERE contact.user_id = u.id AND contact.type = 'email'
+  ORDER BY
+    CASE WHEN contact.verified_at IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN contact.is_primary THEN 0 ELSE 1 END,
+    contact.created_at,
+    contact.id
+  LIMIT 1)`;
+
+const IDENTITY_SELECT_SQL = `
+  ${REGISTRATION_STATUS_SQL} AS registration_status,
+  u.account_status,
+  COALESCE(${CANONICAL_EMAIL_SQL}, u.email) AS canonical_email,
+  CASE
+    WHEN ${CANONICAL_EMAIL_VERIFIED_AT_SQL} IS NOT NULL THEN 'verified'
+    WHEN ${CANONICAL_EMAIL_SQL} IS NOT NULL THEN 'unverified'
+    WHEN u.email IS NOT NULL THEN 'legacy'
+    ELSE 'none'
+  END AS email_status,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM user_auth_providers provider
+    WHERE provider.user_id = u.id AND provider.status = 'active' AND provider.provider = 'apple'
+  ) THEN 1 ELSE 0 END AS has_apple_auth,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM user_auth_providers provider
+    WHERE provider.user_id = u.id AND provider.status = 'active' AND provider.provider = 'google'
+  ) THEN 1 ELSE 0 END AS has_google_auth,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM user_auth_providers provider
+    WHERE provider.user_id = u.id AND provider.status = 'active' AND provider.provider = 'email'
+  ) THEN 1 ELSE 0 END AS has_email_auth,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM user_auth_providers provider
+    WHERE provider.user_id = u.id AND provider.status = 'active' AND provider.provider = 'phone'
+  ) THEN 1 ELSE 0 END AS has_phone_auth`;
+
+function normalizeIdentityFields(row) {
+  if (!row) return row;
+  const authMethods = ["apple", "google", "email", "phone"].filter(
+    (provider) => row[`has_${provider}_auth`],
+  );
+  const normalized = {
+    ...row,
+    email: row.canonical_email,
+    auth_methods: authMethods,
+  };
+  delete normalized.canonical_email;
+  for (const provider of ["apple", "google", "email", "phone"]) {
+    delete normalized[`has_${provider}_auth`];
+  }
+  return normalized;
+}
+
 function buildUserSearchFilter({
   email,
   userId,
   riskLevel,
   tier,
+  registrationStatus = "registered",
   trackId,
   shareId,
   recipientName,
@@ -18,8 +94,16 @@ function buildUserSearchFilter({
 
   if (email) {
     const escaped = escapeLikePattern(email);
-    where.push("u.email LIKE ? ESCAPE '\\'");
-    params.push(`%${escaped}%`);
+    where.push(`(
+      u.email LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM user_contacts email_contact
+        WHERE email_contact.user_id = u.id
+          AND email_contact.type = 'email'
+          AND email_contact.value_normalized LIKE ? ESCAPE '\\'
+      )
+    )`);
+    params.push(`%${escaped}%`, `%${escaped}%`);
   }
   if (userId) {
     where.push("u.id = ?");
@@ -36,6 +120,10 @@ function buildUserSearchFilter({
       where.push("e.tier = ?");
       params.push(tier);
     }
+  }
+  if (registrationStatus !== "all") {
+    where.push(`${REGISTRATION_STATUS_SQL} = ?`);
+    params.push(registrationStatus);
   }
   if (trackId) {
     where.push(
@@ -75,7 +163,8 @@ function createAdminUserReadRepository(db) {
 
     const sql = `
       SELECT
-        u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
+        u.id, u.display_name, u.risk_level, u.locked_until, u.created_at,
+        ${IDENTITY_SELECT_SQL},
         u.country,
         u.acquisition_source,
         u.acquisition_medium,
@@ -126,7 +215,7 @@ function createAdminUserReadRepository(db) {
     ]);
 
     return {
-      users,
+      users: users.map(normalizeIdentityFields),
       total: Number(countRow?.total || 0),
     };
   }
@@ -135,10 +224,13 @@ function createAdminUserReadRepository(db) {
     const stats = await db
       .prepare(
         `SELECT
-           COUNT(*) as total_users,
-           SUM(CASE WHEN e.tier IN ('pro', 'plus') THEN 1 ELSE 0 END) as paid_users,
-           SUM(CASE WHEN e.tier = 'trial' THEN 1 ELSE 0 END) as trial_users,
-           SUM(CASE WHEN e.tier = 'free' OR e.tier IS NULL THEN 1 ELSE 0 END) as free_users
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'registered' THEN 1 ELSE 0 END) as total_users,
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'registered' AND e.tier IN ('pro', 'plus') THEN 1 ELSE 0 END) as paid_users,
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'registered' AND e.tier = 'trial' THEN 1 ELSE 0 END) as trial_users,
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'registered' AND (e.tier = 'free' OR e.tier IS NULL) THEN 1 ELSE 0 END) as free_users,
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'guest' THEN 1 ELSE 0 END) as guest_users,
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'unclaimed' THEN 1 ELSE 0 END) as unclaimed_users,
+           SUM(CASE WHEN ${REGISTRATION_STATUS_SQL} = 'deleted' THEN 1 ELSE 0 END) as deleted_users
          FROM users u
          LEFT JOIN entitlements e ON e.user_id = u.id`,
       )
@@ -149,11 +241,21 @@ function createAdminUserReadRepository(db) {
       paidUsers: Number(stats?.paid_users || 0),
       trialUsers: Number(stats?.trial_users || 0),
       freeUsers: Number(stats?.free_users || 0),
+      guestUsers: Number(stats?.guest_users || 0),
+      unclaimedUsers: Number(stats?.unclaimed_users || 0),
+      deletedUsers: Number(stats?.deleted_users || 0),
     };
   }
 
   async function getUserById(userId) {
-    return db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+    const user = await db
+      .prepare(
+        `SELECT u.*, ${IDENTITY_SELECT_SQL}
+         FROM users u
+         WHERE u.id = ?`,
+      )
+      .get(userId);
+    return normalizeIdentityFields(user);
   }
 
   async function getUserVoiceProfile(userId) {

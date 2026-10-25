@@ -21,6 +21,28 @@ enum SimulatorFixtures {
     static var isActive: Bool {
         has("--mock-payperson") || has("--mock-has-credits")
             || has("--mock-no-credits") || has("--demo-login")
+            || profileNameEditorPresentation != nil
+    }
+
+    /// Opens the shared profile-name editor without requiring a production login.
+    /// Use `--fixture-missing-name` for the first-session prompt or
+    /// `--fixture-account-edit-name` for the prefilled account editor.
+    static var profileNameEditorPresentation: ProfileNameEditorPresentation? {
+        if has("--fixture-missing-name") {
+            return ProfileNameEditorPresentation(
+                userID: "fixture-missing-name",
+                initialName: "",
+                mode: .initialPrompt
+            )
+        }
+        if has("--fixture-account-edit-name") {
+            return ProfileNameEditorPresentation(
+                userID: "fixture-account-edit-name",
+                initialName: "Ambrose",
+                mode: .accountEdit
+            )
+        }
+        return nil
     }
 
     /// Demo account: when `--demo-login` is set, the app acts as a fixed, seeded

@@ -40,6 +40,8 @@ interface AuditLog {
 }
 
 const eventTypeConfig: Record<string, { color: string; bg: string; icon: typeof CheckCircle }> = {
+  guest_created: { color: 'text-slate-400', bg: 'bg-slate-500/10', icon: Shield },
+  signup_success: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle },
   login_success: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle },
   login_failed: { color: 'text-rose-400', bg: 'bg-rose-500/10', icon: XCircle },
   logout: { color: 'text-slate-400', bg: 'bg-slate-500/10', icon: LogOut },
@@ -54,6 +56,8 @@ const eventTypeConfig: Record<string, { color: string; bg: string; icon: typeof 
 };
 
 const eventTypes = [
+  'guest_created',
+  'signup_success',
   'login_success',
   'login_failed',
   'logout',

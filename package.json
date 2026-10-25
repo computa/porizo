@@ -45,7 +45,9 @@
     "seed:demo": "node -r dotenv/config scripts/dev/seed-test-state.mjs demo",
     "remotion:studio": "npx remotion studio marketing/remotion/src/Root.tsx --port 3100 --public-dir marketing/remotion/public",
     "remotion:render": "npx remotion render marketing/remotion/src/Root.tsx --public-dir marketing/remotion/public",
-    "remotion:preview": "npx remotion preview marketing/remotion/src/Root.tsx --port 3100 --public-dir marketing/remotion/public"
+    "remotion:preview": "npx remotion preview marketing/remotion/src/Root.tsx --port 3100 --public-dir marketing/remotion/public",
+    "lint:complexity": "eslint --config eslint.complexity.config.mjs src admin/src",
+    "lint:swift": "cd PorizoApp && swiftlint lint --strict --config .swiftlint.yml"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

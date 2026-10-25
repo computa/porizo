@@ -32,6 +32,9 @@ const {
   clearRegistrationTokens,
 } = require("../src/routes/auth");
 const identityService = require("../src/services/identity-service");
+const {
+  registerVerificationCompletenessTests,
+} = require("./suites/auth-identity-verification-completeness");
 
 // ==================== TEST HELPERS ====================
 
@@ -567,7 +570,10 @@ describe("Auth Identity Model", () => {
         identityService.isAppleRelay(" USER@PRIVATE.ICLOUD.COM "),
         true,
       );
-      assert.strictEqual(identityService.isAppleRelay("user@icloud.com"), false);
+      assert.strictEqual(
+        identityService.isAppleRelay("user@icloud.com"),
+        false,
+      );
     });
 
     it("should treat a verified non-relay email as complete without a phone", async () => {
@@ -611,7 +617,10 @@ describe("Auth Identity Model", () => {
         method: "PATCH",
         url: "/auth/profile",
         headers: { Authorization: `Bearer ${appleUser.accessToken}` },
-        payload: { contact_email: realEmail },
+        payload: {
+          expected_user_id: appleUser.userId,
+          contact_email: realEmail,
+        },
       });
 
       // Manually verify the contact (simulating token verification)
@@ -636,64 +645,15 @@ describe("Auth Identity Model", () => {
     });
   });
 
-  // ==================== S5b: Verification-based completeness (policy v1) ====================
-  // Verified email and phone are independent requirements. Neither an unverified
-  // contact nor one verified channel can substitute for the other.
-
-  describe("S5b: Verification-based completeness", () => {
-    it("should remain incomplete when only phone is verified", async () => {
-      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
-      const appleUser = await createAppleUser(app, { email: relayEmail });
-
-      // Link phone (linkPhone performs OTP verification; contact is verified)
-      const phoneNumber = uniquePhone();
-      const linkRes = await linkPhone(
-        app,
-        db,
-        appleUser.accessToken,
-        phoneNumber,
-      );
-      assert.strictEqual(linkRes.statusCode, 200, "Phone link must succeed");
-
-      const me = await getMe(app, appleUser.accessToken);
-      assert.strictEqual(me.statusCode, 200);
-      assert.strictEqual(
-        me.body.needs_profile_completion,
-        true,
-        "Verified phone must not substitute for verified non-relay email",
-      );
-      assert.ok(me.body.missing_profile_requirements.includes("verified_email"));
-    });
-
-    it("should remain incomplete when real email is on file but unverified", async () => {
-      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
-      const appleUser = await createAppleUser(app, { email: relayEmail });
-      const realEmail = uniqueEmail();
-
-      // Add real email WITHOUT verifying it.
-      await app.inject({
-        method: "PATCH",
-        url: "/auth/profile",
-        headers: { Authorization: `Bearer ${appleUser.accessToken}` },
-        payload: { contact_email: realEmail },
-      });
-
-      const me = await getMe(app, appleUser.accessToken);
-      assert.strictEqual(me.statusCode, 200);
-      assert.strictEqual(
-        me.body.needs_profile_completion,
-        true,
-        "Unverified real email must not satisfy profile completion",
-      );
-      assert.ok(
-        me.body.missing_profile_requirements.includes("verified_email"),
-        "Unverified email must remain a missing requirement",
-      );
-    });
-
-    // Relay-only = incomplete is already covered by S5's first test.
+  registerVerificationCompletenessTests({
+    getApp: () => app,
+    getDb: () => db,
+    createAppleUser,
+    getMe,
+    linkPhone,
+    uniqueEmail,
+    uniquePhone,
   });
-
   // ==================== S6: Email verification lifecycle ====================
 
   describe("S6: Email verification lifecycle", () => {
@@ -714,7 +674,7 @@ describe("Auth Identity Model", () => {
         method: "PATCH",
         url: "/auth/profile",
         headers: { Authorization: `Bearer ${accessToken}` },
-        payload: { contact_email: testEmail },
+        payload: { expected_user_id: userId, contact_email: testEmail },
       });
       assert.strictEqual(res.statusCode, 200);
 

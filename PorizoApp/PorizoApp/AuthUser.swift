@@ -69,6 +69,15 @@ struct AuthUser: Codable {
     var hasRealVerifiedEmail: Bool {
         contacts.contains(where: { $0.type == "email" && $0.verified && !$0.isRelay })
     }
+
+    /// The display name used by profile UI. Whitespace-only values are missing.
+    var trimmedDisplayName: String? {
+        guard let displayName else { return nil }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var isDisplayNameMissing: Bool { trimmedDisplayName == nil }
 }
 
 // MARK: - Account Management Sub-Models

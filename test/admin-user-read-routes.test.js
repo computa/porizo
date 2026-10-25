@@ -48,15 +48,49 @@ async function seedUser(
     riskLevel = "low",
     createdAt = NOW,
     country = "AU",
+    accountStatus = "active",
+    deletedAt = null,
+    registered = true,
   },
 ) {
   await db
     .prepare(
       `INSERT INTO users (
-        id, email, display_name, created_at, risk_level, country
+        id, email, display_name, created_at, risk_level, country, account_status, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      email,
+      displayName,
+      createdAt,
+      riskLevel,
+      country,
+      accountStatus,
+      registered ? null : deletedAt,
+    );
+  if (registered) {
+    await seedAuthProvider(db, {
+      id: `${id}_email_auth`,
+      userId: id,
+    });
+  }
+  if (registered && deletedAt) {
+    await db.prepare("UPDATE users SET deleted_at = ? WHERE id = ?").run(deletedAt, id);
+  }
+}
+
+async function seedAuthProvider(
+  db,
+  { id, userId, provider = "email", status = "active" },
+) {
+  await db
+    .prepare(
+      `INSERT INTO user_auth_providers (
+        id, user_id, provider, provider_user_id, status, created_at
       ) VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, email, displayName, createdAt, riskLevel, country);
+    .run(id, userId, provider, `${provider}:${id}`, status, NOW);
 }
 
 async function seedEntitlement(
@@ -242,6 +276,63 @@ describe("admin user read routes", () => {
     assert.equal(body.users[0].track_count, 2);
     assert.equal(body.users[0].voice_status, "active");
     assert.equal(body.users[0].last_active, "2026-06-25T10:00:00.000Z");
+    assert.equal(body.users[0].registration_status, "registered");
+    assert.equal(body.users[0].email_status, "legacy");
+    assert.deepEqual(body.users[0].auth_methods, ["email"]);
+  });
+
+  test("search users validates registration status", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/users?registrationStatus=paid",
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().error, "INVALID_FILTER");
+  });
+
+  test("search users defaults to registered and supports explicit lifecycle filters", async () => {
+    await seedUser(db, { id: "admin_registered" });
+    await seedUser(db, {
+      id: "admin_guest",
+      accountStatus: "guest",
+      registered: false,
+    });
+    await seedUser(db, {
+      id: "admin_deleted",
+      deletedAt: "2026-06-27T11:00:00.000Z",
+    });
+
+    const defaultResponse = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/users",
+      headers: adminHeaders,
+    });
+    assert.deepEqual(
+      defaultResponse.json().users.map((user) => user.id),
+      ["admin_registered"],
+    );
+
+    const guestResponse = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/users?registrationStatus=guest",
+      headers: adminHeaders,
+    });
+    assert.deepEqual(
+      guestResponse.json().users.map((user) => user.id),
+      ["admin_guest"],
+    );
+
+    const deletedResponse = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/users?registrationStatus=deleted",
+      headers: adminHeaders,
+    });
+    assert.deepEqual(
+      deletedResponse.json().users.map((user) => user.id),
+      ["admin_deleted"],
+    );
   });
 
   test("free-tier search includes users without entitlement rows", async () => {
@@ -322,6 +413,9 @@ describe("admin user read routes", () => {
       paidUsers: 2,
       trialUsers: 1,
       freeUsers: 2,
+      guestUsers: 0,
+      unclaimedUsers: 0,
+      deletedUsers: 0,
       conversionRate: "40.0",
     });
   });

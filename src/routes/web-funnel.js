@@ -14,6 +14,7 @@ const {
 const {
   createWebFunnelRepository,
 } = require("../database/web-funnel-repository");
+const { createAuthSecurityRepository } = require("../database/auth-security-repository");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
   TurnstileUnavailableError,
@@ -150,6 +151,12 @@ function registerWebFunnelRoutes(
         const userId = existing?.user_id || generateId("user");
         if (!existing) {
           await txRepository.insertGuestUser({ userId, createdAt: nowIso });
+          await createAuthSecurityRepository(txDb).insertAuthEvent({
+            id: generateId("evt"),
+            userId,
+            eventType: "guest_created",
+            metadataJson: JSON.stringify({ method: "web_guest", name_supplied: false }),
+          });
           await txRepository.ensureZeroEntitlements({
             userId,
             resetAt: new Date(now.getTime() + DAY_MS).toISOString(),
