@@ -22,14 +22,65 @@ async function seedUser({
   riskLevel = "low",
   createdAt = NOW,
   country = "AU",
+  accountStatus = "active",
+  deletedAt = null,
+  registered = true,
 }) {
   await db
     .prepare(
       `INSERT INTO users (
-        id, email, display_name, created_at, risk_level, country
+        id, email, display_name, created_at, risk_level, country, account_status, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      email,
+      displayName,
+      createdAt,
+      riskLevel,
+      country,
+      accountStatus,
+      registered ? null : deletedAt,
+    );
+  if (registered) {
+    await seedAuthProvider({ id: `${id}_email_auth`, userId: id });
+  }
+  if (registered && deletedAt) {
+    await db.prepare("UPDATE users SET deleted_at = ? WHERE id = ?").run(deletedAt, id);
+  }
+}
+
+async function seedAuthProvider({
+  id,
+  userId,
+  provider = "email",
+  status = "active",
+}) {
+  await db
+    .prepare(
+      `INSERT INTO user_auth_providers (
+        id, user_id, provider, provider_user_id, status, created_at
       ) VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, email, displayName, createdAt, riskLevel, country);
+    .run(id, userId, provider, `${provider}:${id}`, status, NOW);
+}
+
+async function seedEmailContact({
+  id,
+  userId,
+  email,
+  verifiedAt = null,
+  isPrimary = 0,
+  createdAt = NOW,
+}) {
+  await db
+    .prepare(
+      `INSERT INTO user_contacts (
+        id, user_id, type, value_normalized, value_display, verified_at,
+        source, is_primary, is_relay, created_at
+      ) VALUES (?, ?, 'email', ?, ?, ?, 'user_entered', ?, 0, ?)`,
+    )
+    .run(id, userId, email.toLowerCase(), email, verifiedAt, isPrimary, createdAt);
 }
 
 async function seedEntitlement({
@@ -137,9 +188,16 @@ describe("AdminUserReadRepository", () => {
     });
 
     assert.match(filter.whereSql, /u\.email LIKE \? ESCAPE/);
+    assert.match(filter.whereSql, /email_contact\.value_normalized LIKE \?/);
     assert.match(filter.whereSql, /recipient_name LIKE \? ESCAPE/);
     assert.match(filter.whereSql, /\(e\.tier = 'free' OR e\.tier IS NULL\)/);
-    assert.deepEqual(filter.params, ["%ada\\_\\%\\\\test%", "%Lovelace\\_\\%%"]);
+    assert.match(filter.whereSql, /registration_provider\.status = 'active'/);
+    assert.deepEqual(filter.params, [
+      "%ada\\_\\%\\\\test%",
+      "%ada\\_\\%\\\\test%",
+      "registered",
+      "%Lovelace\\_\\%%",
+    ]);
   });
 
   test("searchUsers preserves filters, selected metrics, count, and ordering", async () => {
@@ -214,6 +272,10 @@ describe("AdminUserReadRepository", () => {
       {
         id: ownerId,
         email: "owner@example.com",
+        email_status: "legacy",
+        auth_methods: ["email"],
+        registration_status: "registered",
+        account_status: "active",
         display_name: "Owner",
         risk_level: "medium",
         locked_until: null,
@@ -274,6 +336,107 @@ describe("AdminUserReadRepository", () => {
     });
   });
 
+  test("identity projection is canonical, searchable, and never duplicates provider rows", async () => {
+    const userId = "repo_identity_projection";
+    await seedUser({
+      id: userId,
+      email: "legacy@example.com",
+      displayName: null,
+    });
+    await seedAuthProvider({
+      id: "repo_identity_google",
+      userId,
+      provider: "google",
+    });
+    await seedEmailContact({
+      id: "repo_contact_unverified_primary",
+      userId,
+      email: "pending@example.com",
+      isPrimary: 1,
+      createdAt: "2026-06-25T10:00:00.000Z",
+    });
+    await seedEmailContact({
+      id: "repo_contact_verified",
+      userId,
+      email: "Verified@Example.com",
+      verifiedAt: "2026-06-26T10:00:00.000Z",
+      createdAt: "2026-06-26T10:00:00.000Z",
+    });
+
+    const byPendingEmail = await repository.searchUsers({
+      email: "pending@example.com",
+      registrationStatus: "registered",
+      limit: 10,
+      offset: 0,
+    });
+
+    assert.equal(byPendingEmail.total, 1);
+    assert.equal(byPendingEmail.users.length, 1);
+    assert.equal(byPendingEmail.users[0].email, "Verified@Example.com");
+    assert.equal(byPendingEmail.users[0].email_status, "verified");
+    assert.deepEqual(byPendingEmail.users[0].auth_methods, ["google", "email"]);
+    const detail = await repository.getUserById(userId);
+    assert.equal(detail.email, "Verified@Example.com");
+    assert.equal(detail.registration_status, "registered");
+    assert.deepEqual(detail.auth_methods, ["google", "email"]);
+
+    await seedUser({
+      id: "repo_unverified_email",
+      email: "legacy-unverified@example.com",
+    });
+    await seedEmailContact({
+      id: "repo_contact_only_unverified",
+      userId: "repo_unverified_email",
+      email: "canonical-pending@example.com",
+      isPrimary: 1,
+    });
+
+    const unverifiedResult = await repository.searchUsers({
+      email: "canonical-pending@example.com",
+      limit: 10,
+      offset: 0,
+    });
+    assert.equal(unverifiedResult.users[0].email, "canonical-pending@example.com");
+    assert.equal(unverifiedResult.users[0].email_status, "unverified");
+  });
+
+  test("registration filters default to registered and classify deleted first", async () => {
+    await seedUser({ id: "repo_registered" });
+    await seedUser({
+      id: "repo_guest",
+      accountStatus: "guest",
+      registered: false,
+    });
+    await seedUser({ id: "repo_unclaimed", registered: false });
+    await seedUser({
+      id: "repo_deleted_registered",
+      deletedAt: "2026-06-27T11:00:00.000Z",
+    });
+
+    const defaultResult = await repository.searchUsers({ limit: 20, offset: 0 });
+    assert.deepEqual(
+      defaultResult.users.map((user) => user.id),
+      ["repo_registered"],
+    );
+
+    const allResult = await repository.searchUsers({
+      registrationStatus: "all",
+      limit: 20,
+      offset: 0,
+    });
+    assert.deepEqual(
+      Object.fromEntries(
+        allResult.users.map((user) => [user.id, user.registration_status]),
+      ),
+      {
+        repo_registered: "registered",
+        repo_guest: "guest",
+        repo_unclaimed: "unclaimed",
+        repo_deleted_registered: "deleted",
+      },
+    );
+  });
+
   test("searchUsers includes users without entitlement rows for free tier", async () => {
     await seedUser({
       id: "repo_user_read_free",
@@ -308,6 +471,9 @@ describe("AdminUserReadRepository", () => {
       paidUsers: 0,
       trialUsers: 0,
       freeUsers: 0,
+      guestUsers: 0,
+      unclaimedUsers: 0,
+      deletedUsers: 0,
     });
 
     await seedUser({
@@ -346,12 +512,36 @@ describe("AdminUserReadRepository", () => {
       userId: "repo_user_stats_plus",
       tier: "plus",
     });
+    await seedUser({
+      id: "repo_user_stats_guest",
+      accountStatus: "guest",
+      registered: false,
+    });
+    await seedEntitlement({
+      userId: "repo_user_stats_guest",
+      tier: "pro",
+    });
+    await seedUser({
+      id: "repo_user_stats_unclaimed",
+      registered: false,
+    });
+    await seedEntitlement({
+      userId: "repo_user_stats_unclaimed",
+      tier: "plus",
+    });
+    await seedUser({
+      id: "repo_user_stats_deleted",
+      deletedAt: "2026-06-27T11:00:00.000Z",
+    });
 
     assert.deepEqual(await repository.getUserStats(), {
       totalUsers: 5,
       paidUsers: 2,
       trialUsers: 1,
       freeUsers: 2,
+      guestUsers: 1,
+      unclaimedUsers: 1,
+      deletedUsers: 1,
     });
   });
 
@@ -384,6 +574,9 @@ describe("AdminUserReadRepository", () => {
       paidUsers: 0,
       trialUsers: 0,
       freeUsers: 1,
+      guestUsers: 0,
+      unclaimedUsers: 0,
+      deletedUsers: 0,
     });
   });
 

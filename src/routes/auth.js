@@ -16,9 +16,6 @@ const {
   createAuthSessionRepository,
 } = require("../database/auth-session-repository");
 const {
-  createAuthRefreshTokenRepository,
-} = require("../database/auth-refresh-token-repository");
-const {
   createAuthRateLimitRepository,
 } = require("../database/auth-rate-limit-repository");
 const {
@@ -36,15 +33,10 @@ const {
 const { createIdentityRepository } = require("../database/identity-repository");
 const { dbQuery } = require("../utils/db-adapter");
 const {
-  reclaimGuestOrdersOnLogin,
-} = require("../services/web-order-login-reclaim");
-const {
   createMagicLoginRepository,
 } = require("../database/magic-login-repository");
 const { createMagicLoginService } = require("../services/magic-login-service");
-const {
-  getEtsyFulfilmentMode,
-} = require("../services/etsy-fulfilment-mode");
+const { getEtsyFulfilmentMode } = require("../services/etsy-fulfilment-mode");
 const {
   createContactDeliveryService,
 } = require("../services/contact-delivery-service");
@@ -68,6 +60,7 @@ const {
 const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 const { getClientIp: extractClientIp } = require("../utils/client-ip");
+const { createConsumeMagicTransaction } = require("./auth-magic-transaction");
 
 let authRouteSessionRepository = null;
 let authRouteRateLimitRepository = null;
@@ -97,7 +90,9 @@ function googleChallengeRequired() {
 }
 
 function socialChallengeRequiredFor({ provider, usedAuthorizationCode }) {
-  return provider === "google" && !usedAuthorizationCode && googleChallengeRequired();
+  return (
+    provider === "google" && !usedAuthorizationCode && googleChallengeRequired()
+  );
 }
 
 function socialChallengeNonce() {
@@ -105,7 +100,10 @@ function socialChallengeNonce() {
 }
 
 function socialChallengeHash(nonce) {
-  return crypto.createHash("sha256").update(String(nonce), "utf8").digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(String(nonce), "utf8")
+    .digest("hex");
 }
 
 // HMAC key for hashing phone numbers in registration tokens (derived from JWT_SECRET)
@@ -159,12 +157,6 @@ function decodePreauthCookie(value) {
   } catch {
     return null;
   }
-}
-
-function maskEmail(email) {
-  const [local, domain] = String(email || "").split("@");
-  if (!local || !domain) return "this email";
-  return `${local.slice(0, 1)}***@${domain}`;
 }
 
 /**
@@ -442,8 +434,7 @@ function registerAuthRoutes(
   authRouteProviderLinkingRepository = createAuthProviderLinkingRepository(db);
   authRouteCredentialRepository = createAuthCredentialRepository(db);
   authRouteReceiverSessionRepository = createReceiverSessionRepository(db);
-  authRouteSocialChallengeRepository =
-    createAuthSocialChallengeRepository(db);
+  authRouteSocialChallengeRepository = createAuthSocialChallengeRepository(db);
   const attributionService = new AttributionService(db);
   const identityRepository = createIdentityRepository(db);
   const magicLoginRepository = createMagicLoginRepository(db);
@@ -465,233 +456,10 @@ function registerAuthRoutes(
     attachUserId: true,
   });
 
-  async function consumeMagicTransaction(
-    transaction,
-    transactionRepository,
-    platform,
-    request,
-  ) {
-    if (transaction.purpose === "add_email") {
-      const txSessionRepository = createAuthSessionRepository(
-        transactionRepository.db,
-      );
-      const authorizingSession =
-        transaction.authorizingSessionId &&
-        (await txSessionRepository.findActiveSession({
-          userId: transaction.accountId,
-          sessionId: transaction.authorizingSessionId,
-        }));
-      if (!authorizingSession) {
-        const error = new Error("MAGIC_LOGIN_AUTHORIZATION_EXPIRED");
-        error.code = "MAGIC_LOGIN_AUTHORIZATION_EXPIRED";
-        throw error;
-      }
-      const txIdentityRepository = createIdentityRepository(
-        transactionRepository.db,
-      );
-      await identityService.linkVerifiedMagicEmail(
-        txIdentityRepository,
-        transaction.accountId,
-        transaction.emailNormalized,
-      );
-      return {
-        userId: transaction.accountId,
-        sessionId: null,
-        contactVerified: true,
-      };
-    }
-    if (transaction.purpose !== "login") {
-      throw new Error("MAGIC_LOGIN_PURPOSE_NOT_SUPPORTED");
-    }
-
-    const txDb = transactionRepository.db;
-    const transactionQuery = (sql, params) => dbQuery(txDb, sql, params);
-    const etsyCodeClaim = etsyCodeClaimService
-      ? await etsyCodeClaimService.findPendingForTransaction(transaction.id, {
-          query: transactionQuery,
-        })
-      : null;
-    if (
-      etsyCodeClaim &&
-      etsyCodeClaim.email_normalized !== transaction.emailNormalized
-    ) {
-      throw new Error("ETSY_CODE_CLAIM_EMAIL_MISMATCH");
-    }
-    const txIdentityRepository = createIdentityRepository(txDb);
-    let owner = await txIdentityRepository.findActiveUserByVerifiedContact(
-      "email",
-      transaction.emailNormalized,
-    );
-    let isNewUser = false;
-    if (!owner) {
-      const legacyOwner = await txIdentityRepository.findActiveUserByAnyContact(
-        "email",
-        transaction.emailNormalized,
-      );
-      if (legacyOwner) {
-        // The email exists on an active account only as an UNVERIFIED contact.
-        // Clicking the magic link proves control of the MAILBOX — never
-        // ownership of whatever account someone attached that email to. An
-        // attacker can plant a victim's email as an unverified contact on
-        // their own account (createOrUpdateContact does not constrain which
-        // emails an account may hold), so auto-adopting here is an account
-        // takeover unless the account provably has no other human identity:
-        // every active auth factor must be the email login for THIS exact
-        // email (or the account must have no auth factor at all). Anything
-        // else — an Apple/phone/google factor, or an email factor with a
-        // different subject — is takeover-sensitive and requires explicit
-        // recovery through one of those factors.
-        const activeProviders =
-          await txIdentityRepository.listActiveAuthProvidersForUser(
-            legacyOwner.id,
-          );
-        const isSafeEmailShell = activeProviders.every(
-          (row) =>
-            row.provider === "email" &&
-            row.provider_user_id === transaction.emailNormalized,
-        );
-        if (isSafeEmailShell) {
-          await identityService.verifyContact(
-            txIdentityRepository,
-            legacyOwner.id,
-            "email",
-            transaction.emailNormalized,
-            "magic_link",
-          );
-          owner = { id: legacyOwner.id };
-          // isNewUser stays false — we adopted an existing account.
-        } else {
-          const error = new Error("LEGACY_ACCOUNT_RECOVERY_REQUIRED");
-          error.code = "LEGACY_ACCOUNT_RECOVERY_REQUIRED";
-          error.details = {
-            masked_email: maskEmail(transaction.emailNormalized),
-            auth_methods: activeProviders.map((row) => row.provider).join(","),
-          };
-          throw error;
-        }
-      } else {
-        const created =
-          await identityService.createUserWithIdentityInRepository(
-            txIdentityRepository,
-            {
-              type: "email",
-              subject: transaction.emailNormalized,
-              verifiedAt: new Date().toISOString(),
-            },
-            {
-              contacts: [
-                {
-                  type: "email",
-                  value: transaction.emailNormalized,
-                  source: "magic_link",
-                  verified: true,
-                },
-              ],
-            },
-          );
-        owner = { id: created.userId };
-        isNewUser = true;
-      }
-    }
-
-    // Reclaim any guest-owned paid web order placed with THIS verified email so
-    // a first-time buyer who pays as a guest and later signs in actually reaches
-    // their song. The paid-transition convergence only re-owns when the checkout
-    // email already matched a verified account; this closes the first-time-buyer
-    // gap. Runs inside the login transaction (repository.withTransaction), so a
-    // failure rolls the whole login back — the magic link is un-consumed and the
-    // user can retry — rather than committing a half-done merge. Only merges
-    // merge-safe shells (never a real account with its own auth factor).
-    await reclaimGuestOrdersOnLogin(
-      (sql, params) => dbQuery(txDb, sql, params),
-      {
-        loginUserId: owner.id,
-        emailNormalized: transaction.emailNormalized,
-        identityRepository: txIdentityRepository,
-      },
-    );
-
-    if (platform === "web") {
-      const now = new Date();
-      const webSessionToken = crypto.randomBytes(32).toString("base64url");
-      const sessionId = `sess_${crypto.randomBytes(12).toString("hex")}`;
-      const absoluteExpiresAt = new Date(
-        now.getTime() + 365 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      await createAuthSessionRepository(txDb).insertSession({
-        id: sessionId,
-        userId: owner.id,
-        deviceName: request.headers["user-agent"],
-        ipAddress: getClientIp(request),
-        userAgent: request.headers["user-agent"],
-        authMethod: "magic_email",
-        platform: "web",
-        authenticatedAt: now.toISOString(),
-        idleExpiresAt: new Date(
-          now.getTime() + 90 * 24 * 60 * 60 * 1000,
-        ).toISOString(),
-        absoluteExpiresAt,
-        lastRotatedAt: now.toISOString(),
-        webSessionHash: crypto
-          .createHash("sha256")
-          .update(webSessionToken, "utf8")
-          .digest("hex"),
-      });
-      if (etsyCodeClaim) {
-        if (!etsyRedemptionService) {
-          throw new Error("ETSY_CODE_REDEMPTION_SERVICE_REQUIRED");
-        }
-        await etsyRedemptionService.redeem({
-          code: etsyCodeClaim.code,
-          userId: owner.id,
-          externalQuery: transactionQuery,
-        });
-        await etsyCodeClaimService.markConsumed(
-          {
-            claimId: etsyCodeClaim.id,
-            ownerUserId: owner.id,
-          },
-          { query: transactionQuery },
-        );
-      }
-      return {
-        userId: owner.id,
-        sessionId,
-        webSessionToken,
-        absoluteExpiresAt,
-        isNewUser,
-        identitySubject: transaction.emailNormalized,
-      };
-    }
-
-    const issued = await authService.createSessionAndRefreshTokenInTransaction(
-      owner.id,
-      {
-        platform,
-        authMethod: "magic_email",
-        deviceName: request.headers["user-agent"],
-        userAgent: request.headers["user-agent"],
-        ipAddress: getClientIp(request),
-      },
-      {
-        sessionRepository: createAuthSessionRepository(txDb),
-        refreshTokenRepository: createAuthRefreshTokenRepository(txDb),
-      },
-    );
-    return {
-      userId: owner.id,
-      sessionId: issued.sessionId,
-      tokenFamilyId: issued.tokenFamily,
-      accessToken: authService.generateAccessToken(owner.id, {
-        sessionId: issued.sessionId,
-      }),
-      refreshToken: issued.refreshToken,
-      absoluteExpiresAt: issued.absoluteExpiresAt,
-      isNewUser,
-      identitySubject: transaction.emailNormalized,
-    };
-  }
-
+  const consumeMagicTransaction = createConsumeMagicTransaction({
+    etsyCodeClaimService,
+    etsyRedemptionService,
+  });
   // ==================== PLATFORM-BOUND MAGIC LOGIN ====================
 
   app.post("/auth/magic/request", async (request, reply) => {
@@ -1183,7 +951,12 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
 
   app.post("/auth/magic/etsy-code/exchange", async (request, reply) => {
     if (!hasAllowedWebOrigin(request)) {
-      return sendError(reply, 403, "INVALID_MAGIC_LOGIN_ORIGIN", "Invalid request.");
+      return sendError(
+        reply,
+        403,
+        "INVALID_MAGIC_LOGIN_ORIGIN",
+        "Invalid request.",
+      );
     }
     const transactionId = String(request.body?.transaction_id || "");
     try {
@@ -1594,16 +1367,12 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
         const cutoff = Date.now() - 60 * 60 * 1000;
         await authRouteRateLimitRepository.cleanupExpiredAuthEntries(cutoff);
       } catch (error) {
-        console.warn(
-          "[Auth] Rate-limit cleanup failed:",
-          error.message,
-        );
+        console.warn("[Auth] Rate-limit cleanup failed:", error.message);
       }
     },
     30 * 60 * 1000,
   );
   rateLimitCleanupInterval.unref();
-
 
   /**
    * DB-backed rate limiting for auth endpoints.
@@ -1879,7 +1648,9 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
   const profileUpdateSchema = {
     body: {
       type: "object",
+      required: ["expected_user_id"],
       properties: {
+        expected_user_id: { type: "string", minLength: 1, maxLength: 100 },
         contact_email: { type: "string", format: "email", maxLength: 255 },
         display_name: { type: "string", maxLength: 100 },
       },
@@ -2010,7 +1781,7 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
         eventType: "signup_success",
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
-        metadata: { method: "email" },
+        metadata: { method: "email", name_supplied: Boolean(name?.trim()) },
       });
 
       return reply.status(201).send({
@@ -2353,10 +2124,10 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
 
         const hasChallengeId =
           typeof challenge_id === "string" && challenge_id.trim();
-        const hasChallengeNonce =
-          typeof nonce === "string" && nonce.trim();
+        const hasChallengeNonce = typeof nonce === "string" && nonce.trim();
         const googleIdTokenFlow = provider === "google" && hasIdToken;
-        const googleCodeFlow = provider === "google" && !hasIdToken && hasAuthCode;
+        const googleCodeFlow =
+          provider === "google" && !hasIdToken && hasAuthCode;
         const googleChallengeEnforced = socialChallengeRequiredFor({
           provider,
           usedAuthorizationCode: googleCodeFlow,
@@ -2492,7 +2263,9 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
           } else {
             verifiedToken = await verifySocialToken(provider, resolvedIdToken, {
               rawNonce:
-                provider === "apple" || pendingGoogleChallenge ? nonce : undefined,
+                provider === "apple" || pendingGoogleChallenge
+                  ? nonce
+                  : undefined,
             });
           }
         } catch (verifyError) {
@@ -2827,7 +2600,10 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
             eventType: "signup_success",
             ipAddress: clientIp,
             userAgent: request.headers["user-agent"],
-            metadata: { method: provider },
+            metadata: {
+              method: provider,
+              name_supplied: Boolean(userName?.trim()),
+            },
           });
         }
 
@@ -3316,7 +3092,15 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
     "/auth/profile",
     { schema: profileUpdateSchema, preHandler: requireAuth },
     async (request, reply) => {
-      const { contact_email, display_name } = request.body || {};
+      const { contact_email, display_name, expected_user_id } = request.body;
+      if (expected_user_id !== request.userId) {
+        return sendError(
+          reply,
+          409,
+          "ACCOUNT_CHANGED",
+          "Your signed-in account changed. Reopen the profile editor.",
+        );
+      }
 
       if (!contact_email && !display_name) {
         return sendError(
@@ -3840,9 +3624,14 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
 
       // Rate limit: 5/hour per IP
       if (
-        await consumeAuthRateLimit(`phone-send:${clientIp}`, 5, 60 * 60 * 1000, {
-          failClosed: true,
-        })
+        await consumeAuthRateLimit(
+          `phone-send:${clientIp}`,
+          5,
+          60 * 60 * 1000,
+          {
+            failClosed: true,
+          },
+        )
       ) {
         return sendError(
           reply,
@@ -4205,6 +3994,7 @@ ${browserApprovalEnabled ? '<button id="approve" type="button">Continue sign-in<
           userAgent: request.headers["user-agent"],
           metadata: {
             method: "phone",
+            name_supplied: Boolean(name?.trim()),
             has_email: Boolean(normalizedEmail),
           },
         });

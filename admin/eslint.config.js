@@ -15,6 +15,7 @@ export default defineConfig([
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
+    rules: { complexity: ['error', { max: 65, variant: 'classic' }] },
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,

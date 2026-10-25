@@ -89,8 +89,12 @@ export function useApi(basePath?: string) {
   );
 
   const post = useCallback(
-    <T>(endpoint: string, body: unknown) =>
-      request<T>(endpoint, { method: "POST", body: JSON.stringify(body) }),
+    <T>(endpoint: string, body: unknown, headers: HeadersInit = {}) =>
+      request<T>(endpoint, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers,
+      }),
     [request],
   );
 

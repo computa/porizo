@@ -1,53 +1,21 @@
 import { useEffect, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor, Globe, Megaphone } from 'lucide-react';
+import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, X, Clock, TrendingUp, Pencil, Save, Mic, Globe, Megaphone } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
 import { getAdminUser } from '../utils/auth';
-import { getTrackStatusLabel, getTrackStatusStyle } from '../utils/status';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
-
-interface User {
-  id: string;
-  email: string;
-  display_name: string | null;
-  risk_level: string;
-  locked_until: string | null;
-  created_at: string;
-  country: string | null;
-  tier: string;
-  track_count: number;
-  gift_songs_used_total: number;
-  voice_status: string;
-  last_active: string;
-  acquisition_source: string | null;
-  acquisition_campaign: string | null;
-  acquisition_country: string | null;
-  attribution_status: string | null;
-  attribution_reason: string | null;
-  attribution_confidence: string | null;
-}
-
-interface UserStats {
-  totalUsers: number;
-  paidUsers: number;
-  trialUsers: number;
-  freeUsers: number;
-  conversionRate: string;
-}
-
-interface UsersResponse {
-  users: User[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-interface BulkActionResponse {
-  succeeded: string[];
-  failed: Array<{ userId: string | null; error: string }>;
-}
+import { DangerZone, RecentTracksSection, SessionsSection } from './users/UserDetailSections';
+import {
+  emailStatusLabel,
+  userDisplayName,
+  type BulkActionResponse,
+  type User,
+  type UserDetail,
+  type UsersResponse,
+  type UserStats,
+} from './users/types';
 
 const riskColors: Record<string, { bg: string; text: string }> = {
   low: { bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
@@ -89,6 +57,7 @@ export function Users() {
   const [searchType, setSearchType] = useState(initialUserId ? 'userId' : 'email');
   const [riskFilter, setRiskFilter] = useState('');
   const [tierFilter, setTierFilter] = useState('');
+  const [registrationFilter, setRegistrationFilter] = useState(initialUserId ? 'all' : 'registered');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
@@ -130,6 +99,7 @@ export function Users() {
     }
     if (riskFilter) params.append('riskLevel', riskFilter);
     if (tierFilter) params.append('tier', tierFilter);
+    params.append('registrationStatus', registrationFilter);
     params.append('limit', String(pageSize));
     params.append('offset', String(pageOffset));
 
@@ -142,7 +112,7 @@ export function Users() {
       limit: Number(data.limit ?? pageSize),
       offset: Number(data.offset ?? pageOffset),
     });
-  }, [get, searchQuery, searchType, riskFilter, tierFilter, pageSize, pageOffset]);
+  }, [get, searchQuery, searchType, riskFilter, tierFilter, registrationFilter, pageSize, pageOffset]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -155,6 +125,7 @@ export function Users() {
     if (!initialUserId) return;
     setSearchType('userId');
     setSearchQuery(initialUserId);
+    setRegistrationFilter('all');
     setPageOffset(0);
   }, [initialUserId]);
 
@@ -253,11 +224,11 @@ export function Users() {
 
       {/* Stats Banner */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
           <div className="card rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <UsersIcon className="w-4 h-4 text-slate-500" />
-              <p className="text-slate-400 text-xs uppercase tracking-wider">Total Users</p>
+              <p className="text-slate-400 text-xs uppercase tracking-wider">Registered</p>
             </div>
             <p className="text-2xl font-bold text-white font-data">{stats.totalUsers}</p>
           </div>
@@ -267,7 +238,7 @@ export function Users() {
               <p className="text-slate-400 text-xs uppercase tracking-wider">Paid</p>
             </div>
             <p className="text-2xl font-bold text-emerald-400 font-data">{stats.paidUsers}</p>
-            <p className="text-xs text-slate-500">{stats.conversionRate}% conversion</p>
+            <p className="text-xs text-slate-500">{stats.conversionRate}% of registered accounts</p>
           </div>
           <div className="card rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -282,6 +253,18 @@ export function Users() {
               <p className="text-slate-400 text-xs uppercase tracking-wider">Free</p>
             </div>
             <p className="text-2xl font-bold text-slate-400 font-data">{stats.freeUsers}</p>
+          </div>
+          <div className="card rounded-xl p-4">
+            <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Guests</p>
+            <p className="text-2xl font-bold text-sky-400 font-data">{stats.guestUsers}</p>
+          </div>
+          <div className="card rounded-xl p-4">
+            <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Unclaimed</p>
+            <p className="text-2xl font-bold text-amber-400 font-data">{stats.unclaimedUsers}</p>
+          </div>
+          <div className="card rounded-xl p-4">
+            <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Deleted</p>
+            <p className="text-2xl font-bold text-rose-400 font-data">{stats.deletedUsers}</p>
           </div>
         </div>
       )}
@@ -327,6 +310,21 @@ export function Users() {
             <option value="trackId">Track ID</option>
             <option value="shareId">Share ID</option>
             <option value="recipientName">Recipient Name</option>
+          </select>
+          <select
+            value={registrationFilter}
+            onChange={(e) => {
+              setRegistrationFilter(e.target.value);
+              resetToFirstPage();
+            }}
+            aria-label="Filter by registration status"
+            className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
+          >
+            <option value="registered">Registered</option>
+            <option value="guest">Guests</option>
+            <option value="unclaimed">Unclaimed</option>
+            <option value="deleted">Deleted</option>
+            <option value="all">All accounts</option>
           </select>
           <select
             value={tierFilter}
@@ -419,6 +417,7 @@ export function Users() {
                 </th>
               )}
               <th scope="col">User</th>
+              <th scope="col">Registration</th>
               <th scope="col">Tier</th>
               <th scope="col">Songs</th>
               <th scope="col">Gift spent</th>
@@ -434,7 +433,7 @@ export function Users() {
           <tbody>
             {loading && users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8">
+                <td colSpan={isSuperadmin ? 13 : 12} className="text-center py-8">
                   <div className="flex items-center justify-center gap-3 text-slate-400">
                     <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
                     Loading users...
@@ -443,7 +442,7 @@ export function Users() {
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8 text-slate-500">
+                <td colSpan={isSuperadmin ? 13 : 12} className="text-center py-8 text-slate-500">
                   No users found
                 </td>
               </tr>
@@ -477,7 +476,7 @@ export function Users() {
                           checked={selectedIds.has(user.id)}
                           onChange={() => toggleSelect(user.id)}
                           onClick={(e) => e.stopPropagation()}
-                          aria-label={`Select ${user.display_name || user.email}`}
+                          aria-label={`Select ${userDisplayName(user)}`}
                           className="rounded border-slate-600 bg-slate-800 text-rose-500 focus:ring-rose-500/20"
                         />
                       </td>
@@ -485,10 +484,17 @@ export function Users() {
                     <td>
                       <div>
                         <p className="text-white font-medium">
-                          {user.display_name || 'No name'}
+                          {userDisplayName(user)}
                         </p>
-                        <p className="text-slate-400 text-sm truncate max-w-[200px]">{user.email}</p>
+                        <p className="text-slate-400 text-sm truncate max-w-[200px]">{user.email || 'No email'}</p>
+                        <p className="text-slate-500 text-xs">
+                          {emailStatusLabel(user.email_status)}
+                          {user.auth_methods.length > 0 ? ` · ${user.auth_methods.join(', ')}` : ' · No sign-in method'}
+                        </p>
                       </div>
+                    </td>
+                    <td>
+                      <span className="text-slate-300 text-sm capitalize">{user.registration_status}</span>
                     </td>
                     <td>
                       <div className={`inline-flex items-center px-2.5 py-1 rounded-full ${tierStyle.bg}`}>
@@ -521,7 +527,7 @@ export function Users() {
                           <span className="text-xs font-medium">Locked</span>
                         </div>
                       ) : (
-                        <span className="text-emerald-400 text-sm">Active</span>
+                        <span className="text-emerald-400 text-sm">Unlocked</span>
                       )}
                     </td>
                     <td>
@@ -652,74 +658,6 @@ interface UserDetailPanelProps {
   onUserDeleted?: () => void;
 }
 
-interface UserDetail {
-  user: {
-    id: string;
-    email: string;
-    display_name: string | null;
-    phone_number: string | null;
-    risk_level: string;
-    locked_until: string | null;
-    created_at: string;
-    country: string | null;
-    acquisition_source: string | null;
-    acquisition_campaign: string | null;
-    acquisition_country: string | null;
-    attribution_status: string | null;
-    attribution_reason: string | null;
-    attribution_confidence: string | null;
-  };
-  voiceProfile: {
-    id: string;
-    status: string;
-    quality_score: number;
-    created_at: string;
-  } | null;
-  entitlements: {
-    tier: string;
-    preview_count_today: number;
-  } | null;
-  subscription: {
-    id: string;
-    status: string;
-    plan_id: string;
-    expires_at: string | null;
-    created_at: string;
-  } | null;
-  attribution: {
-    id: string;
-    utm_source: string | null;
-    utm_medium: string | null;
-    utm_campaign: string | null;
-    utm_content: string | null;
-    country: string | null;
-    referrer_url: string | null;
-    created_at: string;
-  } | null;
-  tracks: Array<{
-    id: string;
-    title: string;
-    occasion: string;
-    status: string;
-    created_at: string;
-  }>;
-  shares: Array<{
-    id: string;
-    status: string;
-    access_count: number;
-    title: string;
-  }>;
-}
-
-interface UserSession {
-  id: string;
-  device_name: string | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: string;
-  last_active_at: string | null;
-}
-
 function InfoCell({ label, value, colSpan }: { label: string; value: string | null; colSpan?: number }) {
   return (
     <div className={`bg-slate-800/30 rounded-lg p-3${colSpan === 2 ? ' col-span-2' : ''}`}>
@@ -730,14 +668,10 @@ function InfoCell({ label, value, colSpan }: { label: string; value: string | nu
 }
 
 function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProps) {
-  const { get, post, put, del, loading, error } = useApi();
+  const { get, post, put, loading, error } = useApi();
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [lockReason, setLockReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
-  const [deleteReason, setDeleteReason] = useState('');
-  const [deleting, setDeleting] = useState(false);
 
   // Edit profile state
   const [editing, setEditing] = useState(false);
@@ -746,10 +680,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
   // Edit entitlements state
   const [editingEntitlements, setEditingEntitlements] = useState(false);
   const [entitlementFields, setEntitlementFields] = useState({ tier: 'free' });
-
-  // Sessions state
-  const [sessions, setSessions] = useState<UserSession[] | null>(null);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
 
   const isSuperadmin = getAdminUser()?.role === 'superadmin';
 
@@ -787,19 +717,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
       console.error('Failed to update risk:', err);
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleDeleteUser = async () => {
-    if (!detail || deleteConfirmEmail !== detail.user.email) return;
-    setDeleting(true);
-    try {
-      await del(`/users/${userId}`, deleteReason ? { reason: deleteReason } : undefined);
-      onUserDeleted?.();
-    } catch (err) {
-      console.error('Failed to delete user:', err);
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -849,38 +766,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
     }
   };
 
-  // Sessions handlers
-  const loadSessions = async () => {
-    setSessionsLoading(true);
-    try {
-      const data = await get<{ sessions: UserSession[] }>(`/users/${userId}/sessions`);
-      setSessions(data.sessions);
-    } catch (err) {
-      console.error('Failed to load sessions:', err);
-    } finally {
-      setSessionsLoading(false);
-    }
-  };
-
-  const handleRevokeSession = async (sessionId: string) => {
-    try {
-      await post(`/users/${userId}/sessions/${sessionId}/revoke`, { reason: 'Admin revocation' });
-      loadSessions();
-    } catch (err) {
-      console.error('Failed to revoke session:', err);
-    }
-  };
-
-  const handleRevokeAllSessions = async () => {
-    if (!window.confirm('Revoke all sessions for this user?')) return;
-    try {
-      await post(`/users/${userId}/sessions/revoke-all`, { reason: 'Admin revocation' });
-      loadSessions();
-    } catch (err) {
-      console.error('Failed to revoke sessions:', err);
-    }
-  };
-
   // Voice reverify
   const handleVoiceReverify = async () => {
     if (!window.confirm('Force voice profile re-verification?')) return;
@@ -912,7 +797,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
   }
 
   const isLocked = detail.user.locked_until && new Date(detail.user.locked_until) > new Date();
-
   return (
     <div className="p-6">
       {/* Header with edit button */}
@@ -967,9 +851,15 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
           ) : (
             <div>
               <h2 className="text-xl font-semibold text-white">
-                {detail.user.display_name || detail.user.email}
+                {userDisplayName(detail.user)}
               </h2>
-              <p className="text-slate-400 text-sm">{detail.user.email}</p>
+              <p className="text-slate-400 text-sm">{detail.user.email || 'No email'}</p>
+              <p className="text-slate-500 text-xs mt-0.5">
+                {emailStatusLabel(detail.user.email_status)}
+                {detail.user.auth_methods.length > 0
+                  ? ` · Sign-in: ${detail.user.auth_methods.join(', ')}`
+                  : ' · No sign-in method'}
+              </p>
               {detail.user.phone_number && (
                 <p className="text-slate-500 text-xs mt-0.5">{detail.user.phone_number}</p>
               )}
@@ -1009,6 +899,10 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
         <div className="bg-slate-800/50 rounded-lg p-4">
           <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Tracks</p>
           <p className="text-white font-medium font-data">{detail.tracks.length}</p>
+        </div>
+        <div className="bg-slate-800/50 rounded-lg p-4">
+          <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Registration</p>
+          <p className="text-white font-medium capitalize">{detail.user.registration_status}</p>
         </div>
       </div>
 
@@ -1140,136 +1034,10 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
         )}
       </div>
 
-      {/* Sessions */}
-      <div className="border-t border-slate-700/50 pt-6 mt-6">
-        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">Sessions</h3>
-        {sessions === null ? (
-          <button
-            onClick={loadSessions}
-            disabled={sessionsLoading}
-            className="flex items-center gap-2 text-sm text-sky-400 hover:text-sky-300 transition-colors disabled:opacity-50"
-          >
-            <Monitor className="w-4 h-4" />
-            {sessionsLoading ? 'Loading...' : 'Load Sessions'}
-          </button>
-        ) : sessions.length === 0 ? (
-          <p className="text-sm text-slate-500">No active sessions</p>
-        ) : (
-          <div className="space-y-2">
-            {isSuperadmin && (
-              <button
-                onClick={handleRevokeAllSessions}
-                className="text-xs text-rose-400 hover:text-rose-300 mb-2 transition-colors"
-              >
-                Revoke All
-              </button>
-            )}
-            {sessions.map((session) => (
-              <div key={session.id} className="flex items-center justify-between py-2 px-3 bg-slate-800/30 rounded-lg">
-                <div>
-                  <span className="text-white text-sm">{session.device_name || 'Unknown device'}</span>
-                  {session.ip_address && (
-                    <span className="text-slate-500 text-xs ml-2">{session.ip_address}</span>
-                  )}
-                  {session.last_active_at && (
-                    <span className="text-slate-500 text-xs ml-2">{getTimeSince(session.last_active_at)}</span>
-                  )}
-                </div>
-                {isSuperadmin && (
-                  <button
-                    onClick={() => handleRevokeSession(session.id)}
-                    className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
-                  >
-                    Revoke
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Recent Tracks */}
-      {detail.tracks.length > 0 && (
-        <div className="border-t border-slate-700/50 pt-6 mt-6">
-          <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">Recent Tracks</h3>
-          <div className="space-y-2">
-            {detail.tracks.slice(0, 5).map((track) => (
-              <div key={track.id} className="flex items-center justify-between py-2 px-3 bg-slate-800/30 rounded-lg">
-                <div>
-                  <span className="text-white">{track.title}</span>
-                  <span className="text-slate-500 text-sm ml-2">{track.occasion}</span>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded ${getTrackStatusStyle(track.status).bg} ${getTrackStatusStyle(track.status).text}`}>
-                  {getTrackStatusLabel(track.status)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Danger Zone */}
+      <SessionsSection userId={userId} isSuperadmin={isSuperadmin} />
+      <RecentTracksSection tracks={detail.tracks} />
       {isSuperadmin && (
-        <div className="border-t border-rose-500/20 pt-6 mt-6">
-          <h3 className="text-sm font-medium text-rose-400 uppercase tracking-wider mb-3">Danger Zone</h3>
-          {!showDeleteConfirm ? (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete User Permanently
-            </button>
-          ) : (
-            <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-4 space-y-4">
-              <p className="text-sm text-rose-300">
-                This will permanently delete this user and all associated data including tracks,
-                voice profiles, entitlements, and billing records. This action cannot be undone.
-              </p>
-              <div>
-                <label htmlFor="delete-reason" className="block text-xs text-slate-400 mb-1">Reason (optional)</label>
-                <input
-                  id="delete-reason"
-                  type="text"
-                  value={deleteReason}
-                  onChange={(e) => setDeleteReason(e.target.value)}
-                  placeholder="Reason for deletion..."
-                  className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500"
-                />
-              </div>
-              <div>
-                <label htmlFor="delete-confirm-email" className="block text-xs text-slate-400 mb-1">
-                  Type <span className="text-rose-400 font-mono">{detail.user.email}</span> to confirm
-                </label>
-                <input
-                  id="delete-confirm-email"
-                  type="text"
-                  value={deleteConfirmEmail}
-                  onChange={(e) => setDeleteConfirmEmail(e.target.value)}
-                  placeholder={detail.user.email}
-                  className="w-full bg-slate-800/50 border border-rose-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleDeleteUser}
-                  disabled={deleting || deleteConfirmEmail !== detail.user.email}
-                  className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {deleting ? 'Deleting...' : 'Delete User'}
-                </button>
-                <button
-                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmEmail(''); setDeleteReason(''); }}
-                  className="px-4 py-2 text-slate-400 hover:text-slate-200 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <DangerZone userId={userId} email={detail.user.email} onUserDeleted={onUserDeleted} />
       )}
     </div>
   );

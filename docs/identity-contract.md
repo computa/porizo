@@ -2,7 +2,7 @@
 
 > Authoritative source-of-truth for Porizo's identity model.
 > All code touching users, authentication, contacts, or entitlements MUST conform to this contract.
-> Version: 2.0 | Last updated: 2026-07-11
+> Version: 2.1 | Last updated: 2026-10-25
 
 ---
 
@@ -292,3 +292,15 @@ deletion begins. Storage cleanup runs from durable post-commit work and is
 idempotent/retryable. A database rollback must never occur after files have been
 irreversibly deleted. Authentication, billing, identity, content, and cleanup
 events remain auditable without retaining raw credentials.
+
+## Admin account reporting and display names
+
+The admin Users list defaults to `registrationStatus=registered`. Registration is derived from an active `user_auth_providers` row, not from a name, email mirror, purchase, or `account_status=active`. Deleted records take precedence. Remaining records are guests when `account_status=guest`, otherwise unclaimed accounts. Explicit filters are `registered`, `guest`, `unclaimed`, `deleted`, and `all`; invalid values return 400.
+
+User-list and detail responses expose `registration_status`, `account_status`, `auth_methods`, and `email_status`. Email selection prefers a verified contact, then a primary contact, with stable creation/id ordering. States are `verified`, `unverified`, `none`, and `legacy`; a legacy mirror without a canonical contact does not establish verification. Email search includes unverified contacts. These reads do not repair or verify legacy identity data.
+
+The stats response counts live registered accounts in `totalUsers` and its paid/trial/free buckets. `conversionRate` is paid registered accounts divided by registered accounts. `guestUsers`, `unclaimedUsers`, and `deletedUsers` are separate exclusive buckets.
+
+Display names remain independent of authentication and verified-email policy. Native iOS offers a dismissible prompt for a missing or whitespace-only name after session validation and reuses the same editor from Account settings. Names are trimmed and must contain 1–100 UTF-16 code units. `PATCH /auth/profile` requires `expected_user_id`; a mismatched authenticated account returns 409 `ACCOUNT_CHANGED` before any write, including automatic token retries. A successful authenticated request updates the current profile; a failed save keeps the draft available for retry. Existing provider names are preserved.
+
+`auth_events.guest_created` records new web guest rows atomically with creation, once per guest identity. It is distinct from `signup_success`. Successful signup events record `method` and `name_supplied` without including the name or email in metadata. Magic-email signup auditing is in the account-creation transaction so retrying a completed exchange does not emit another signup. Migration 142 enables the new event in SQLite and PostgreSQL.

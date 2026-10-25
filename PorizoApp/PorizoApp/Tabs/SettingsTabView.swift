@@ -289,7 +289,11 @@ struct SettingsTabView: View {
     private var settingsCard: some View {
         VStack(spacing: 0) {
             // Account Section
-            accountSection
+            SettingsAccountSection(
+                user: authManager.isAuthenticated ? authManager.currentUser : nil,
+                onAccount: { showAccountManagement = true },
+                onSignIn: { showAuthSheet = true }
+            )
 
             // Subscription Row
             if AppConfig.enableSubscriptionsUI {
@@ -317,84 +321,6 @@ struct SettingsTabView: View {
         }
         .background(DesignTokens.surface)
         .clipShape(.rect(cornerRadius: 16))
-    }
-
-    // MARK: - Account Section
-
-    private var accountSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header
-            Text("ACCOUNT")
-                .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                .foregroundStyle(DesignTokens.textTertiary)
-                .tracking(1.5)
-
-            // Account row
-            if authManager.isAuthenticated, let user = authManager.currentUser {
-                let name = user.displayName ?? "User"
-                let userInitials = name.split(separator: " ").prefix(2).compactMap({ $0.first }).map(String.init).joined()
-                accountRow(
-                    title: name,
-                    subtitle: user.email ?? "",
-                    initials: userInitials.isEmpty ? nil : userInitials,
-                    action: { showAccountManagement = true }
-                )
-            } else {
-                accountRow(
-                    title: "Sign In",
-                    subtitle: "Sync your songs across devices",
-                    action: { showAuthSheet = true }
-                )
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-    }
-
-    private func accountRow(title: String, subtitle: String, initials: String? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                if let initials {
-                    ZStack {
-                        Circle()
-                            .fill(DesignTokens.gold.opacity(0.15))
-                            .frame(width: 40, height: 40)
-                        Text(initials)
-                            .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                            .foregroundStyle(DesignTokens.gold)
-                    }
-                } else {
-                    ZStack {
-                        Circle()
-                            .fill(DesignTokens.borderSubtle)
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(DesignTokens.textSecondary)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundStyle(DesignTokens.textSecondary)
-                    }
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(DesignTokens.textTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.vertical, 12)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Subscription Row

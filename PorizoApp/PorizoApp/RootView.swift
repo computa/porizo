@@ -8,155 +8,6 @@
 
 import SwiftUI
 
-func emailVerificationToken(from url: URL) -> String? {
-    guard url.host == "verify-email" || url.path.hasPrefix("/verify-email") else {
-        return nil
-    }
-
-    return URLComponents(url: url, resolvingAgainstBaseURL: false)?
-        .queryItems?.first(where: { $0.name == "token" })?.value
-}
-
-struct CreateDeepLinkContext: Equatable, Sendable {
-    let type: CreateFlowKind
-    let occasion: Occasion?
-    let recipientName: String?
-}
-
-enum ShareDeepLinkRoute: Equatable {
-    case present
-    case authenticate(message: String)
-}
-
-func resolveShareDeepLinkRoute(isPoem: Bool, canPresentClaim: Bool) -> ShareDeepLinkRoute {
-    if canPresentClaim {
-        return .present
-    }
-    return .authenticate(
-        message: isPoem
-            ? "Sign in to read your shared poem"
-            : "Sign in to listen to your shared song"
-    )
-}
-
-func parseCreateDeepLink(from url: URL) -> CreateDeepLinkContext? {
-    guard url.host == "create" || url.pathComponents.contains("create") else {
-        return nil
-    }
-
-    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-    func queryValue(_ names: String...) -> String? {
-        for name in names {
-            if let value = queryItems.first(where: { $0.name == name })?.value?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !value.isEmpty {
-                return value
-            }
-        }
-        return nil
-    }
-
-    let typeRaw = queryValue("type", "kind")?.lowercased()
-    let type = typeRaw.flatMap(CreateFlowKind.init(rawValue:)) ?? .song
-    let occasion = queryValue("occasion").flatMap(occasionFromDeepLinkValue)
-    let recipientName = queryValue("recipient", "recipient_name", "name")
-
-    return CreateDeepLinkContext(
-        type: type,
-        occasion: occasion,
-        recipientName: recipientName
-    )
-}
-
-func parseReceiverHandoffPayload(from url: URL) -> ReceiverDeepLinkPayload? {
-    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-    func queryValue(_ names: String...) -> String? {
-        for name in names {
-            if let value = queryItems.first(where: { $0.name == name })?.value?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !value.isEmpty {
-                return value
-            }
-        }
-        return nil
-    }
-
-    let pathComponents = url.pathComponents.filter { $0 != "/" }
-    let handoffFromHostPath: String? = {
-        if url.host == "receiver-handoff" {
-            return pathComponents.first
-        }
-        if pathComponents.first == "receiver-handoff", pathComponents.count > 1 {
-            return pathComponents[1]
-        }
-        return nil
-    }()
-    let handoffId = handoffFromHostPath
-        ?? queryValue("receiver_handoff_id", "handoff_id", "deep_link_value")
-
-    return ReceiverDeepLinkService.payload(
-        receiverHandoffId: handoffId,
-        receiverSessionId: queryValue("receiver_session_id", "deep_link_sub1"),
-        contentKind: queryValue("content_kind", "deep_link_sub2")
-    )
-}
-
-private func occasionFromDeepLinkValue(_ value: String) -> Occasion? {
-    let normalized = value
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-        .replacingOccurrences(of: "'", with: "")
-        .replacingOccurrences(of: " ", with: "_")
-        .replacingOccurrences(of: "-", with: "_")
-
-    switch normalized {
-    case "mothersday", "mothers_day", "mother_day":
-        return .mothersDay
-    default:
-        return Occasion(rawValue: normalized)
-            ?? Occasion.allCases.first { $0.displayName.lowercased() == value.lowercased() }
-    }
-}
-
-struct RootAppConfigState: Equatable, Sendable {
-    var onboardingSampleURL: String?
-    var onboardingSplashRecipient: String?
-    var onboardingSplashLyricsPreview: String?
-    var launchFlashSampleURL: String?
-    var launchFlashTitle: String?
-    var launchFlashRecipient: String?
-    var launchFlashLyricsPreview: String?
-    var onboardingGraphVersion: Int?
-    var onboardingGraphUrl: String?
-
-    init(response: AppConfigResponse? = nil) {
-        onboardingSampleURL = response?.onboarding?.sampleAudioUrl
-        onboardingSplashRecipient = response?.onboarding?.splashDemoRecipient
-        onboardingSplashLyricsPreview = response?.onboarding?.splashLyricsPreview
-        launchFlashSampleURL = response?.onboarding?.launchFlashAudioUrl
-        launchFlashTitle = response?.onboarding?.launchFlashTitle
-        launchFlashRecipient = response?.onboarding?.launchFlashRecipient
-        launchFlashLyricsPreview = response?.onboarding?.launchFlashLyricsPreview
-        onboardingGraphVersion = response?.onboarding?.questionGraphVersion
-        onboardingGraphUrl = response?.onboarding?.questionGraphUrl
-    }
-
-    var onboardingConfig: OnboardingConfig {
-        OnboardingConfig(
-            sampleAudioUrl: onboardingSampleURL,
-            sampleLabel: nil,
-            splashDemoRecipient: onboardingSplashRecipient,
-            splashLyricsPreview: onboardingSplashLyricsPreview,
-            launchFlashAudioUrl: launchFlashSampleURL,
-            launchFlashTitle: launchFlashTitle,
-            launchFlashRecipient: launchFlashRecipient,
-            launchFlashLyricsPreview: launchFlashLyricsPreview,
-            questionGraphVersion: onboardingGraphVersion,
-            questionGraphUrl: onboardingGraphUrl
-        )
-    }
-}
-
 struct RootView: View {
     @Environment(AuthManager.self) var authManager
     @State private var appState: RootState = .splash
@@ -169,6 +20,8 @@ struct RootView: View {
     // dismissing (presenting a cover mid-dismiss is dropped by SwiftUI).
     @State private var pendingReplySenderName: String?
     @State private var receiverClaimContext: ReceiverClaimContext?
+    @State private var profileNameEditorPresentation: ProfileNameEditorPresentation?
+    @State private var promptedForNameUserIDs: Set<String> = []
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
     @State private var apiClientReady: Bool = false
@@ -214,7 +67,7 @@ struct RootView: View {
     }()
     private let serverURL = AppConfig.apiBaseURL
 
-    enum RootState {
+    enum RootState: Equatable {
         case splash
         case onboardingV2
         case launchFlash
@@ -456,6 +309,16 @@ struct RootView: View {
             )
             .environment(authManager)
         }
+        .modifier(ProfileNamePromptModifier(
+            presentation: $profileNameEditorPresentation,
+            apiClient: shareClient,
+            evaluation: profileNamePromptEvaluation,
+            currentUserID: authManager.currentUser?.id,
+            isAuthenticated: authManager.isAuthenticated,
+            higherPriorityPresentationID: higherPriorityPresentationID,
+            onEvaluate: presentProfileNamePromptIfNeeded,
+            onLogout: { promptedForNameUserIDs.removeAll() }
+        ))
         .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
             // Handle render completion at app level (e.g., from push notification)
             // Views like MySongsView will also receive this and refresh their data
@@ -605,6 +468,61 @@ struct RootView: View {
     /// APIClient for share sheets — uses existing @State client, avoids creating objects in ViewBuilder.
     private var shareClient: APIClient {
         apiClient ?? makeAPIClient(deviceId: getOrCreateDeviceId())
+    }
+
+    private var profileNamePromptEvaluation: ProfileNamePromptEvaluation {
+        #if DEBUG
+        let fixtureID = SimulatorFixtures.profileNameEditorPresentation?.id
+        #else
+        let fixtureID: String? = nil
+        #endif
+        return ProfileNamePromptEvaluation(
+            userID: authManager.currentUser?.id,
+            displayName: authManager.currentUser?.displayName,
+            isAuthenticated: authManager.isAuthenticated,
+            hasValidatedSession: authManager.hasValidatedSession,
+            isMain: renderedAppState == .main,
+            hasHigherPriorityPresentation: shareContext != nil
+                || receiverClaimContext != nil
+                || appUpdatePrompt != nil,
+            fixtureID: fixtureID
+        )
+    }
+
+    private var higherPriorityPresentationID: String? {
+        if let id = shareContext?.id { return "share-\(id)" }
+        if let id = receiverClaimContext?.id { return "receiver-\(id)" }
+        if let id = appUpdatePrompt?.id { return "update-\(id)" }
+        return nil
+    }
+
+    @MainActor
+    private func presentProfileNamePromptIfNeeded() {
+        guard renderedAppState == .main,
+              profileNameEditorPresentation == nil,
+              shareContext == nil,
+              receiverClaimContext == nil,
+              appUpdatePrompt == nil else { return }
+
+        #if DEBUG
+        if let fixture = SimulatorFixtures.profileNameEditorPresentation {
+            guard promptedForNameUserIDs.insert(fixture.userID).inserted else { return }
+            profileNameEditorPresentation = fixture
+            return
+        }
+        #endif
+
+        guard authManager.isAuthenticated,
+              authManager.hasValidatedSession,
+              let user = authManager.currentUser,
+              user.isDisplayNameMissing,
+              promptedForNameUserIDs.insert(user.id).inserted else { return }
+
+        profileNameEditorPresentation = ProfileNameEditorPresentation(
+            userID: user.id,
+            initialName: "",
+            mode: .initialPrompt
+        )
     }
 
     private var requiredUpdateBinding: Binding<AppUpdatePrompt?> {

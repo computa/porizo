@@ -22,6 +22,10 @@ const {
   createAccountCleanupService,
 } = require("../src/services/account-cleanup-service");
 const identityService = require("../src/services/identity-service");
+const {
+  registerProfileAccountBindingTests,
+} = require("./suites/auth-profile-account-binding");
+const { registerAuthSignupTests } = require("./suites/auth-signup");
 
 describe("Auth API Endpoints", () => {
   let app;
@@ -101,76 +105,11 @@ describe("Auth API Endpoints", () => {
     return crypto.createHash("sha256").update(value, "utf8").digest("hex");
   }
 
-  describe("POST /auth/signup", () => {
-    it("should create new user account", async () => {
-      const email = uniqueEmail();
-      const response = await app.inject({
-        method: "POST",
-        url: "/auth/signup",
-        payload: {
-          email,
-          password: "SecurePassword123",
-          name: "Test User",
-        },
-      });
-
-      assert.strictEqual(response.statusCode, 201);
-      const body = JSON.parse(response.body);
-      assert.ok(body.user_id, "should return user_id");
-      assert.ok(body.access_token, "should return access_token");
-      assert.ok(body.refresh_token, "should return refresh_token");
-      assert.strictEqual(body.expires_in, 900);
-    });
-
-    it("should reject duplicate email", async () => {
-      const email = uniqueEmail();
-
-      // First signup
-      await app.inject({
-        method: "POST",
-        url: "/auth/signup",
-        payload: { email, password: "SecurePassword123" },
-      });
-
-      // Second signup with same email
-      const response = await app.inject({
-        method: "POST",
-        url: "/auth/signup",
-        payload: { email, password: "AnotherPassword123" },
-      });
-
-      assert.strictEqual(response.statusCode, 409);
-      const body = JSON.parse(response.body);
-      assert.strictEqual(body.error, "EMAIL_EXISTS");
-    });
-
-    it("should reject weak password", async () => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/auth/signup",
-        payload: {
-          email: uniqueEmail(),
-          password: "short", // Less than 8 chars
-        },
-      });
-
-      assert.strictEqual(response.statusCode, 400);
-    });
-
-    it("should reject invalid email format", async () => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/auth/signup",
-        payload: {
-          email: "not-an-email",
-          password: "SecurePassword123",
-        },
-      });
-
-      assert.strictEqual(response.statusCode, 400);
-    });
+  registerAuthSignupTests({
+    getApp: () => app,
+    getDb: () => db,
+    uniqueEmail,
   });
-
   describe("POST /auth/login", () => {
     let testEmail;
     const testPassword = "SecurePassword123";
@@ -941,9 +880,15 @@ describe("Auth API Endpoints", () => {
       });
       assert.strictEqual(collisionResponse.statusCode, 200);
       const collision = JSON.parse(collisionResponse.body);
-      assert.strictEqual(collision.requires_existing_account_authentication, true);
+      assert.strictEqual(
+        collision.requires_existing_account_authentication,
+        true,
+      );
       assert.strictEqual(collision.account_exists, true);
-      assert.ok(!collision.access_token, "no session is issued on the short-circuit");
+      assert.ok(
+        !collision.access_token,
+        "no session is issued on the short-circuit",
+      );
 
       // The challenge survived, so an unrelated identity can still consume it.
       const freshResponse = await app.inject({
@@ -1060,6 +1005,11 @@ describe("Auth API Endpoints", () => {
     });
   });
 
+  registerProfileAccountBindingTests({
+    getApp: () => app,
+    getDb: () => db,
+    uniqueEmail,
+  });
   describe("Email verification token binding", () => {
     it("should invalidate an old verification token when the pending email changes", async () => {
       const signupEmail = uniqueEmail();
@@ -1097,6 +1047,7 @@ describe("Auth API Endpoints", () => {
         },
         payload: {
           // PATCH /auth/profile takes contact_email (identity-model field), not email.
+          expected_user_id: userId,
           contact_email: newEmail,
         },
       });
@@ -1261,10 +1212,13 @@ describe("Auth API Endpoints", () => {
         true,
         "storage cleanup must not run before the deletion transaction commits",
       );
-      assert.strictEqual(await storage.objectExists({ key: retainedKey }), true);
-      const cleanupJob = await createAccountCleanupRepository(db).findByIdempotencyKey(
-        `account:${signupBody.user_id}`,
+      assert.strictEqual(
+        await storage.objectExists({ key: retainedKey }),
+        true,
       );
+      const cleanupJob = await createAccountCleanupRepository(
+        db,
+      ).findByIdempotencyKey(`account:${signupBody.user_id}`);
       assert.ok(cleanupJob, "expected durable post-commit cleanup job");
       const cleanupService = createAccountCleanupService({
         repository: createAccountCleanupRepository(db),

@@ -1,0 +1,10 @@
+only_rules:
+  - cyclomatic_complexity
+included:
+  - PorizoApp
+  - PorizoAppTests
+  - PorizoAppClip
+  - PorizoNotificationServiceExtension
+cyclomatic_complexity:
+  warning: 32
+  error: 32

@@ -20,6 +20,7 @@ struct AccountManagementView: View {
 
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var profileNameEditorPresentation: ProfileNameEditorPresentation?
 
     // Apple link flow
     @State private var currentNonce: String?
@@ -62,7 +63,11 @@ struct AccountManagementView: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-                    profileHeader
+                    AccountProfileHeader(
+                        user: user,
+                        emailContact: emailContact,
+                        onEditName: presentProfileNameEditor
+                    )
                     signInMethodsSection
                     contactInfoSection
                     accountActionsSection
@@ -79,6 +84,17 @@ struct AccountManagementView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPhoneLinkSheet) {
             phoneLinkFlow
+        }
+        .sheet(item: $profileNameEditorPresentation) { presentation in
+            ProfileNameEditorView(
+                presentation: presentation,
+                apiClient: apiClient
+            )
+            .environment(authManager)
+        }
+        .onChange(of: authManager.currentUser?.id) { _, currentUserID in
+            guard profileNameEditorPresentation?.userID != currentUserID else { return }
+            profileNameEditorPresentation = nil
         }
         .alert("Delete Account?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -106,66 +122,12 @@ struct AccountManagementView: View {
         }
     }
 
-    // MARK: - Profile Header
-
-    private var profileHeader: some View {
-        VStack(spacing: 12) {
-            // Avatar circle
-            let name = user?.displayName ?? "User"
-            let initials = name.split(separator: " ")
-                .prefix(2)
-                .compactMap { $0.first }
-                .map(String.init)
-                .joined()
-
-            ZStack {
-                Circle()
-                    .fill(DesignTokens.gold.opacity(0.15))
-                    .frame(width: 64, height: 64)
-                Text(initials.isEmpty ? "?" : initials)
-                    .font(DesignTokens.bodyFont(size: 22, weight: .semibold))
-                    .foregroundStyle(DesignTokens.gold)
-            }
-
-            VStack(spacing: 4) {
-                Text(name)
-                    .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-                    .foregroundStyle(DesignTokens.textPrimary)
-
-                if let contact = emailContact {
-                    HStack(spacing: 4) {
-                        Text(contact.valueDisplay ?? "No email")
-                            .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundStyle(DesignTokens.textSecondary)
-
-                        if contact.isRelay {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 12))
-                                .foregroundStyle(DesignTokens.warning)
-                                .accessibilityLabel("Relay address")
-                        } else if contact.verified {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(DesignTokens.success)
-                                .accessibilityLabel("Verified")
-                        } else {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(DesignTokens.warning)
-                                .accessibilityLabel("Unverified")
-                        }
-                    }
-                } else if let email = user?.primaryEmail ?? user?.email {
-                    Text(email)
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
-        .background(DesignTokens.surface)
-        .clipShape(.rect(cornerRadius: 16))
+    private func presentProfileNameEditor(for user: AuthUser) {
+        profileNameEditorPresentation = ProfileNameEditorPresentation(
+            userID: user.id,
+            initialName: user.trimmedDisplayName ?? "",
+            mode: .accountEdit
+        )
     }
 
     // MARK: - Sign-in Methods Section

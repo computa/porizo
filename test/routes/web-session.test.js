@@ -80,6 +80,14 @@ describe("POST /web/session", () => {
       [body.user_id],
     );
     assert.equal(user.rows[0].account_status, "guest");
+    const events = await db.prepare(
+      "SELECT event_type, metadata FROM auth_events WHERE user_id = ?",
+    ).all(body.user_id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].event_type, "guest_created");
+    assert.deepEqual(JSON.parse(events[0].metadata), {
+      method: "web_guest", name_supplied: false,
+    });
     const entitlement = await db.query(
       "SELECT songs_remaining, poems_remaining FROM entitlements WHERE user_id = ?",
       [body.user_id],
@@ -120,6 +128,10 @@ describe("POST /web/session", () => {
     );
     const count = await db.query("SELECT COUNT(*) AS count FROM users WHERE account_status = 'guest'");
     assert.equal(Number(count.rows[0].count), 1);
+    const eventCount = await db.prepare(
+      "SELECT COUNT(*) AS count FROM auth_events WHERE user_id = ? AND event_type = 'guest_created'",
+    ).get(first.json().user_id);
+    assert.equal(Number(eventCount.count), 1);
   });
 
   it("rebinds an expired continuity cookie to the replacement guest", async () => {

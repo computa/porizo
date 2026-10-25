@@ -28,6 +28,9 @@ const {
   createEtsyCodeClaimService,
 } = require("../src/services/etsy-code-claim-service");
 const { setFeatureFlag } = require("../src/services/feature-flags");
+const {
+  registerMagicLoginSignupAuditTest,
+} = require("./suites/magic-login-signup-audit");
 
 describe("platform-bound magic login API", () => {
   let app;
@@ -94,7 +97,9 @@ describe("platform-bound magic login API", () => {
     const setCookies = Array.isArray(requested.headers["set-cookie"])
       ? requested.headers["set-cookie"]
       : [requested.headers["set-cookie"]];
-    const cookieHeader = setCookies.map((value) => value.split(";")[0]).join("; ");
+    const cookieHeader = setCookies
+      .map((value) => value.split(";")[0])
+      .join("; ");
     const response = await app.inject({
       method: "GET",
       url: `/auth/magic/web?transaction_id=${requested.json().transaction_id}`,
@@ -383,7 +388,9 @@ describe("platform-bound magic login API", () => {
     const sessionId = "session_magic_add_email_revoked";
     const email = "magic-add-email-revoked@example.com";
     await db
-      .prepare("INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP)")
+      .prepare(
+        "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP)",
+      )
       .run(userId);
     await db
       .prepare(
@@ -405,7 +412,9 @@ describe("platform-bound magic login API", () => {
       authorizingSessionId: sessionId,
     });
     await db
-      .prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .prepare(
+        "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?",
+      )
       .run(sessionId);
 
     const response = await app.inject({
@@ -429,45 +438,10 @@ describe("platform-bound magic login API", () => {
     assert.equal(contact, undefined);
   });
 
-  it("creates an account only after an unknown email completes the two-secret exchange", async () => {
-    const email = "new-magic-user@example.com";
-    const created = await createMagicLoginService({
-      repository: createMagicLoginRepository(db),
-    }).createTransaction({
-      email,
-      platform: "ios",
-      purpose: "login",
-      requesterKey: "new-user-requester-key",
-    });
-    assert.equal(
-      await db.prepare("SELECT id FROM users WHERE email = ?").get(email),
-      undefined,
-    );
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/auth/magic/exchange",
-      payload: {
-        transaction_id: created.transactionId,
-        platform: "ios",
-        link_secret: created.linkSecret,
-        request_secret: created.requestSecret,
-      },
-    });
-    assert.equal(response.statusCode, 200, response.body);
-    assert.equal(response.json().is_new_user, true);
-    assert.ok(response.json().access_token);
-    const user = await db
-      .prepare("SELECT id, email, email_verified FROM users WHERE email = ?")
-      .get(email);
-    assert.ok(user?.id);
-    assert.equal(Boolean(user.email_verified), true);
-    const entitlement = await db
-      .prepare("SELECT tier FROM entitlements WHERE user_id = ?")
-      .get(user.id);
-    assert.equal(entitlement?.tier, "free");
+  registerMagicLoginSignupAuditTest({
+    getApp: () => app,
+    getDb: () => db,
   });
-
   it("does not create a duplicate owner for an unverified legacy contact", async () => {
     const userId = "user_magic_legacy_contact";
     const email = "legacy-unverified@example.com";
